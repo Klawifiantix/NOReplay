@@ -403,7 +403,12 @@ namespace NOReplay
             }
             int slot = 0;
             Vector3 listen = ListenAt();
-            bool haveListen = listen.sqrMagnitude > 500f * 500f;
+            bool haveListen = listen.sqrMagnitude > 100f;
+            if (!haveListen && Camera.main != null)
+            {
+                listen = Camera.main.transform.position;
+                haveListen = true;
+            }
             for (int i = 0; i < _shells.Length && slot < 36; i++)
             {
                 var o = _shells[i];
@@ -649,17 +654,13 @@ namespace NOReplay
                     if (age < 0f || age > 1.6f) continue;
                     if (!o.TrySample(fired, out var aim)) continue;
                     Vector3 origin;
-                    if (shooter != null && shooter.TrySample(fired, out var src))
+                    if (ghost != null)
+                        origin = ghost.transform.position;
+                    else if (shooter != null && shooter.TrySample(fired, out var src))
                         origin = Plugin.GlobalToLocal(src.X, src.Y, src.Z);
-                    else if (Mathf.Abs(aim.X) < 4000f && Mathf.Abs(aim.Z) < 4000f)
-                        origin = new Vector3(aim.X, aim.Y, aim.Z);
                     else
                         origin = Plugin.GlobalToLocal(aim.X, aim.Y, aim.Z);
-                    if (ghost != null)
-                    {
-                        origin = ghost.MuzzlePos();
-                        ghost.AimGun(aim.Yaw, aim.Pitch);
-                    }
+                    ghost?.AimGun(aim.Yaw, aim.Pitch);
                     float yaw = aim.Yaw * Mathf.Deg2Rad;
                     float pitch = -aim.Pitch * Mathf.Deg2Rad;
                     var dir = new Vector3(Mathf.Sin(yaw) * Mathf.Cos(pitch), Mathf.Sin(pitch), Mathf.Cos(yaw) * Mathf.Cos(pitch));

@@ -680,7 +680,7 @@ namespace NOReplay
                 foreach (var r in GetComponentsInChildren<Renderer>(true))
                     if (r != null) r.enabled = true;
             }
-            else if (_ordnance || !_visible) SetGhostVisible(true);
+            else if (!_visible) SetGhostVisible(true);
             if (_asleep && (_air || _ship))
                 ExitSleep();
             if (!_air && !_ship && !_ordnance)
@@ -725,6 +725,12 @@ namespace NOReplay
                 HoldAirbrakes();
             }
             if (!_ordnance && !_neutral) AimGuns();
+            if (_ordnance && _prevT >= 0f && Plugin.Clock.Time + 0.05f < _prevT)
+            {
+                _ordAudioOn = false;
+                _ordVoiceHeld = false;
+            }
+            if (_ordnance && _visible && !_ordAudioOn) IgniteMissileFx();
             if (_ordnance) LateOrdnanceAudio();
             for (int i = 0; i < _rbs.Length; i++)
             {

@@ -320,6 +320,12 @@ namespace NOReplay
             }
         }
 
+        internal static GameObject? FollowedObject()
+        {
+            CacheListener();
+            return _followUnit != null ? _followUnit.gameObject : null;
+        }
+
         internal static bool IsFollowed(GameObject go)
         {
             if (go == null) return false;

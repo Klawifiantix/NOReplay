@@ -178,6 +178,11 @@ namespace NOReplay
                     if (Clock.Time > 0.001f) Clock.Seek(0f);
                 }
                 Clock.Tick(Time.unscaledDeltaTime);
+                if (Clock.WentBack)
+                {
+                    Clock.WentBack = false;
+                    ResetParticles();
+                }
                 TickGhostSpawns();
                 TickGhostSleep();
                 WarmOrdnance();
@@ -216,6 +221,27 @@ namespace NOReplay
                 if (string.IsNullOrEmpty(player)) player = PlayerNameFromCallSign(ghost.Track?.CallSign);
                 ApplyPanel(ghost.gameObject, ghost.Track, string.IsNullOrEmpty(player) ? ghost.Track?.Name : player);
                 break;
+            }
+        }
+
+        static void ResetParticles()
+        {
+            var pt = Type.GetType("UnityEngine.ParticleSystem, UnityEngine.ParticleSystemModule")
+                     ?? FindGameType("ParticleSystem");
+            var clear = pt?.GetMethod("Clear", new[] { typeof(bool) });
+            var stop = pt?.GetMethod("Stop", Type.EmptyTypes);
+            for (int i = 0; i < _ghosts.Count; i++)
+            {
+                var go = _ghosts[i];
+                if (go == null || pt == null) continue;
+                var rg = go.GetComponent<ReplayGhost>();
+                foreach (var ps in go.GetComponentsInChildren(pt, true))
+                {
+                    if (ps == null) continue;
+                    try { stop?.Invoke(ps, null); } catch { }
+                    try { clear?.Invoke(ps, new object[] { true }); } catch { }
+                }
+                rg?.ResetFx();
             }
         }
 

@@ -462,8 +462,8 @@ namespace NOReplay
                 return;
             }
             float t = Clock.Time;
-            int budget = 8;
-            for (int i = 0; i < _pendingAir.Count && (budget > 0 || IsOrdnance(_pendingAir[i].Type, _pendingAir[i].Name));)
+            int budget = 2;
+            for (int i = 0; i < _pendingAir.Count && budget > 0;)
             {
                 var obj = _pendingAir[i];
                 if (obj.Samples.Count == 0) { _pendingAir.RemoveAt(i); continue; }
@@ -548,12 +548,92 @@ namespace NOReplay
                 }
                 return;
             }
-            int played = BurstFlareParticles(host);
+            if (!SpawnGameFlare(host, pos)) SpawnFlareOrb(pos);
             if (_flareFxLog < 8)
             {
                 _flareFxLog++;
-                Log.LogInfo("Flare-FX " + host.name + " ps=" + played + " dist=" + Mathf.Sqrt(best).ToString("0.0"));
+                Log.LogInfo("Flare-FX " + host.name + " dist=" + Mathf.Sqrt(best).ToString("0.0"));
             }
+        }
+
+        static int _flareSide;
+
+        static bool SpawnGameFlare(GameObject host, Vector3 pos)
+        {
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var ejectType = FindGameType("FlareEjector");
+            if (ejectType == null) return false;
+            var ejectors = host.GetComponentsInChildren(ejectType, true);
+            if (ejectors == null || ejectors.Length == 0) return false;
+            var points = new System.Collections.Generic.List<Transform>();
+            GameObject? prefab = null;
+            float speed = 25f;
+            for (int i = 0; i < ejectors.Length; i++)
+            {
+                var ej = ejectors[i];
+                if (prefab == null)
+                    prefab = ej.GetType().GetField("flarePrefab", flags)?.GetValue(ej) as GameObject;
+                var vel = ej.GetType().GetField("ejectionVelocity", flags)?.GetValue(ej);
+                if (vel is float f && f > 1f) speed = f;
+                var arr = ej.GetType().GetField("ejectionPoints", flags)?.GetValue(ej) as System.Array;
+                if (arr == null) continue;
+                for (int p = 0; p < arr.Length; p++)
+                {
+                    var pt = arr.GetValue(p);
+                    var tr = pt?.GetType().GetField("transform", flags)?.GetValue(pt) as Transform;
+                    if (tr != null) points.Add(tr);
+                }
+            }
+            if (prefab == null) return false;
+            Transform launch = points.Count > 0 ? points[_flareSide++ % points.Count] : host.transform;
+            var go = UnityEngine.Object.Instantiate(prefab, launch.position, launch.rotation);
+            go.name = "NOReplay_Flare";
+            var flare = go.GetComponent(FindGameType("IRFlare") ?? typeof(Component));
+            if (flare != null && flare.GetType().Name == "IRFlare")
+            {
+                var method = flare.GetType().GetMethod("LaunchFlare", flags);
+                if (method != null)
+                {
+                    var ps = method.GetParameters();
+                    var args = new object?[ps.Length];
+                    var aircraft = host.GetComponent(FindGameType("Aircraft") ?? typeof(Component));
+                    var kick = launch.forward * speed + Vector3.down * 3f;
+                    for (int i = 0; i < ps.Length; i++)
+                    {
+                        string n = ps[i].Name.ToLowerInvariant();
+                        if (n.Contains("aircraft")) args[i] = aircraft;
+                        else if (n.Contains("point")) args[i] = launch;
+                        else if (n.Contains("vel")) args[i] = kick;
+                    }
+                    try { method.Invoke(flare, args); } catch { }
+                }
+            }
+            UnityEngine.Object.Destroy(go, 8f);
+            if (_flareFxLog < 12)
+                Log.LogInfo("Flare " + launch.name + " seite=" + (_flareSide % Math.Max(1, points.Count)));
+            return true;
+        }
+
+        static void SpawnFlareOrb(Vector3 pos)
+        {
+            var go = new GameObject("NOReplay_Flare");
+            go.transform.position = pos;
+            var trail = go.AddComponent<TrailRenderer>();
+            trail.time = 2.4f;
+            trail.startWidth = 0.35f;
+            trail.endWidth = 0.02f;
+            trail.minVertexDistance = 0.05f;
+            var sh = Shader.Find("Sprites/Default") ?? Shader.Find("Unlit/Color");
+            if (sh != null)
+            {
+                var m = new Material(sh);
+                m.color = new Color(1f, 0.55f, 0.1f, 1f);
+                trail.material = m;
+            }
+            trail.startColor = new Color(1f, 0.7f, 0.2f, 1f);
+            trail.endColor = new Color(1f, 0.3f, 0f, 0f);
+            go.transform.position = pos + Vector3.down * 0.4f;
+            UnityEngine.Object.Destroy(go, 3.2f);
         }
 
         static int BurstFlareParticles(GameObject host)
@@ -1097,18 +1177,7 @@ namespace NOReplay
 
             var unitType = FindGameType("Unit");
             var prefab = GetDefPrefab(def);
-            var pooled = TakePooled(prefab, pos, rot);
-            if (pooled != null)
-            {
-                ShowMissile(pooled);
-                ApplyHq(pooled, obj.Coalition);
-                try { TryRegisterGhostOnMap(pooled, false); } catch { }
-                Log.LogInfo("Pool " + obj.Name + " " + prefab.name);
-                return pooled;
-            }
             object? owner = FindLaunchOwner(obj, unitType) ?? FindFactionOwner(obj.Coalition, unitType);
-            if (owner == null)
-                Log.LogWarning("kein Parent-Besitzer " + obj.Name + " parent=" + (obj.ParentId ?? "-") + " coal=" + (obj.Coalition ?? "-"));
             string coal = owner != null ? "parent" : (obj.Coalition ?? "?");
             Vector3 vel = OrdnanceVelocity(obj);
             var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
@@ -1121,12 +1190,7 @@ namespace NOReplay
                         if (m.Name != "SpawnMissile") continue;
                         var ps = m.GetParameters();
                         if (ps.Length < 6) continue;
-                        if (ps[0].ParameterType.Name.IndexOf("Definition", StringComparison.Ordinal) < 0
-                            && ps[0].ParameterType != typeof(GameObject))
-                            continue;
-                        object? arg0 = def;
-                        if (ps[0].ParameterType == typeof(GameObject))
-                            arg0 = GetDefPrefab(def);
+                        object? arg0 = ps[0].ParameterType == typeof(GameObject) ? prefab : def;
                         if (arg0 == null) continue;
                         var args = new object?[ps.Length];
                         args[0] = arg0;
@@ -1140,7 +1204,7 @@ namespace NOReplay
                         if (go != null)
                         {
                             ShowMissile(go);
-                            Log.LogInfo("GameSpawn SpawnMissile " + obj.Name + " coal=" + coal + " parent=" + (obj.ParentId ?? "-"));
+                            Log.LogInfo("GameSpawn SpawnMissile " + obj.Name + " coal=" + coal);
                             return go;
                         }
                     }
@@ -1153,8 +1217,6 @@ namespace NOReplay
             {
                 AllowOrdnanceSpawn = false;
             }
-            var saved = SpawnSavedMissile(obj, def, pos, rot, vel);
-            if (saved != null) return saved;
             return null;
         }
 

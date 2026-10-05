@@ -39,8 +39,16 @@ namespace NOReplay
         object? _flightSrc;
         object? _detonateClip;
 
+        internal void ResetFx()
+        {
+            _ordAudioOn = false;
+            _ordVoiceHeld = false;
+            if (_ordnance && IsTrackAlive()) IgniteMissileFx();
+        }
+
         void IgniteMissileFx()
         {
+            if (_ordAudioOn) return;
             var mt = Plugin.FindGameType("Missile");
             object? missile = mt != null ? (GetComponent(mt) ?? GetComponentInChildren(mt, true)) : null;
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
@@ -60,7 +68,6 @@ namespace NOReplay
                     if (ps == null) continue;
                     var c = ps as Component;
                     if (c != null) c.gameObject.SetActive(true);
-                    try { clear?.Invoke(ps, new object[] { true }); } catch { }
                     try { play?.Invoke(ps, new object[] { true }); } catch { }
                 }
             }
@@ -260,10 +267,29 @@ namespace NOReplay
             catch { }
         }
 
+        static int _ownerFrame = -1;
+        static int _ownerId;
+
+        bool OwnerFollowed()
+        {
+            string? parent = Track?.ParentId;
+            if (string.IsNullOrEmpty(parent)) return false;
+            if (_ownerFrame != Time.frameCount)
+            {
+                _ownerFrame = Time.frameCount;
+                _ownerId = 0;
+                var follow = Plugin.FollowedObject();
+                var fg = follow != null ? follow.GetComponentInParent<ReplayGhost>() : null;
+                if (fg != null && fg.Track != null && int.TryParse(fg.Track.Id, System.Globalization.NumberStyles.HexNumber, null, out var id))
+                    _ownerId = id;
+            }
+            return int.TryParse(parent, System.Globalization.NumberStyles.HexNumber, null, out var mine) && mine == _ownerId && _ownerId != 0;
+        }
+
         void ApplyMissileAudio(object missile, Type mt)
         {
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            bool near = Plugin.IsFollowed(gameObject) || NearMe(900f);
+            bool near = Plugin.IsFollowed(gameObject) || NearMe(900f) || OwnerFollowed();
             if (!near)
             {
                 return;

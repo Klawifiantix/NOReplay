@@ -1,0 +1,426 @@
+﻿using BepInEx.Configuration;
+using System.Linq;
+using UnityEngine;
+using System;
+using System.Globalization;
+
+namespace NOReplay
+{
+    public static class RecordConfig
+    {
+        internal const string GeneralSettings = "General Settings";
+        internal const string OptionalDataSettings = "Optional Data Settings";
+        internal const string HeightMapGeneratorSettings = "Heightmap Generator Settings";
+        internal const string VisualSettings = "Visual Settings";
+        internal const string DeveloperFeatures = "Developer Features";
+
+        internal const int DefaultUpdateRate = 5;
+
+        internal const float DefaultUnitDiscoveryDelta = 1f;
+        internal const float DefaultBulletSimDiscoveryDelta = 0.2f;
+        internal const float DefaultAircraftUpdateDelta = 0.2f;
+        internal const float DefaultVehicleUpdateDelta = 1f;
+        internal const float DefaultMunitionUpdateDelta = 0.2f;
+        internal const float DefaultShockwaveUpdateDelta = 0.016f;
+        internal const float DefaultShockwaveDiscoveryDelta = 0.5f;
+        internal const float DefaultTracerUpdateDelta = 0.2f;
+        internal const float DefaultFlareUpdateDelta = 1f;
+        internal const float DefaultBuildingUpdateDelta = 1f;
+
+        internal const int DefaultAutoSaveInterval = 60;
+
+        internal const bool DefaultUseMissionTime = true;
+        internal const bool DefaultRecordSteamID = true;
+
+        internal const bool DefaultRecordSpeed = true;
+        internal const bool DefaultRecordAOA = true;
+        internal const bool DefaultRecordAGL = true;
+        internal const bool DefaultRecordRadarMode = true;
+        internal const bool DefaultRecordLandingGear = true;
+        internal const bool DefaultRecordPilotHead = true;
+        internal const bool DefaultCompressIDs = false;
+        internal const bool DefaultRecordExtraTelemetry = true;
+
+        internal const bool DefaultEnableLogging = false;
+
+        internal const KeyCode DefaultGenerateHeightMapKey = KeyCode.F10;
+        internal const int DefaultMetersPerScan = 4;
+        internal const int DefaultHeightMapResolution = 4096;
+        internal const bool DefaultEnableHeightmapGenerator = false;
+        internal const bool DefaultTacviewBetaHeightMapGenerator = true;
+        //internal const float DefaultOrtoGraphicSize = 5f;
+
+        internal const float DefaultTextColorR = 1.0f;
+        internal const float DefaultTextColorG = 1.0f;
+        internal const float DefaultTextColorB = 1.0f;
+        internal const float DefaultTextColorA = 1.0f;
+
+        internal const bool DefaultEnableAutoSaveCountDown = false;
+        internal const float DefaultAutoSaveCountDownX = 0.1f;
+        internal const float DefaultAutoSaveCountDownY = 0.1f;
+
+        internal const bool DefaultEnableRecordingIndicator = true;
+        internal const float DefaultRecordingIndicatorX = 0.2f;
+        internal const float DefaultRecordingIndicatorY = 0.2f;
+        internal static ConfigEntry<bool> EnableRecordingIndicator;
+        internal static ConfigEntry<float> RecordingIndicatorX;
+        internal static ConfigEntry<float> RecordingIndicatorY;
+
+
+
+
+        internal const bool DefaultRecordEjectedPilots = false;
+        internal const bool DefaultAutoStartRecording = true;
+
+        internal const bool DefaultEnableUnitLogging = false;
+        internal const bool DefaultEnableEncyclopediaExporter = false;
+        internal const KeyCode DefaultEncyclopediaExporterKey = KeyCode.F11;
+
+        internal const KeyCode DefaultStartStopRecordingKey = KeyCode.F8;
+
+#pragma warning disable CS8618
+        private static ConfigEntry<int> _UpdateRate;
+
+        internal static ConfigEntry<float> unitDiscoveryDelta;
+        internal static ConfigEntry<float> bulletSimDiscoveryDelta;
+        internal static ConfigEntry<float> aircraftUpdateDelta;
+        internal static ConfigEntry<float> vehicleUpdateDelta;
+        internal static ConfigEntry<float> munitionUpdateDelta;
+        internal static ConfigEntry<float> shockwaveUpdateDelta;
+        internal static ConfigEntry<float> shockwaveDiscoveryDelta;
+        internal static ConfigEntry<float> tracerUpdateDelta;
+        internal static ConfigEntry<float> flareUpdateDelta;
+        internal static ConfigEntry<float> buildingUpdateDelta;
+
+        private static ConfigEntry<string> _OutputPath;
+        private static ConfigEntry<int> _AutoSaveInterval;
+        private static ConfigEntry<bool> _CompressIDs;
+        internal static ConfigEntry<bool> UseMissionTime;
+        internal static ConfigEntry<bool> RecordSteamID;
+        internal static ConfigEntry<bool> RecordSpeed;
+        internal static ConfigEntry<bool> RecordAOA;
+        internal static ConfigEntry<bool> RecordAGL;
+        internal static ConfigEntry<bool> RecordRadarMode;
+        internal static ConfigEntry<bool> RecordLandingGear;
+        internal static ConfigEntry<bool> RecordPilotHead;
+        internal static ConfigEntry<bool> RecordExtraTelemetry;
+
+        internal static ConfigEntry<int> HeightMapResolution;
+        internal static ConfigEntry<int> MetersPerScan;
+        internal static ConfigEntry<KeyboardShortcut> _GenerateHeightMapKey;
+        internal static ConfigEntry<bool> EnableHeightmapGenerator;
+        //internal static ConfigEntry <bool> TacviewBetaHeightMapGenerator;
+        //internal static ConfigEntry<float> OrtoGraphicSize;
+
+        internal static ConfigEntry<float> TextColorR;
+        internal static ConfigEntry<float> TextColorG;
+        internal static ConfigEntry<float> TextColorB;
+        internal static ConfigEntry<float> TextColorA;
+
+        internal static ConfigEntry<bool> EnableAutoSaveCountDown;
+        internal static ConfigEntry<float> AutoSaveCountDownX;
+        internal static ConfigEntry<float> AutoSaveCountDownY;
+
+        internal static ConfigEntry<bool> EnableUnitLogging;
+        internal static ConfigEntry<bool> EnableEncyclopediaExporter;
+        internal static ConfigEntry<bool> RecordEjectedPilots;
+        internal static ConfigEntry<bool> AutoStartRecording;
+
+        internal static ConfigEntry<bool> EnableLogging;
+
+        internal static ConfigEntry<KeyboardShortcut> EncyclopediaExporterKey;
+
+        internal static ConfigEntry<KeyboardShortcut> StartStopRecordingKey;
+
+        internal static readonly bool DefaultDestructionEvents = true;
+        internal static ConfigEntry<bool> DestructionEvents;
+
+#pragma warning restore
+
+        internal static int UpdateRate
+        {
+            get
+            {
+                return _UpdateRate.Value;
+            }
+        }
+
+        internal static string OutputPath
+        {
+            get
+            {
+                return _OutputPath.Value;
+            }
+        }
+
+        internal static int AutoSaveInterval
+        {
+            get
+            {
+                return _AutoSaveInterval.Value;
+            }
+        }
+
+        internal static bool CompressIDs
+        {
+            get
+            {
+                return _CompressIDs.Value;
+            }
+        }
+
+        internal static bool GenerateHeightMapKey
+        {
+            get
+            {
+                return _GenerateHeightMapKey.Value.IsDown();
+            }
+        }
+
+
+        internal static void InitSettings(ConfigFile config)
+        {
+            Record.Log?.LogDebug("Loading Settings.");
+
+            _UpdateRate = config.Bind(GeneralSettings, "UpdateRate", DefaultUpdateRate, "DEPRECATED. SEE THE OTHER UPDATE RATE SETTINGS");
+            Record.Log?.LogDebug($"UpdateRate = {_UpdateRate.Value}");
+            if (!Enumerable.Range(0, 1001).Contains(_UpdateRate.Value))
+            {
+                Record.Log?.LogWarning($"UpdateRate out of range! Setting default value {DefaultUpdateRate}!");
+                _UpdateRate.Value = DefaultUpdateRate;
+            }
+            //NEW UPDATE RATE SETTINGS
+            unitDiscoveryDelta = config.Bind(GeneralSettings, "Unit Discovery Rate", DefaultUnitDiscoveryDelta, $"Time interval in seconds to discover Units. Default = {DefaultUnitDiscoveryDelta.ToString(CultureInfo.InvariantCulture)}");
+            if (unitDiscoveryDelta.Value <= 0f)
+            {
+                Record.Log?.LogWarning($"Invalid unitDiscoveryDelta! Setting default value {DefaultUnitDiscoveryDelta}!");
+                Record.Log?.LogDebug($"unitDiscoveryDelta = {unitDiscoveryDelta.Value.ToString(CultureInfo.InvariantCulture)}");
+            }
+            bulletSimDiscoveryDelta = config.Bind(GeneralSettings, "BulletSim Discovery Rate", DefaultBulletSimDiscoveryDelta, $"Time interval in seconds to discover objects that fire bullets. Default = {DefaultBulletSimDiscoveryDelta.ToString(CultureInfo.InvariantCulture)}");
+            if (bulletSimDiscoveryDelta.Value <= 0f)
+            {
+                Record.Log?.LogWarning($"Invalid bulletSimDiscoveryDelta! Setting default value {DefaultBulletSimDiscoveryDelta}!");
+                Record.Log?.LogDebug($"bulletSimDiscoveryDelta = {bulletSimDiscoveryDelta.Value.ToString(CultureInfo.InvariantCulture)}");
+            }
+            shockwaveDiscoveryDelta = config.Bind(GeneralSettings, "Shockwave Discovery Rate", DefaultShockwaveDiscoveryDelta, $"Time interval in seconds to discover explosion shockwaves. Default = {DefaultShockwaveDiscoveryDelta.ToString(CultureInfo.InvariantCulture)}");
+            if (shockwaveDiscoveryDelta.Value <= 0f)
+            {
+                Record.Log?.LogWarning($"Invalid shockwaveDiscoveryDelta! Setting default value {DefaultShockwaveDiscoveryDelta}!");
+                Record.Log?.LogDebug($"shockwaveDiscoveryDelta = {shockwaveDiscoveryDelta.Value.ToString(CultureInfo.InvariantCulture)}");
+            }
+            aircraftUpdateDelta = config.Bind(GeneralSettings, "Aircraft Update Rate", DefaultAircraftUpdateDelta, $"Time interval in seconds to update Aircraft. Default = {DefaultAircraftUpdateDelta.ToString(CultureInfo.InvariantCulture)}");
+            if (aircraftUpdateDelta.Value <= 0f)
+            {
+                Record.Log?.LogWarning($"Invalid aircraftUpdateDelta! Setting default value {DefaultAircraftUpdateDelta}!");
+                Record.Log?.LogDebug($"aircraftUpdateDelta = {aircraftUpdateDelta.Value.ToString(CultureInfo.InvariantCulture)}");
+            }
+            vehicleUpdateDelta = config.Bind(GeneralSettings, "Vehicle Update Rate", DefaultVehicleUpdateDelta, $"Time interval in seconds to update Vehicles and Ships. Default = {DefaultVehicleUpdateDelta.ToString(CultureInfo.InvariantCulture)}");
+            if (vehicleUpdateDelta.Value <= 0f)
+            {
+                Record.Log?.LogWarning($"Invalid vehicleUpdateDelta! Setting default value {DefaultVehicleUpdateDelta}!");
+                Record.Log?.LogDebug($"vehicletUpdateDelta = {vehicleUpdateDelta.Value.ToString(CultureInfo.InvariantCulture)}");
+            }
+            munitionUpdateDelta = config.Bind(GeneralSettings, "Munition Update Rate", DefaultMunitionUpdateDelta, $"Time interval in seconds to update Bombs, Missiles and Rockets. Default = {DefaultMunitionUpdateDelta.ToString(CultureInfo.InvariantCulture)}");
+            if (munitionUpdateDelta.Value <= 0f)
+            {
+                Record.Log?.LogWarning($"Invalid munitionUpdateDelta! Setting default value {DefaultMunitionUpdateDelta}!");
+                Record.Log?.LogDebug($"munitionUpdateDelta = {munitionUpdateDelta.Value.ToString(CultureInfo.InvariantCulture)}");
+            }
+            shockwaveUpdateDelta = config.Bind(GeneralSettings, "Shockwave Update Rate", DefaultShockwaveUpdateDelta, $"Time interval in seconds to update Shockwave Propagation. Default = {DefaultShockwaveUpdateDelta.ToString(CultureInfo.InvariantCulture)}");
+            if (shockwaveUpdateDelta.Value <= 0f)
+            {
+                Record.Log?.LogWarning($"Invalid shockwaveUpdateDelta! Setting default value {DefaultShockwaveUpdateDelta}!");
+                Record.Log?.LogDebug($"aircraftUpdateDelta = {shockwaveUpdateDelta.Value.ToString(CultureInfo.InvariantCulture)}");
+            }
+            tracerUpdateDelta = config.Bind(GeneralSettings, "Tracer Update Rate", DefaultTracerUpdateDelta, $"Time interval in seconds to Projectile Tracers. Default = {DefaultTracerUpdateDelta.ToString(CultureInfo.InvariantCulture)}");
+            if (tracerUpdateDelta.Value <= 0f)
+            {
+                Record.Log?.LogWarning($"Invalid tracerUpdateDelta! Setting default value {DefaultTracerUpdateDelta}!");
+                Record.Log?.LogDebug($"tracerUpdateDelta = {tracerUpdateDelta.Value.ToString(CultureInfo.InvariantCulture)}");
+            }
+            flareUpdateDelta = config.Bind(GeneralSettings, "Flare Update Rate", DefaultFlareUpdateDelta, $"Time interval in seconds to update Flares. Default = {DefaultFlareUpdateDelta.ToString(CultureInfo.InvariantCulture)}");
+            if (flareUpdateDelta.Value <= 0f)
+            {
+                Record.Log?.LogWarning($"Invalid flareUpdateDelta! Setting default value {DefaultFlareUpdateDelta}!");
+                Record.Log?.LogDebug($"flareUpdateDelta = {flareUpdateDelta.Value.ToString(CultureInfo.InvariantCulture)}");
+            }
+            buildingUpdateDelta = config.Bind(GeneralSettings, "Building Update Rate", DefaultBuildingUpdateDelta, $"Time interval in seconds to update Buildings. Default = {DefaultBuildingUpdateDelta.ToString(CultureInfo.InvariantCulture)}");
+            if (buildingUpdateDelta.Value <= 0f)
+            {
+                Record.Log?.LogWarning($"Invalid buildingUpdateDelta! Setting default value {DefaultBuildingUpdateDelta}!");
+                Record.Log?.LogDebug($"buildingUpdateDelta = {buildingUpdateDelta.Value.ToString(CultureInfo.InvariantCulture)}");
+            }
+
+
+            string DefaultOutputPath = Application.persistentDataPath + "/Replays/";
+            _OutputPath = config.Bind(GeneralSettings, "OutputPath", DefaultOutputPath, "The location where Tacview files will be saved. Must be a valid folder path.");
+            Record.Log?.LogDebug($"OutputPath = {_OutputPath.Value}");
+
+            (bool isFolder, bool success) = RecordGeo.IsFileOrFolder(_OutputPath.Value);
+            if (!isFolder || !success)
+            {
+                Record.Log?.LogWarning($"Invalid OutputPath! Setting default value {DefaultOutputPath}!");
+                _OutputPath.Value = DefaultOutputPath;
+            }
+
+            _AutoSaveInterval = config.Bind(GeneralSettings, "AutoSaveInterval", DefaultAutoSaveInterval, "Time interval for automatically updating the Tacview file. Min value: 60");
+            Record.Log?.LogDebug($"AutoSaveInterval = {_AutoSaveInterval.Value}");
+
+            if (_AutoSaveInterval.Value < 60)
+            {
+                Record.Log?.LogWarning($"Invalid AutoSaveInterval! Setting default value {DefaultAutoSaveInterval}!");
+                _AutoSaveInterval.Value = DefaultAutoSaveInterval;
+            }
+
+            UseMissionTime = config.Bind(OptionalDataSettings, "UseMissionTime", DefaultUseMissionTime, "Use Mission (true) or Server Time (false) for the clock in the recording.");
+            Record.Log?.LogDebug($"UseMissionTime = {UseMissionTime.Value}");
+
+            RecordSteamID = config.Bind(OptionalDataSettings, "RecordSteamID", DefaultRecordSteamID, "Record Steam ID in the Registration label of player aircraft objects.");
+            Record.Log?.LogDebug($"RecordSteamID = {RecordSteamID.Value}");
+
+            RecordSpeed = config.Bind(OptionalDataSettings, "RecordSpeed", DefaultRecordSpeed, "Toggle recording True Airspeed and Mach number. Default: true");
+            Record.Log?.LogDebug($"RecordSpeed = {RecordSpeed?.Value}");
+
+            RecordAOA = config.Bind(OptionalDataSettings, "RecordAOA", DefaultRecordAOA, "Toggle recording Angle of Attack. Default: true");
+            Record.Log?.LogDebug($"RecordAOA = {RecordAOA?.Value}");
+
+            RecordAGL = config.Bind(OptionalDataSettings, "RecordAGL", DefaultRecordAGL, "Toggle recording height above ground level. Default: true");
+            Record.Log?.LogDebug($"RecordAGL = {RecordAGL?.Value}");
+
+            RecordRadarMode = config.Bind(OptionalDataSettings, "RecordRadarMode", DefaultRecordRadarMode, "Toggle recording radar mode changes. Default: true");
+            Record.Log?.LogDebug($"RecordRadarMode = {RecordRadarMode?.Value}");
+
+            RecordLandingGear = config.Bind(OptionalDataSettings, "RecordLandingGear", DefaultRecordLandingGear, "Toggle recording landing gear changes. Default: true");
+            Record.Log?.LogDebug($"RecordLandingGear = {RecordLandingGear?.Value}");
+
+            RecordPilotHead = config.Bind(OptionalDataSettings, "RecordPilotHead", DefaultRecordPilotHead, "Toggle recording pilot head movement. Default: true");
+            Record.Log?.LogDebug($"RecordPilotHead = {RecordPilotHead?.Value}");
+
+            RecordExtraTelemetry = config.Bind(OptionalDataSettings, "RecordExtraTelemetry", DefaultRecordExtraTelemetry, "Toggle recording Extra Telemetry. Default: true");
+            Record.Log?.LogDebug($"RecordExtraTelemetry = {RecordExtraTelemetry?.Value}");
+
+            _CompressIDs = config.Bind(OptionalDataSettings, "CompressIDs", DefaultCompressIDs, "Compress IDs to reduce filesize with less determinism.");
+            Record.Log?.LogDebug($"CompressIDs = {_CompressIDs.Value}");
+
+            MetersPerScan = config.Bind(HeightMapGeneratorSettings, "MetersPerScan", DefaultMetersPerScan, "Sample rate of the Heightmap generator. Does a scan per X meter. Default: 4");
+            if (MetersPerScan.Value < 1)
+            {
+                Record.Log?.LogWarning($"Invalid MetersPerScan! Setting default value {DefaultMetersPerScan}!");
+                MetersPerScan.Value = DefaultMetersPerScan;
+            }
+            Record.Log?.LogDebug($"MetersPerScan = {MetersPerScan.Value}");
+
+            HeightMapResolution = config.Bind(HeightMapGeneratorSettings, "HeightMapResolution", DefaultHeightMapResolution, "Resolution of the Heightmap. Must be divisible by 4. Default: 4096");
+            if ((HeightMapResolution.Value % 4) != 0)
+            {
+                Record.Log?.LogWarning($"HeightMapResolution must be divisible by 4! Setting default value {DefaultHeightMapResolution}!");
+                HeightMapResolution.Value = DefaultHeightMapResolution;
+            }
+            Record.Log?.LogDebug($"HeightMapResolution = {HeightMapResolution.Value}");
+            /*
+            OrtoGraphicSize = config.Bind(HeightMapGeneratorSettings, "OrtographicSize", DefaultOrtoGraphicSize, "Size of Ortographic Camera for Texture Generation. Must be bigger than 0f.");
+            if (OrtoGraphicSize.Value <= 0f)
+            {
+                Record.Log?.LogWarning($"OrtographicSize must be divisible by 4! Setting default value {DefaultOrtoGraphicSize}!");
+                OrtoGraphicSize.Value = DefaultOrtoGraphicSize;
+            }
+            Record.Log?.LogDebug($"OrtographicSize = {OrtoGraphicSize.Value}");
+            */
+            _GenerateHeightMapKey = config.Bind("Hotkeys", "Generate Heightmap", new KeyboardShortcut(DefaultGenerateHeightMapKey));
+            Record.Log?.LogDebug($"Generate Heightmap key = {_GenerateHeightMapKey.Value}");
+
+            EnableHeightmapGenerator = config.Bind(HeightMapGeneratorSettings, "EnableHeightmapGenerator", DefaultEnableHeightmapGenerator, "Enable/Disable Heightmap Generator. Default: false");
+            Record.Log?.LogDebug($"EnableHeightmapGenerator = {EnableHeightmapGenerator.Value}");
+
+            //TacviewBetaHeightMapGenerator = config.Bind(HeightMapGeneratorSettings, "TacviewBetaHeightMapGenerator", DefaultTacviewBetaHeightMapGenerator, "True: Compatibility set for Tacview 1.9.5 Beta 11, False: Compatibility set for Tacview Stable. Default: True");
+            //Record.Log?.LogDebug($"TacviewBetaHeightMapGenerator = {TacviewBetaHeightMapGenerator.Value}");
+
+            RecordEjectedPilots = config.Bind(GeneralSettings, "RecordEjectedPilots", DefaultRecordEjectedPilots, "Toggle Recording Ejected Pilots.");
+            Record.Log?.LogDebug($"RecordEjectedPilots = {RecordEjectedPilots.Value}");
+
+            DestructionEvents = config.Bind(GeneralSettings, "DestructionEvents", DefaultDestructionEvents, "Toggle Recording Destruction Events for Buildings and Ships.");
+            Record.Log?.LogDebug($"DestructionEvents = {DestructionEvents.Value}");
+
+            AutoStartRecording = config.Bind(GeneralSettings, "AutoStartRecording", DefaultAutoStartRecording, "Toggle Automatically starting to record on mission load.");
+            Record.Log?.LogDebug($"AutoStartRecording = {AutoStartRecording.Value}");
+
+            EnableAutoSaveCountDown = config.Bind(VisualSettings, "EnableAutoSaveCountDown", DefaultEnableAutoSaveCountDown, "Toggle AutoSave Countdown Timer.");
+            Record.Log?.LogDebug($"EnableAutoSaveCountDown = {EnableAutoSaveCountDown.Value}");
+
+            EnableRecordingIndicator = config.Bind(VisualSettings, "EnableRecordingIndicator", DefaultEnableRecordingIndicator, "Toggle Recording Indicator.");
+            Record.Log?.LogDebug($"EnableRecordingIndicator = {EnableRecordingIndicator.Value}");
+
+            AutoSaveCountDownX = config.Bind(VisualSettings, "AutoSaveCountDownX", DefaultAutoSaveCountDownX, "X coordinate of Auto Save Countdown Timer on GUI. Scales with Resolution. Value range: 0.0 - 1.0");
+            if (AutoSaveCountDownX.Value < 0f || AutoSaveCountDownX.Value > 1.0f)
+            {
+                Record.Log?.LogWarning($"AutoSaveCountDownX must be within 0.0 - 1.0 range! Setting default value {DefaultAutoSaveCountDownX}!");
+            }
+            Record.Log?.LogDebug($"AutoSaveCountDownX = {AutoSaveCountDownX.Value}");
+
+            RecordingIndicatorY = config.Bind(VisualSettings, "RecordingIndicatorY", DefaultRecordingIndicatorY, "Y coordinate of Auto Save Countdown Timer on GUI. Scales with Resolution. Value range: 0.0 - 1.0");
+            if (RecordingIndicatorY.Value < 0f || RecordingIndicatorY.Value > 1.0f)
+            {
+                Record.Log?.LogWarning($"RecordingIndicatorX must be within 0.0 - 1.0 range! Setting default value {DefaultRecordingIndicatorX}!");
+            }
+            Record.Log?.LogDebug($"RecordingIndicatorX = {RecordingIndicatorY.Value}");
+
+            RecordingIndicatorX = config.Bind(VisualSettings, "RecordingIndicatorX", DefaultRecordingIndicatorX, "X coordinate of Auto Save Countdown Timer on GUI. Scales with Resolution. Value range: 0.0 - 1.0");
+            if (RecordingIndicatorX.Value < 0f || RecordingIndicatorX.Value > 1.0f)
+            {
+                Record.Log?.LogWarning($"RecordingIndicatorX must be within 0.0 - 1.0 range! Setting default value {DefaultRecordingIndicatorX}!");
+            }
+            Record.Log?.LogDebug($"RecordingIndicatorX = {RecordingIndicatorX.Value}");
+
+            AutoSaveCountDownY = config.Bind(VisualSettings, "AutoSaveCountDownY", DefaultAutoSaveCountDownY, "Y coordinate of Auto Save Countdown Timer on GUI. Scales with Resolution. Value range: 0.0 - 1.0");
+            if (AutoSaveCountDownY.Value < 0f || AutoSaveCountDownY.Value > 1.0f)
+            {
+                Record.Log?.LogWarning($"AutoSaveCountDownX must be within 0.0 - 1.0 range! Setting default value {DefaultAutoSaveCountDownX}!");
+            }
+            Record.Log?.LogDebug($"AutoSaveCountDownX = {AutoSaveCountDownY.Value}");
+
+            TextColorR = config.Bind(VisualSettings, "TextColorR", DefaultTextColorR, "Red color value for GUI Text. Value range: 0.0 - 1.0");
+            if (TextColorR.Value < 0f || TextColorR.Value > 1.0f)
+            {
+                Record.Log?.LogWarning($"TextColorR must be within 0.0 - 1.0 range! Setting default value {DefaultTextColorR}!");
+            }
+            Record.Log?.LogDebug($"TextColorR = {TextColorR.Value}");
+
+            TextColorG = config.Bind(VisualSettings, "TextColorG", DefaultTextColorG, "Green color value for GUI Text. Value range: 0.0 - 1.0");
+            if (TextColorG.Value < 0f || TextColorG.Value > 1.0f)
+            {
+                Record.Log?.LogWarning($"TextColorG must be within 0.0 - 1.0 range! Setting default value {DefaultTextColorG}!");
+            }
+            Record.Log?.LogDebug($"TextColorG = {TextColorG.Value}");
+
+            TextColorB = config.Bind(VisualSettings, "TextColorB", DefaultTextColorB, "Blue color value for GUI Text. Value range: 0.0 - 1.0");
+            if (TextColorB.Value < 0f || TextColorB.Value > 1.0f)
+            {
+                Record.Log?.LogWarning($"TextColorB must be within 0.0 - 1.0 range! Setting default value {DefaultTextColorB}!");
+            }
+            Record.Log?.LogDebug($"TextColorB = {TextColorB.Value}");
+
+            TextColorA = config.Bind(VisualSettings, "TextColorA", DefaultTextColorA, "Transparency value for GUI Text. Value range: 0.0 - 1.0");
+            if (TextColorA.Value < 0f || TextColorA.Value > 1.0f)
+            {
+                Record.Log?.LogWarning($"TextColorA must be within 0.0 - 1.0 range! Setting default value {DefaultTextColorA}!");
+            }
+            Record.Log?.LogDebug($"TextColorA = {TextColorA.Value}");
+
+            EnableUnitLogging = config.Bind(DeveloperFeatures, "EnableUnknownUnitLogging", DefaultEnableUnitLogging, "Toggle logging Unknown Units that are unknown to ACMI Recorder. Default: false");
+            Record.Log?.LogDebug($"EnableUnknownUnitLogging = {EnableUnitLogging.Value}");
+
+            EnableEncyclopediaExporter = config.Bind(DeveloperFeatures, "EnableEncyclopediaExporter", DefaultEnableEncyclopediaExporter, "Toggle Encyclopedia Exporter. Default: false");
+            Record.Log?.LogDebug($"EnableEncyclopediaExporter = {EnableEncyclopediaExporter.Value}");
+
+            EncyclopediaExporterKey = config.Bind("Hotkeys", "EncyclopediaExporterKey", new KeyboardShortcut(DefaultEncyclopediaExporterKey));
+            Record.Log?.LogDebug($"EncyclopediaExporterKey = {EncyclopediaExporterKey.Value}");
+
+            StartStopRecordingKey = config.Bind("Hotkeys", "StartStopRecordingKey", new KeyboardShortcut(DefaultStartStopRecordingKey));
+            Record.Log?.LogDebug($"StartStopRecordingKey = {StartStopRecordingKey.Value}");
+
+            EnableLogging = config.Bind(DeveloperFeatures, "EnableLogging", DefaultEnableLogging, "Toggle Logging. Default: false");
+            Record.Log?.LogDebug($"EnableLogging = {EnableLogging.Value}");
+
+        }
+    }
+}

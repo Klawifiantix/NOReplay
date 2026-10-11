@@ -1,130 +1,205 @@
-﻿using System;
+﻿using HarmonyLib;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
+using System.Text;
 using UnityEngine;
 
 namespace NOReplay
 {
     internal class RecordVehicle : RecordUnit
     {
-        private GroundVehicle vehicle;
+        private readonly static Dictionary<string, string> TYPES = new()
+        {
+            { "HLT", "Ground+Heavy+Vehicle" },
+            { "StratoLance R9 Launcher", "Ground+Heavy+Vehicle+AntiAircraft" },
+            { "T9K41 Boltstrike", "Ground+Heavy+Vehicle+AntiAircraft" },
+            { "Spearhead MBT", "Ground+Heavy+Vehicle+Tank" },
+            { "Type-12 MBT", "Ground+Heavy+Vehicle+Tank" },
+            { "HLT Radar Truck", "Ground+Heavy+Vehicle+Sensor" },
+            { "HLT Flatbed", "Ground+Heavy+Vehicle" },
+            { "HLT Munitions Truck", "Ground+Heavy+Vehicle" },
+            { "HLT Tractor", "Ground+Heavy+Vehicle" },
+            { "HLT Fuel Tanker", "Ground+Heavy+Vehicle" },
+            { "LCV25 AA", "Ground+Light+Vehicle+AntiAircraft" },
+            { "LCV25 AT", "Ground+Light+Vehicle" },
+            { "LCV45 Recon Truck", "Ground+Light+Vehicle" },
+            { "AFV6 APC", "Ground+Medium+Vehicle" },
+            { "AFV6 IFV", "Ground+Medium+Vehicle" },
+            { "AFV6 AA", "Ground+Medium+Vehicle+AntiAircraft" },
+            { "AFV6 AT", "Ground+Medium+Vehicle" },
+            { "AFV8 APC", "Ground+Medium+Vehicle" },
+            { "AFV8 IFV", "Ground+Medium+Vehicle" },
+            { "AFV8 Mobile Air Defense", "Ground+Medium+Vehicle+AntiAircraft" },
+            { "Linebreaker APC", "Ground+Medium+Vehicle" },
+            { "Linebreaker IFV", "Ground+Medium+Vehicle" },
+            { "Linebreaker SAM", "Ground+Medium+Vehicle+AntiAircraft" },
+            { "AeroSentry SPAAG", "Ground+Medium+Vehicle+AntiAircraft" },
+            { "FGA-57 Anvil", "Ground+Medium+Vehicle+AntiAircraft" },
+            { "Hexhound GMG", "Ground+Medium+Vehicle"},
+            { "Hexhound SAM", "Ground+Medium+AntiAircraft+Vehicle" },
+            { "M12 Jackknife", "Ground+Medium+Vehicle"},
+            { "CRAM Trailer", "Ground+Medium+AntiAircraft+Vehicle"},
+            { "Laser CIWS Trailer", "Ground+Medium+AntiAircraft+Vehicle" },
+            { "Munitions Container", "Misc+Container" },
+            { "Munitions Pallet", "Misc+Container" },
+            { "Naval Supply Pallet", "Misc+Container" },
+            { "MSV Flatbed", "Ground+Heavy+Vehicle" },
+            { "MSV Tractor", "Ground+Heavy+Vehicle" },
+            { "MSV Fuel Tanker", "Ground+Heavy+Vehicle" },
+            { "MSV Munitions", "Ground+Heavy+Vehicle" },
+            { "MSV MRAP", "Ground+Heavy+Vehicle" },
+            { "MSV Fire Control", "Ground+Heavy+Vehicle" },
+            { "HLT Fire Control", "Ground+Heavy+Vehicle" },
+            { "Boltstrike RAM45 Launcher", "Ground+AntiAircraft+Vehicle" },
+            { "Radar Container", "Misc+Container" },
+            { "MSV Nuclear Ballistic Missile Launcher", "Ground+Heavy+Vehicle" },
+            { "MSV Ballistic Missile Launcher", "Ground+Heavy+Vehicle" },
+            { "MSV R9 Stratolance Launcher", "Ground+AntiAircraft+Vehicle" },
+            { "MSV CRAM", "Ground+Heavy+Vehicle" },
+            { "MSV LADS", "Ground+Heavy+Vehicle" },
+            { "MSV Radar", "Ground+Heavy+Vehicle" },
+            { "Fuel Bladder 1500L", "Misc+Container" },
+            { "Fuel Bladder 6000L", "Misc+Container" },
+            { "Fuel Bladder 10,000L", "Misc+Container" },
+            { "Wreck HLT", "Ground+Heavy+Vehicle" },
+            { "Wreck MBT", "Ground+Heavy+Vehicle" }
+
+        };
+
+        private readonly static Dictionary<string, int> RANGE = new()
+        {
+            { "StratoLance R9 Launcher", 50000 },
+            { "T9K41 Boltstrike", 15000 },
+            { "LCV24 AA", 5000 },
+            { "AFV6 AA", 5000 },
+            { "AFV8 Mobile Air Defense", 5000 },
+            { "Linebreaker SAM", 5000 },
+            { "AeroSentry SPAAG", 4000 },
+            { "FGA-57 Anvil", 5500 }
+        };
+
+        private Unit? lastTarget;
 
         public virtual void Init(GroundVehicle vehicle)
         {
-            base.unit = vehicle;
-            this.vehicle = vehicle;
-            base.unitId = vehicle.persistentID.Id;
-            base.tacviewId = vehicle.persistentID.Id + 1;
-            base.destroyedEvent = true;
-            base.canTarget = true;
-            lastState = vehicle.unitState;
 
+
+            base.unit = vehicle;
+            base.unitId = unit.persistentID.Id;
+            base.tacviewId = unit.persistentID.Id + 1;
+            lastState = unit.unitState;
             Faction? faction = base.unit.NetworkHQ?.faction;
-            string[] info = { "Default", "Ground" };
-            if (Record.UnitInfo["vehicles"].ContainsKey(vehicle.definition.unitName))
+
+            string[] info = { "Default", "Ground", "0", "0" };
+            string unitName = unit.definition.unitName;
+            if (TYPES.TryGetValue(unitName, out var mappedType))
             {
-                info = Record.UnitInfo["vehicles"][vehicle.definition.unitName];
+                info = new[] { unitName, mappedType, "5000", "5000" };
+            }
+            else if (Record.UnitInfo["vehicles"].ContainsKey(unitName))
+            {
+                info = Record.UnitInfo["vehicles"][unitName];
+            }
+            int range1 = 0;
+            int range2 = 0;
+            int winningRange = 0;
+            int.TryParse(info[2], out range1);
+            int.TryParse(info[3], out range2);
+            if (range1 > range2) { winningRange = range1; } else { winningRange = range2; }
+
+
+            if (new[] { "AA", "CIWS (L)", "CRAM", "SAM IR", "SAM R", "SPAAG", "RDR", "HPAD", "HGR-H", "HGR-M", "REV" }.Any(c => unit.definition.code.Contains(c)))
+            {
+                base.destroyedEvent = true;
             }
 
             props = new Dictionary<string, string>()
             {
-                { "Name", base.unit.definition.unitName },
+                { "Name", this.unit.definition.unitName },
                 { "Coalition", faction?.factionName ?? "Neutral" },
-                { "CallSign", $"{vehicle.definition.code} {tacviewId:X}" },
+                { "CallSign", $"{unit.definition.code} {tacviewId:X}"},
                 { "Color", faction == null ? "Green" : (faction.factionName == "Boscali" ? "Blue" : "Red") },
-                { "Type", info[1] },
-                { "Debug", lastState.ToString() }
+                { "Type", info[1]},
+                { "EngagementRange", winningRange.ToString(CultureInfo.InvariantCulture) },
+                { "Debug", lastState.ToString()}
             };
-
-            UpdatePose();
             Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
             props = [];
-
-            // Events
-            if (unit != null)
-            {
-                unit.onDisableUnit += OnUnitDisabled;
-                unit.onChangeFaction += OnFactionChanged;
-                unit.onRegisterMissile += OnMissileRegistered;
-            }
-
             this.enabled = true;
+            base.enabled = true;
         }
-
         public override void Update()
         {
-            if (!this.enabled || unit == null || unit.disabled) return;
-
-            timer += Time.deltaTime;
-            if (timer < RecordConfig.vehicleUpdateDelta.Value) return;
-
-            // Nur noch Pose
-            UpdatePose();
-            if (props.Count > 0)
+            if (!this.enabled || unit.disabled)
             {
-                Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-                props = [];
+                return;
             }
+            timer += Time.deltaTime;
+            if (timer < RecordConfig.vehicleUpdateDelta.Value)
+            {
+                return;
+            }
+            UpdatePose();
+            UpdateTargets();
+            UpdateState();
+            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
+            props = [];
             timer = 0;
         }
-
-        private void OnFactionChanged(Unit u)
+        internal override void UpdateTargets()
         {
-            if (u != unit || unit.disabled) return;
-            string coalition = unit.NetworkHQ?.faction?.factionName ?? "Neutral";
-            props = new Dictionary<string, string> { { "Coalition", coalition } };
-            string color = coalition switch
+            foreach (WeaponStation station in unit.weaponStations)
             {
-                "Boscali" => "Blue",
-                "Primeva" => "Red",
-                _ => "Green"
-            };
-            props.Add("Color", color);
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
-        }
+                try
+                {
+                    targets.AddItem<Unit>(station.GetTurret().GetTarget());
+                }
+                catch
+                {
+                    //no target
+                }
 
-        private void OnMissileRegistered(Missile missile)
-        {
-            if (missile == null) return;
-            // Missile wird separat über RecordMissile erfasst; hier nur optional loggen
-            Record.Log?.LogDebug($"Vehicle {unitId:X} registered missile {missile.persistentID.Id:X}");
-        }
-
-        private void OnUnitDisabled(Unit u)
-        {
-            if (u != unit || base.disabled) return;
-            base.disabled = true;
-            props = new Dictionary<string, string>
-            {
-                { "Visible", "0.0" },
-                { "Type", null }
-            };
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
-            if (base.destroyedEvent)
-                Record.Host.GetComponent<RecordEngine>().invokeWriterDestroy(this);
-
-            Unsubscribe();
-            this.enabled = false;
-            UnityEngine.Object.Destroy(this.gameObject);
-        }
-
-        private void Unsubscribe()
-        {
-            if (unit == null) return;
-            try
-            {
-                unit.onDisableUnit -= OnUnitDisabled;
-                unit.onChangeFaction -= OnFactionChanged;
-                unit.onRegisterMissile -= OnMissileRegistered;
             }
-            catch { }
+
+            if (targets.Any())
+            {
+                if (!lastTargets.Any())
+                {
+                    lastTargets = targets;
+                }
+                else
+                {
+                    if (lastTargets == targets)
+                    {
+                        return;
+                    }
+                }
+                lastTargets = targets;
+                int max = targets.Length;
+                if (max > 10)
+                {
+                    max = 10;
+                }
+                if (targets.Length > 1)
+                {
+
+                    for (int i = 0; i < max; i++)
+                    {
+                        if (i == 0)
+                        {
+                            lockedTargetString = "LockedTarget";
+                        }
+                        else
+                        {
+                            lockedTargetString = $"LockedTarget{i:X}";
+                        }
+                        props.Add(lockedTargetString, $"{GetTacviewIdOfUnit(targets[i].persistentID.Id):X}");
+                    }
+                }
+            }
+            targets = [];
         }
-
-        private void OnDestroy() => Unsubscribe();
-
-        public override void LateUpdate() { }
-        internal override void UpdateTargets() { }
     }
 }

@@ -730,6 +730,11 @@ namespace NOReplay
                         if (Plugin.AudioNear(ghost.gameObject, 550f) && _heard.Add(o.Id))
                             ghost.BeginBurstAudio(o.Weapon);
                     }
+                    else if (pulsed && time > end)
+                    {
+                        ghost?.EndBurstAudio();
+                        _heard.Remove(o.Id);
+                    }
                     if (!_shown)
                     {
                         _shown = true;

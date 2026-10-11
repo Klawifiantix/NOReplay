@@ -151,6 +151,10 @@ namespace NOReplay
             return go;
         }
 
+        /// <summary>
+        /// Finds a game definition (prefab) for the given replay object.
+        /// Searches aircraft, vehicle, ship, building, and scenery definitions.
+        /// </summary>
         static UnityEngine.Object? FindAnyDef(ReplayObject obj)
         {
             string key = (obj.Name ?? "") + "|" + (obj.Type ?? "");
@@ -186,6 +190,10 @@ namespace NOReplay
             return found;
         }
 
+        /// <summary>
+        /// Returns true if the object is a flare or countermeasure.
+        /// Excludes flare stacks and static buildings.
+        /// </summary>
         static bool IsFlareType(string? type, string? name)
         {
             string t = type ?? "";
@@ -443,7 +451,13 @@ namespace NOReplay
                 if (typ.IndexOf("GunBurst", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                 if (typ.IndexOf("Explosion", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                 if (typ.IndexOf("Misc", StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                if (!IsAircraft(obj.Type, obj.Name)) continue;
+                // Queue aircraft, vehicles, and ships for ghost creation
+                bool isAircraft = IsAircraft(obj.Type, obj.Name);
+                bool isVehicle = (obj.Type ?? "").IndexOf("Vehicle", StringComparison.OrdinalIgnoreCase) >= 0
+                              || (obj.Type ?? "") == "Ground";
+                bool isShip = (obj.Type ?? "").IndexOf("Sea", StringComparison.OrdinalIgnoreCase) >= 0
+                           || (obj.Type ?? "").IndexOf("Watercraft", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (!isAircraft && !isVehicle && !isShip) continue;
                 _pendingAir.Add(obj);
                 n++;
             }
@@ -706,7 +720,7 @@ namespace NOReplay
             bool aircraft = IsAircraft(obj.Type ?? "", obj.Name)
                 || (def != null && def.GetType().Name.IndexOf("Aircraft", StringComparison.OrdinalIgnoreCase) >= 0);
             bool ordnance = !aircraft && IsOrdnance(obj.Type, obj.Name);
-            bool visualOnly = IsScenery(obj.Type, obj.Name) || IsBuilding(obj.Type, obj.Name);
+            bool visualOnly = IsScenery(obj.Type, obj.Name);
             if (ordnance && !flare)
                 go = TryGameSpawnMissile(obj, def, pos, rot);
             else if (aircraft)

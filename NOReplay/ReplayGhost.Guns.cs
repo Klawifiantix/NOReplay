@@ -35,16 +35,20 @@ namespace NOReplay
 
         float _gunAimUntil;
 
-        internal void AimGun(float yawDeg, float pitchDeg)
+        internal void AimGun(Vector3 worldDir)
         {
             BindGuns();
-            _gunAimUntil = Time.unscaledTime + 0.2f;
-            var yaw = Quaternion.Euler(0f, yawDeg, 0f);
-            var pitch = Quaternion.Euler(-pitchDeg, 0f, 0f);
+            if (worldDir.sqrMagnitude < 0.01f) return;
+            _gunAimUntil = Time.unscaledTime + 0.15f;
+            var localDir = Drive.InverseTransformDirection(worldDir.normalized);
+            float yaw = Mathf.Atan2(localDir.x, localDir.z) * Mathf.Rad2Deg;
+            float pitch = -Mathf.Asin(Mathf.Clamp(localDir.y, -1f, 1f)) * Mathf.Rad2Deg;
+            var yawQ = Quaternion.Euler(0f, yaw, 0f);
+            var pitchQ = Quaternion.Euler(pitch, 0f, 0f);
             for (int i = 0; i < _turrets.Length; i++)
             {
-                if (_turrets[i] != null) _turrets[i].localRotation = yaw;
-                if (_elev[i] != null) _elev[i].localRotation = pitch;
+                if (_turrets[i] != null) _turrets[i].localRotation = yawQ;
+                if (_elev[i] != null) _elev[i].localRotation = pitchQ;
             }
         }
 
@@ -571,14 +575,15 @@ namespace NOReplay
             trail.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             trail.receiveShadows = false;
             var yellow = new Color(1f, 0.92f, 0.15f, 1f);
-            var shader = Shader.Find("HDRP/Unlit") ?? Shader.Find("Unlit/Color") ?? Shader.Find("Sprites/Default");
+            var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color") ?? Shader.Find("Sprites/Default");
             if (shader != null)
             {
                 var mat = new Material(shader);
                 mat.color = yellow;
                 if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", yellow * 6f);
                 if (mat.HasProperty("_UnlitColor")) mat.SetColor("_UnlitColor", yellow * 6f);
-                if (mat.HasProperty("_EmissiveColor")) mat.SetColor("_EmissiveColor", yellow * 12f);
+                if (mat.HasProperty("_EmissionColor")) mat.SetColor("_EmissionColor", yellow * 40f);
+                if (mat.HasProperty("_EmissiveColor")) mat.SetColor("_EmissiveColor", yellow * 40f);
                 mat.EnableKeyword("_EMISSION");
                 trail.material = mat;
             }
@@ -597,7 +602,8 @@ namespace NOReplay
                 hm.color = yellow;
                 if (hm.HasProperty("_BaseColor")) hm.SetColor("_BaseColor", yellow * 8f);
                 if (hm.HasProperty("_UnlitColor")) hm.SetColor("_UnlitColor", yellow * 8f);
-                if (hm.HasProperty("_EmissiveColor")) hm.SetColor("_EmissiveColor", yellow * 16f);
+                if (hm.HasProperty("_EmissionColor")) hm.SetColor("_EmissionColor", yellow * 50f);
+                if (hm.HasProperty("_EmissiveColor")) hm.SetColor("_EmissiveColor", yellow * 50f);
                 hm.EnableKeyword("_EMISSION");
                 hr.sharedMaterial = hm;
                 hr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -616,8 +622,34 @@ namespace NOReplay
 
         static readonly HashSet<string> _heard = new HashSet<string>();
 
+        static float _lastTime = -1f;
+        static bool _wasPaused;
+
         public static void Tick(ReplayDocument doc, float time)
         {
+            // Stop audio on pause
+            bool paused = Plugin.Clock.Paused;
+            if (paused && !_wasPaused)
+            {
+                Plugin.Log.LogInfo("Pause: stopping burst audio");
+                foreach (var g in UnityEngine.Object.FindObjectsOfType<ReplayGhost>())
+                    g.EndBurstAudio();
+                _heard.Clear();
+            }
+            _wasPaused = paused;
+            if (paused) { _lastTime = time; return; }
+
+            // Detect seek (time jump)
+            bool seeked = _lastTime >= 0f && Mathf.Abs(time - _lastTime) > 0.5f;
+            if (seeked)
+            {
+                _heard.Clear();
+                // Stop all burst audio on seek
+                foreach (var g in UnityEngine.Object.FindObjectsOfType<ReplayGhost>())
+                    g.EndBurstAudio();
+            }
+            _lastTime = time;
+
             if (!ReferenceEquals(doc, _doc))
             {
                 _doc = doc;
@@ -627,6 +659,11 @@ namespace NOReplay
                         list.Add(o);
                 _bursts = list.ToArray();
                 _heard.Clear();
+                // Reset pool for new replay
+                foreach (var go in _pool)
+                    if (go != null) UnityEngine.Object.Destroy(go);
+                _pool.Clear();
+                Array.Clear(_slotId, 0, _slotId.Length);
                 Plugin.Log.LogInfo("Kanonenstöße im Replay: " + _bursts.Length);
             }
             int slot = 0;
@@ -655,15 +692,15 @@ namespace NOReplay
                     if (!o.TrySample(fired, out var aim)) continue;
                     Vector3 origin;
                     if (ghost != null)
-                        origin = ghost.transform.position;
+                        origin = ghost.MuzzlePos();
                     else if (shooter != null && shooter.TrySample(fired, out var src))
                         origin = Plugin.GlobalToLocal(src.X, src.Y, src.Z);
                     else
                         origin = Plugin.GlobalToLocal(aim.X, aim.Y, aim.Z);
-                    ghost?.AimGun(aim.Yaw, aim.Pitch);
                     float yaw = aim.Yaw * Mathf.Deg2Rad;
                     float pitch = -aim.Pitch * Mathf.Deg2Rad;
                     var dir = new Vector3(Mathf.Sin(yaw) * Mathf.Cos(pitch), Mathf.Sin(pitch), Mathf.Cos(yaw) * Mathf.Cos(pitch));
+                    ghost?.AimGun(dir);
                     if (dir.sqrMagnitude < 0.01f) continue;
                     float drop = 0.5f * 9.81f * grav * age * age;
                     var pos = origin + dir.normalized * (speed * age) + Vector3.down * drop;

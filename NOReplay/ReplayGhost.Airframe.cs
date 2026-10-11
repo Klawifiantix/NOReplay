@@ -291,6 +291,7 @@ namespace NOReplay
 
         bool _gearStartChecked;
         bool _startedAir;
+        int _gearLog;
 
         float ReadAgl()
         {
@@ -354,9 +355,15 @@ namespace NOReplay
             {
                 _haveGearAcmi = true;
                 _gearFromAcmi = s.Gear > 0.5f;
+                if (_gearLog < 4)
+                {
+                    _gearLog++;
+                    Plugin.Log.LogInfo("Gear ACMI " + gameObject.name + " val=" + s.Gear + " down=" + _gearFromAcmi);
+                }
             }
             bool gearDown = _haveGearAcmi ? _gearFromAcmi : !airborne;
-            if (_startedAir && gearDown && Physics.Raycast(transform.position + Vector3.up * 4f, Vector3.down, out var still, 1200f, ~0, QueryTriggerInteraction.Ignore) && still.distance > 18f)
+            // Respect ACMI gear state – do not override with height check
+            if (!_haveGearAcmi && _startedAir && gearDown && Physics.Raycast(transform.position + Vector3.up * 4f, Vector3.down, out var still, 1200f, ~0, QueryTriggerInteraction.Ignore) && still.distance > 18f)
                 gearDown = false;
             if (_startedAir && !gearDown) _fold = 1f;
             ApplyReplayGear(gearDown);

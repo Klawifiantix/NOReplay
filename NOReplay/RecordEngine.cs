@@ -39,6 +39,69 @@ namespace NOReplay
             writer.UpdateObject(obj, curTime);
         }
 
+        public void RegisterUnitFromListener(Unit unit)
+        {
+            if (unit == null || unitObjects.ContainsKey(unit.persistentID.Id)) return;
+            GameObject? acmi = null;
+            switch (unit)
+            {
+                case Aircraft aircraft:
+                    acmi = new GameObject();
+                    acmi.AddComponent<RecordAircraft>().Init(aircraft);
+                    break;
+                case GroundVehicle vehicle:
+                    acmi = new GameObject();
+                    acmi.AddComponent<RecordVehicle>().Init(vehicle);
+                    break;
+                case Ship ship:
+                    acmi = new GameObject();
+                    acmi.AddComponent<RecordShip>().Init(ship);
+                    break;
+                case Building building:
+                    acmi = new GameObject();
+                    acmi.AddComponent<RecordBuilding>().Init(building);
+                    break;
+            }
+            if (acmi != null)
+                unitObjects.Add(unit.persistentID.Id, acmi);
+        }
+
+        public void CaptureExistingUnits()
+        {
+            var all = UnityEngine.Object.FindObjectsOfType<Unit>();
+            int captured = 0;
+            foreach (var unit in all)
+            {
+                if (unit == null || unitObjects.ContainsKey(unit.persistentID.Id)) continue;
+                GameObject? acmi = null;
+                switch (unit)
+                {
+                    case Aircraft aircraft:
+                        acmi = new GameObject();
+                        acmi.AddComponent<RecordAircraft>().Init(aircraft);
+                        break;
+                    case GroundVehicle vehicle:
+                        acmi = new GameObject();
+                        acmi.AddComponent<RecordVehicle>().Init(vehicle);
+                        break;
+                    case Ship ship:
+                        acmi = new GameObject();
+                        acmi.AddComponent<RecordShip>().Init(ship);
+                        break;
+                    case Building building:
+                        acmi = new GameObject();
+                        acmi.AddComponent<RecordBuilding>().Init(building);
+                        break;
+                }
+                if (acmi != null)
+                {
+                    unitObjects.Add(unit.persistentID.Id, acmi);
+                    captured++;
+                }
+            }
+            Plugin.Log.LogInfo("Start-Capture: " + captured + " vorhandene Einheiten");
+        }
+
         public void invokeWriterRemove(RecordObject obj)
         {
             writer.RemoveObject(obj, curTime);
@@ -97,16 +160,7 @@ namespace NOReplay
                         {
                             case Aircraft aircraft:
 
-                                aircraft.onAddIRSource += (IRSource source) =>
-                                {
-                                    if (source.flare)
-                                    {
-                                        GameObject flare = new GameObject();
-                                        flare.AddComponent<RecordFlare>();
-                                        flare.GetComponent<RecordFlare>().Init(source);
-                                        flare.GetComponent<RecordFlare>().enabled = true;
-                                    }
-                                };
+                                // Flares handled via SpawnLocal hook
                                 acmi = new GameObject();
                                 acmi.AddComponent<RecordAircraft>();
                                 acmi.GetComponent<RecordAircraft>().Init(aircraft);

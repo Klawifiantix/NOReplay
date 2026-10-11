@@ -1,4 +1,4 @@
-using System;
+ï»¿using System;
 using System.Collections.Generic;
 using BepInEx.Configuration;
 using BepInEx.Logging;
@@ -42,7 +42,7 @@ namespace NOReplay
         {
             if (Plugin.CurrentDoc != null)
             {
-                Plugin.Log.LogInfo("F8 ignoriert, Replay läuft.");
+                Plugin.Log.LogInfo("F8 ignoriert, Replay lï¿½uft.");
                 return;
             }
             if (Active) Stop();
@@ -58,7 +58,8 @@ namespace NOReplay
                 UnityEngine.Object.DontDestroyOnLoad(host);
                 host.hideFlags = HideFlags.HideAndDontSave;
                 Host = host;
-                host.AddComponent<RecordEngine>();
+                var engine = host.AddComponent<RecordEngine>();
+                engine.CaptureExistingUnits();
                 Active = true;
                 Plugin.Log.LogInfo("Aufnahme gestartet (F8).");
             }

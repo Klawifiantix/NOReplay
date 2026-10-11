@@ -469,7 +469,7 @@ namespace NOReplay
                 if (obj.Samples.Count == 0) { _pendingAir.RemoveAt(i); continue; }
                 if (t + 0.05f < TrackBorn(obj)) { i++; continue; }
                 if (AlreadySpawned(obj)) { _pendingAir.RemoveAt(i); continue; }
-                bool follow = false;
+                bool follow = _ghost == null;
                 GameObject? go = null;
                 if (IsFlareType(obj.Type, obj.Name))
                 {
@@ -692,7 +692,13 @@ namespace NOReplay
                 s = obj.Samples[0];
             }
             Vector3 pos = GlobalToLocal(s.X, s.Y, s.Z);
-            Quaternion rot = Quaternion.Euler(-s.Pitch, s.Yaw, -s.Roll);
+            Quaternion rot;
+            if (s.HasQuat)
+                rot = new Quaternion(s.Qx, s.Qy, s.Qz, s.Qw);
+            else if (obj.Samples.Count > 0 && obj.Samples[0].HasQuat)
+                rot = new Quaternion(obj.Samples[0].Qx, obj.Samples[0].Qy, obj.Samples[0].Qz, obj.Samples[0].Qw);
+            else
+                rot = Quaternion.Euler(-s.Pitch, s.Yaw, -s.Roll);
             var def = FindAnyDef(obj);
 
             GameObject? go = null;
@@ -1801,23 +1807,18 @@ namespace NOReplay
         static void TryFollowGhost(GameObject go)
         {
             var unit = FindUnitOn(go);
-            if (unit == null)
-            {
-                Log.LogWarning("Follow ohne Unit: " + go.name);
-                return;
-            }
+            if (unit == null) return;
             var camType = FindGameType("CameraStateManager");
             if (camType == null) return;
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             foreach (var cam in Resources.FindObjectsOfTypeAll(camType))
             {
                 if (cam == null) continue;
-                var orbit = camType.GetField("orbitState", flags)?.GetValue(cam);
                 var sw = camType.GetMethod("SwitchState", flags);
                 var follow = camType.GetMethod("SetFollowingUnit", flags);
+                var tv = camType.GetField("TVState", flags)?.GetValue(cam);
                 follow?.Invoke(cam, new object[] { unit });
-                if (orbit != null) sw?.Invoke(cam, new[] { orbit });
-                Log.LogInfo("Orbit auf " + go.name);
+                if (tv != null) sw?.Invoke(cam, new[] { tv });
                 break;
             }
         }

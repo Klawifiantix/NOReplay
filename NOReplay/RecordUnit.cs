@@ -76,23 +76,10 @@ namespace NOReplay
             }
         }
 
-        private string UpdatePosition(Vector3 newPos, Vector3 newRot)
+        private string UpdatePosition(Vector3 newPos)
         {
-            string x = Mathf.Approximately(newPos.x, lastPos.x) ? "" : newPos.x.ToString(CultureInfo.InvariantCulture);
-            string y = Mathf.Approximately(newPos.y, lastPos.y) ? "" : newPos.y.ToString(CultureInfo.InvariantCulture);
-            string z = Mathf.Approximately(newPos.z, lastPos.z) ? "" : newPos.z.ToString(CultureInfo.InvariantCulture);
-
-            float adjusted_roll = newRot.z > 180.0f ? 360 - newRot.z : -newRot.z;
-            float adjusted_pitch = newRot.x > 180.0f ? 360 - newRot.x : -newRot.x;
-            float adjusted_yaw = newRot.y;
-
-            string roll = Mathf.Approximately(newRot.z, lastRot.z) ? "" : adjusted_roll.ToString(CultureInfo.InvariantCulture);
-            string pitch = Mathf.Approximately(newRot.x, lastRot.x) ? "" : adjusted_pitch.ToString(CultureInfo.InvariantCulture);
-            string yaw = Mathf.Approximately(newRot.y, lastRot.y) ? "" : adjusted_yaw.ToString(CultureInfo.InvariantCulture);
-
-            (float latitude, float longitude) = RecordGeo.CartesianToGeodetic(newPos.x, newPos.z);
-
-            return $"{(newPos.x != lastPos.x ? longitude.ToString(CultureInfo.InvariantCulture) : string.Empty)}|{(newPos.z != lastPos.z ? latitude.ToString(CultureInfo.InvariantCulture) : string.Empty)}|{y}|{roll}|{pitch}|{yaw}|{x}|{z}|{yaw}";
+            // Raw Unity global position – no geo conversion
+            return $"{newPos.x.ToString(CultureInfo.InvariantCulture)}|{newPos.y.ToString(CultureInfo.InvariantCulture)}|{newPos.z.ToString(CultureInfo.InvariantCulture)}";
         }
 
         internal void UpdatePose()
@@ -110,7 +97,11 @@ namespace NOReplay
 
             if (newPos != lastPos || newRot != lastRot)
             {
-                props.Add("T", UpdatePosition(newPos, newRot).ToString(CultureInfo.InvariantCulture));
+                props.Add("T", UpdatePosition(newPos));
+
+                // Raw transform quaternion
+                var q = unit.transform.rotation;
+                props.Add("Q", $"{q.x.ToString(CultureInfo.InvariantCulture)}|{q.y.ToString(CultureInfo.InvariantCulture)}|{q.z.ToString(CultureInfo.InvariantCulture)}|{q.w.ToString(CultureInfo.InvariantCulture)}");
 
                 lastPos = newPos;
                 lastRot = newRot;

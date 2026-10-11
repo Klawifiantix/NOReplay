@@ -16,9 +16,9 @@ namespace NOReplay
 
         public IRFlare flare;
 
-        public virtual void Init(IRSource source)
+        public virtual void Init(IRFlare flareObj)
         {
-            this.flare = source.transform.gameObject.GetComponent<IRFlare>();
+            this.flare = flareObj;
             base.unitId = (long)(Interlocked.Increment(ref FLAREID) - 1) | (1L << 32);
             base.tacviewId = base.unitId;
             props = new Dictionary<string, string>()
@@ -28,11 +28,14 @@ namespace NOReplay
             try
             {
                 Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            } catch
+                Plugin.Log.LogInfo("Flare written: " + base.tacviewId.ToString("X"));
+            }
+            catch (Exception ex)
             {
+                Plugin.Log.LogError("Flare write failed: " + ex.Message);
                 Destroy(this);
             }
-            
+
             props = [];
         }
 
@@ -51,7 +54,7 @@ namespace NOReplay
 
         public virtual void LateUpdate()
         {
-            if  (flare == null || !flare.enabled || null == flare.transform.position)
+            if (flare == null || !flare.enabled || null == flare.transform.position)
             {
                 DisableFlare();
             }
@@ -73,7 +76,8 @@ namespace NOReplay
 
                     lastPos = newPos;
                 }
-            } catch
+            }
+            catch
             {
                 DisableFlare();
             }

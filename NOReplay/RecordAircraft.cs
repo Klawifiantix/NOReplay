@@ -14,6 +14,7 @@ namespace NOReplay
     internal class RecordAircraft : RecordUnit
     {
         private bool lastGear = false;
+        int _liveryLog;
         private bool lastRadar = false;
         private float lastAGL = float.NaN;
         private float lastTAS = float.NaN;
@@ -275,8 +276,13 @@ namespace NOReplay
                 else if (key.Type == LiveryKey.KeyType.Workshop)
                     value += ":" + key.Id;
                 props["Livery"] = value;
+                if (_liveryLog < 2)
+                {
+                    _liveryLog++;
+                    Record.Log.LogInfo("Livery recorded: " + value);
+                }
             }
-            catch { }
+            catch (Exception ex) { Record.Log.LogWarning("Livery fail: " + ex.Message); }
         }
 
         private void ApplyPilotProps(bool force)

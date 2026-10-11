@@ -10,6 +10,20 @@ namespace NOReplay
     {
         static int _next;
         readonly Dictionary<int, Burst> _open = new();
+        public static RecordGunBurst? Instance;
+
+        public void NotifyFire(Gun gun)
+        {
+            if (gun == null) return;
+            int id = gun.GetInstanceID();
+            if (!_open.ContainsKey(id))
+            {
+                var recorder = Record.Host?.GetComponent<RecordEngine>();
+                if (recorder == null) return;
+                var burst = Begin(gun, recorder);
+                if (burst != null) _open[id] = burst;
+            }
+        }
         Gun[] _guns = Array.Empty<Gun>();
         float _scan;
         FieldInfo? _ticks;
@@ -51,9 +65,11 @@ namespace NOReplay
                 seen.Add(id);
                 bool firing = false;
                 if (_lastFired?.GetValue(gun) is float fired)
-                    firing = Time.timeSinceLevelLoad - fired < 0.18f;
+                    firing = Time.timeSinceLevelLoad - fired < 0.5f;
+                else if (_ticks?.GetValue(gun) is int ticks)
+                    firing = ticks > 0;
                 else
-                    firing = gun.isActiveAndEnabled && _ticks?.GetValue(gun) is int ticks && ticks > 0 && ticks < 3;
+                    firing = gun.isActiveAndEnabled && gun.gameObject.activeInHierarchy;
                 if (!_open.TryGetValue(id, out var burst))
                 {
                     if (!firing) continue;

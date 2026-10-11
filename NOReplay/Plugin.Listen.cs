@@ -38,6 +38,7 @@ namespace NOReplay
             BlockMissileDeath();
             BlockMissileFlight();
             BlockAiGear();
+            PatchGunFire();
             BlockAirbrakeJobs();
             BlockFarBoom();
             GateAudioPlay();
@@ -758,7 +759,10 @@ namespace NOReplay
                 _holdClock = true;
             }
             if (name == "SpawnLocal")
+            {
                 MuteSpawnedFlare(__args, __result);
+                RecordSpawnedFlare(__args, __result);
+            }
 
             if (detail)
             {
@@ -842,6 +846,47 @@ namespace NOReplay
             Log.LogInfo("Server aktiv=" + IsServerActive());
             var p = FindLocalNetworkPlayer();
             Log.LogInfo("Live Player=" + (p == null ? "null" : Short(p)));
+        }
+
+        static void PatchGunFire()
+        {
+            var gunType = FindGameType("Gun");
+            if (gunType == null) { Log.LogWarning("Gun type not found"); return; }
+            var spawn = gunType.GetMethod("SpawnBullet", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (spawn == null) { Log.LogWarning("Gun.SpawnBullet not found"); return; }
+            var postfix = typeof(Plugin).GetMethod(nameof(GunFirePostfix), BindingFlags.Static | BindingFlags.NonPublic);
+            if (postfix == null) return;
+            Harmony.Patch(spawn, postfix: new HarmonyMethod(postfix));
+            Log.LogInfo("Gun.SpawnBullet patched");
+        }
+
+        static void GunFirePostfix(object __instance)
+        {
+            try
+            {
+                var gun = __instance as Gun;
+                if (gun != null) RecordGunBurst.Instance?.NotifyFire(gun);
+            }
+            catch { }
+        }
+    
+
+        static void RecordSpawnedFlare(object[]? args, object? result)
+        {
+            if (!Record.Active) return;
+            string n = "";
+            if (args != null && args.Length > 0 && args[0] is UnityEngine.Object u)
+                n = u.name ?? "";
+            if (n.IndexOf("Flare", StringComparison.OrdinalIgnoreCase) < 0) return;
+            Plugin.Log.LogInfo("Flare-Spawn detected: " + n + " result=" + (result?.GetType().Name ?? "null"));
+            var go = result as GameObject;
+            if (go == null && result is Component rc) go = rc.gameObject;
+            if (go == null) { Plugin.Log.LogInfo("Flare-Spawn: no GameObject"); return; }
+            var flare = go.GetComponent<IRFlare>();
+            if (flare == null) { Plugin.Log.LogInfo("Flare-Spawn: no IRFlare"); return; }
+            var rec = go.AddComponent<RecordFlare>();
+            rec.Init(flare);
+            Plugin.Log.LogInfo("Flare-Spawn: Init called");
         }
     }
 }

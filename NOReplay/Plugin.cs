@@ -1,4 +1,4 @@
-using System;
+ï»¿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -84,7 +84,7 @@ namespace NOReplay
             return fallback;
         }
 
-        static GameObject? _ghost;
+        internal static GameObject? _ghost;
         static readonly List<GameObject> _ghosts = new List<GameObject>();
         static readonly List<ReplayObject> _pendingAir = new List<ReplayObject>();
         static readonly Dictionary<string, UnityEngine.Object?> _defCache = new Dictionary<string, UnityEngine.Object?>();
@@ -111,6 +111,8 @@ namespace NOReplay
                 Harmony = new Harmony(PluginGuid);
                 try { InstallListenPatches(); }
                 catch (Exception ex) { Log.LogError("Listen-Patches: " + ex); }
+                try { Harmony.PatchAll(typeof(CameraTVPatch).Assembly); }
+                catch (Exception ex) { Log.LogError("TV-Patch: " + ex); }
                 try { Record.Init(Config); }
                 catch (Exception ex) { Log.LogError("Record.Init: " + ex); }
                 Log.LogInfo($"{PluginName} {PluginVersion} geladen.");
@@ -194,7 +196,7 @@ namespace NOReplay
             TickOfficialStart();
             if (Input.GetKeyDown(KeyCode.F8))
             {
-                Log.LogInfo("F8 gedrückt.");
+                Log.LogInfo("F8 gedrï¿½ckt.");
                 Record.Toggle();
             }
         }

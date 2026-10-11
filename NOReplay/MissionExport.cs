@@ -99,30 +99,47 @@ namespace NOReplay
 
             var dupIds = StaticDupIds(doc);
             int late = 0;
+            int staticInDoc = 0;
+            foreach (var o in doc.Objects)
+                if ((o.Type ?? "").IndexOf("Static", StringComparison.OrdinalIgnoreCase) >= 0) staticInDoc++;
+            Log.LogInfo("Objects with Static in Type: " + staticInDoc);
             foreach (var obj in doc.Objects)
             {
+                bool isStatic = (obj.Type ?? "").IndexOf("Static", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (isStatic && late < 3)
+                    Log.LogInfo("PRE filter: id=" + obj.Id + " samples=" + obj.Samples.Count + " ShouldQueue=" + ShouldQueue(obj) + " IsStart=" + IsStartUnit(obj) + " IsBld=" + IsBuilding(obj.Type, obj.Name) + " IsScn=" + IsScenery(obj.Type, obj.Name));
                 if (dupIds.Contains(obj.Id ?? "")) continue;
-                if (!ShouldQueue(obj) || obj.Samples.Count == 0) continue;
-                if (IsScenery(obj.Type, obj.Name) || IsOrdnance(obj.Type, obj.Name)) { late++; continue; }
-                if (!IsStartUnit(obj)) { late++; continue; }
-                if (IsBuilding(obj.Type, obj.Name) && nb >= 180) { late++; continue; }
+                bool forceStatic = IsBuilding(obj.Type, obj.Name) || IsScenery(obj.Type, obj.Name);
+                if ((!ShouldQueue(obj) && !forceStatic) || obj.Samples.Count == 0) continue;
+                if (IsOrdnance(obj.Type, obj.Name)) { late++; continue; }
+                // Aircraft always go into the JSON so the mission loader sets their rotation
+                if (!IsStartUnit(obj) && !IsAircraft(obj.Type, obj.Name) && !IsBuilding(obj.Type, obj.Name) && !IsScenery(obj.Type, obj.Name)) { late++; continue; }
                 ReplaySample s;
                 if (!obj.TrySample(0f, out s)) s = obj.Samples[0];
 
                 string type = MissionTypeKey(obj);
                 string faction = FactionName(obj.Coalition);
+                if (nb + nsc < 5 && (obj.Type ?? "").IndexOf("Static", StringComparison.OrdinalIgnoreCase) >= 0)
+                    Log.LogInfo("DEBUG static: id=" + obj.Id + " name=" + obj.Name + " type=" + obj.Type + " IsBld=" + IsBuilding(obj.Type, obj.Name) + " IsScn=" + IsScenery(obj.Type, obj.Name));
                 string uid = UniqueId(obj, na + nv + ns);
                 string t = obj.Type ?? "";
-                if (!IsBuilding(t, obj.Name) && (IsAircraft(t, obj.Name)
-                    || t.IndexOf("Vehicle", StringComparison.OrdinalIgnoreCase) >= 0
-                    || t.IndexOf("Ground+", StringComparison.OrdinalIgnoreCase) >= 0))
+                // Only nudge aircraft and vehicles, never statics
+                if (!IsBuilding(t, obj.Name) && !IsScenery(t, obj.Name)
+                    && (IsAircraft(t, obj.Name)
+                        || t.IndexOf("Vehicle", StringComparison.OrdinalIgnoreCase) >= 0))
                     NudgeApart(obj, ref s, usedAir, 36f);
-                var q = Quaternion.Euler(-s.Pitch, s.Yaw, -s.Roll);
+                Quaternion q;
+                if (s.HasQuat)
+                    q = new Quaternion(s.Qx, s.Qy, s.Qz, s.Qw);
+                else
+                    q = Quaternion.Euler(-s.Pitch, s.Yaw, -s.Roll);
                 if (na + nv + ns + nb + nsc < 12)
                     Log.LogInfo("JSON type " + type + " <- " + (obj.Name ?? obj.Id));
                 if (IsAircraft(t, obj.Name))
                 {
-                    late++;
+                    if (na > 0) air.Append(',');
+                    air.Append(AircraftJson(type, faction, uid, s, q, obj));
+                    na++;
                     continue;
                 }
                 else if (IsScenery(t, obj.Name))
@@ -152,6 +169,7 @@ namespace NOReplay
                 }
             }
 
+            Log.LogInfo($"Export candidates: buildings={nb} scenery={nsc} vehicles={nv} ships={ns}");
             var sb = new StringBuilder();
             sb.Append("{\"JsonVersion\":6,");
             sb.Append("\"MapKey\":").Append(MapKeyFromAcmi(doc.MapId)).Append(",");
@@ -379,16 +397,20 @@ namespace NOReplay
             new[] { "A-19 Brawler", "CAS1" },
             new[] { "CI-22 Cricket", "COIN" },
             new[] { "SFB-81 Darkreach", "Darkreach" },
+            new[] { "SAH-46 Chicane", "AttackHelo1" },
+            new[] { "A-19 Brawler", "CAS1" },
+            new[] { "CI-22 Cricket", "COIN" },
+            new[] { "SFB-81 Darkreach", "Darkreach" },
             new[] { "EW-25 Medusa", "EW1" },
             new[] { "FS-12 Revoker", "Fighter1" },
             new[] { "KR-67 Ifrit", "Multirole1" },
             new[] { "VL-49 Tarantula", "QuadVTOL1" },
             new[] { "FS-20 Vortex", "SmallFighter1" },
             new[] { "T/A-30 Compass", "trainer" },
-            new[] { "VT-7 Vagrant", "VTOLTrainer1" },
             new[] { "UH-90 Ibis", "UtilityHelo1" },
             new[] { "Munitions Bunker", "ammunitionBunker" },
             new[] { "Control Tower", "controlTower1" },
+            new[] { "Cooling Tower", "coolingTower" },
             new[] { "23mm AAA Emplacement", "Emplacement1_23mm" },
             new[] { "IRM-S1 Emplacement", "Emplacement1_MANPADS" },
             new[] { "Enrichment Plant", "enrichmentPlant1" },
@@ -396,14 +418,12 @@ namespace NOReplay
             new[] { "Vertical Factory", "factory_tall" },
             new[] { "Guard Tower", "guardTower1" },
             new[] { "Medium Hangar", "hangar_med" },
-            new[] { "Medium Aircraft Hangar", "hangar_med" },
             new[] { "Helipad", "Helipad" },
             new[] { "Pillbox", "pillbox" },
             new[] { "Radar Station", "radarStation1" },
             new[] { "Refinery Structure", "refinery_main" },
             new[] { "Aircraft Revetment", "revetment1" },
             new[] { "Hardened Shelter", "shelter1" },
-            new[] { "Hardened Aircraft Shelter", "shelter1" },
             new[] { "Storage Tank", "storageTank" },
             new[] { "Vehicle Depot", "VehicleDepot1" },
             new[] { "Ammo Dump", "ammoDump" },
@@ -461,8 +481,7 @@ namespace NOReplay
             new[] { "Hexhound SAM", "UGV1_SAM" },
             new[] { "M12 Jackknife", "UGVDozer1" },
             new[] { "HLT Mobile Artillery", "HLT-MART" },
-            new[] { "MSV MLRS", "Truck2-MLRS" },
-        };
+            new[] { "MSV MLRS", "Truck2-MLRS" },};
 
         static string LookupDevName(string? name)
         {
@@ -691,6 +710,9 @@ namespace NOReplay
             if (go == null) return;
             var obj = MatchReplay(uid ?? go.name);
             if (obj == null) return;
+            // No Ghost for objects that never moved – mission loader places them
+            if (!ObjectActuallyMoved(obj))
+                return;
             if (go.GetComponent<ReplayGhost>() != null) return;
             var rg = go.AddComponent<ReplayGhost>();
             rg.Track = obj;
@@ -700,6 +722,9 @@ namespace NOReplay
             rg.SetGhostVisible(false);
             if (_ghosts.Count <= 8 || (_ghosts.Count % 50) == 0)
                 Log.LogInfo("Ghost " + (uid ?? "?") + " -> " + go.name + " n=" + _ghosts.Count);
+            // First ghost becomes the follow target
+            if (_ghost == null)
+                _ghost = go;
         }
 
         static void NudgeApart(ReplayObject obj, ref ReplaySample s, List<float> used, float min)
@@ -748,6 +773,17 @@ namespace NOReplay
             return null;
         }
 
+
+        static bool ObjectActuallyMoved(ReplayObject obj)
+        {
+            if (obj.Samples.Count < 2) return false;
+            var a = obj.Samples[0];
+            var b = obj.Samples[obj.Samples.Count - 1];
+            float dx = a.X - b.X;
+            float dy = a.Y - b.Y;
+            float dz = a.Z - b.Z;
+            return (dx * dx + dy * dy + dz * dz) > 4f; // >2m
+        }
         static ReplayObject? MatchReplay(string goName)
         {
             if (CurrentDoc == null || string.IsNullOrEmpty(goName)) return null;

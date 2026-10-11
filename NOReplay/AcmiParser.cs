@@ -180,7 +180,24 @@ namespace NOReplay
                         if (ParseTransform(val, ref sample, obj.Type, obj.Name))
                             hasPose = true;
                     }
-                    else if (key.Equals("LandingGear", StringComparison.OrdinalIgnoreCase))
+                    else if (key.Equals("Q", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var qb = val.Split('|');
+                        if (qb.Length >= 4
+                            && float.TryParse(qb[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var qx)
+                            && float.TryParse(qb[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var qy)
+                            && float.TryParse(qb[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var qz)
+                            && float.TryParse(qb[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var qw))
+                        {
+                            sample.HasQuat = true;
+                            sample.Qx = qx;
+                            sample.Qy = qy;
+                            sample.Qz = qz;
+                            sample.Qw = qw;
+                        }
+                    }
+                    else if (key.Equals("LandingGear", StringComparison.OrdinalIgnoreCase)
+                          || key.Equals("Gear", StringComparison.OrdinalIgnoreCase))
                     {
                         if (float.TryParse(val.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var g))
                         {
@@ -368,6 +385,17 @@ namespace NOReplay
             var bits = val.Split('|');
             if (bits.Length < 3) return false;
             bool any = false;
+
+            // New raw format: x|y|z
+            if (bits.Length == 3)
+            {
+                if (TryNum(bits, 0, out var rx)) { s.X = rx; any = true; }
+                if (TryNum(bits, 1, out var ry)) { s.Y = ry; any = true; }
+                if (TryNum(bits, 2, out var rz)) { s.Z = rz; any = true; }
+                return any;
+            }
+
+            // Legacy ACMI formats
             if (TryNum(bits, 2, out var alt)) { s.Y = alt; any = true; }
             if (bits.Length == 5)
             {

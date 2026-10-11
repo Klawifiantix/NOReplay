@@ -1,144 +1,127 @@
-﻿using HarmonyLib;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
-using System.Text;
 using UnityEngine;
 
 namespace NOReplay
 {
     internal class RecordShip : RecordUnit
     {
-        /*
-        private static readonly Dictionary<string, string> TYPES = new()
-        {
-            { "Shard Class Corvette", "Sea+Watercraft+Medium+Warship" },
-            { "Dynamo Class Destroyer", "Sea+Watercraft+Medium+Warship" },
-            { "Hyperion Class Carrier", "Sea+Watercraft+Heavy+AircraftCarrier" },
-            { "Annex Class Carrier", "Sea+Watercraft+Heavy+AircraftCarrier" },
-            { "OTB-31 landing craft", "Sea+Watercraft" }
-        };
-
-        private static readonly Dictionary<string, int> RANGES = new()
-        {
-            { "Shard Class Corvette", 15000 },
-            { "Dynamo Class Destroyer", 50000 },
-            { "Hyperion Class Carrier", 15000 }
-        };
-        */
-        private Unit?[] lastTarget;
         private Ship ship;
 
         public virtual void Init(Ship ship)
         {
             base.unit = ship;
-            this.ship = (Ship)base.unit;
+            this.ship = ship;
             base.unitId = ship.persistentID.Id;
             base.tacviewId = ship.persistentID.Id + 1;
             base.destroyedEvent = true;
             base.canTarget = true;
-            lastTarget = new Unit?[Math.Min(10, ship.weaponStations.Count)];
+            lastState = ship.unitState;
+
             Faction? faction = base.unit.NetworkHQ?.faction;
             string[] info = { "Default", "Sea+Watercraft", "0", "0" };
             if (Record.UnitInfo["ships"].ContainsKey(ship.definition.unitName))
             {
                 info = Record.UnitInfo["ships"][ship.definition.unitName];
             }
-            int range1 = 0;
-            int range2 = 0;
-            int winningRange = 0;
-            int.TryParse(info[2], out range1);
-            int.TryParse(info[3], out range2);
-            if (range1 > range2) { winningRange = range1; } else { winningRange = range2; }
 
             props = new Dictionary<string, string>()
             {
                 { "Name", base.unit.definition.unitName },
                 { "Coalition", faction?.factionName ?? "Neutral" },
-                { "CallSign", $"{ship.definition.unitName} {tacviewId:X}"},
+                { "CallSign", $"{ship.definition.unitName} {tacviewId:X}" },
                 { "Color", faction == null ? "Green" : (faction.factionName == "Boscali" ? "Blue" : "Red") },
                 { "Type", info[1] },
-                { "EngagementRange", winningRange.ToString(CultureInfo.InvariantCulture) },
-                { "Debug", lastState.ToString()}
+                { "Debug", lastState.ToString() }
             };
+
+            UpdatePose();
             Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
             props = [];
+
+            if (unit != null)
+            {
+                unit.onDisableUnit += OnUnitDisabled;
+                unit.onChangeFaction += OnFactionChanged;
+                unit.onRegisterMissile += OnMissileRegistered;
+            }
+
             this.enabled = true;
-            base.enabled = true;
         }
 
         public override void Update()
         {
-            if (!this.enabled || unit.disabled)
-            {
-                return;
-            }
+            if (!this.enabled || unit == null || unit.disabled) return;
+
             timer += Time.deltaTime;
-            if (timer < RecordConfig.vehicleUpdateDelta.Value)
-            {
-                return;
-            }
+            if (timer < RecordConfig.vehicleUpdateDelta.Value) return;
+
             UpdatePose();
-            UpdateTargets();
-            UpdateState();
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
+            if (props.Count > 0)
+            {
+                Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
+                props = [];
+            }
             timer = 0;
         }
 
-        internal override void UpdateTargets()
+        private void OnFactionChanged(Unit u)
         {
-            foreach (WeaponStation station in ship.weaponStations)
+            if (u != unit || unit.disabled) return;
+            string coalition = unit.NetworkHQ?.faction?.factionName ?? "Neutral";
+            props = new Dictionary<string, string> { { "Coalition", coalition } };
+            string color = coalition switch
             {
-                try
-                {
-                    targets.AddItem<Unit>(station.GetTurret().GetTarget());
-                }
-                catch
-                {
-                    //no target
-                }
-
-            }
-
-            if (targets.Any())
-            {
-                if (!lastTargets.Any())
-                {
-                    lastTargets = targets;
-                }
-                else
-                {
-                    if (lastTargets == targets)
-                    {
-                        return;
-                    }
-                }
-                lastTargets = targets;
-                int max = targets.Length;
-                if (max > 10)
-                {
-                    max = 10;
-                }
-                if (targets.Length > 1)
-                {
-
-                    for (int i = 0; i < max; i++)
-                    {
-                        if (i == 0)
-                        {
-                            lockedTargetString = "LockedTarget";
-                        }
-                        else
-                        {
-                            lockedTargetString = $"LockedTarget{i:X}";
-                        }
-                        props.Add(lockedTargetString, $"{GetTacviewIdOfUnit(targets[i].persistentID.Id):X}");
-                    }
-                }
-            }
-            targets = [];
+                "Boscali" => "Blue",
+                "Primeva" => "Red",
+                _ => "Green"
+            };
+            props.Add("Color", color);
+            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
+            props = [];
         }
+
+        private void OnMissileRegistered(Missile missile)
+        {
+            if (missile == null) return;
+            Record.Log?.LogDebug($"Ship {unitId:X} registered missile {missile.persistentID.Id:X}");
+        }
+
+        private void OnUnitDisabled(Unit u)
+        {
+            if (u != unit || base.disabled) return;
+            base.disabled = true;
+            props = new Dictionary<string, string>
+            {
+                { "Visible", "0.0" },
+                { "Type", null }
+            };
+            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
+            props = [];
+            if (base.destroyedEvent)
+                Record.Host.GetComponent<RecordEngine>().invokeWriterDestroy(this);
+
+            Unsubscribe();
+            this.enabled = false;
+            UnityEngine.Object.Destroy(this.gameObject);
+        }
+
+        private void Unsubscribe()
+        {
+            if (unit == null) return;
+            try
+            {
+                unit.onDisableUnit -= OnUnitDisabled;
+                unit.onChangeFaction -= OnFactionChanged;
+                unit.onRegisterMissile -= OnMissileRegistered;
+            }
+            catch { }
+        }
+
+        private void OnDestroy() => Unsubscribe();
+
+        public override void LateUpdate() { }
+        internal override void UpdateTargets() { }
     }
 }

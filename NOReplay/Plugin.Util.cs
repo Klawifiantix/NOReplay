@@ -210,9 +210,10 @@ namespace NOReplay
             if (obj.Samples.Count == 0) return false;
             if (IsAircraft(obj.Type, obj.Name)) return true;
             if (IsOrdnance(obj.Type, obj.Name)) return true;
-            if (IsScenery(obj.Type, obj.Name)) return true;
-            if (IsEmplacement(obj.Type, obj.Name)) return true;
-            if (IsBuilding(obj.Type, obj.Name)) return true;
+            // Statics are loaded natively via mission JSON + ReplayStaticHandler
+            if (IsScenery(obj.Type, obj.Name)) return false;
+            if (IsEmplacement(obj.Type, obj.Name)) return false;
+            if (IsBuilding(obj.Type, obj.Name)) return false;
             string t = obj.Type ?? "";
             if (t.IndexOf("Vehicle", StringComparison.OrdinalIgnoreCase) >= 0) return true;
             if (t == "Ground") return true;

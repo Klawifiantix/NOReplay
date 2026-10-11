@@ -91,6 +91,7 @@ namespace NOReplay
         Renderer[] _navRends = Array.Empty<Renderer>();
         bool _landLightsBound;
         float _prevX, _prevY, _prevZ, _prevT = -1f;
+        Vector3 _prevLocalPos;
         float _spdMs;
         Vector3 _velMs;
         bool _visible = true;
@@ -129,6 +130,70 @@ namespace NOReplay
         const float GroundVis = 2500f;
         bool _colsOff;
         static Camera? _cam;
+        public static readonly System.Collections.Generic.Dictionary<int, Vector3> Velocities = new System.Collections.Generic.Dictionary<int, Vector3>();
+        float _camTimer;
+        Vector3 _lastCamPos;
+
+        void CheckCameraReposition(Vector3 vel)
+        {
+            var cam = Camera.main;
+            if (cam == null || Drive == null) return;
+            Vector3 camPos = cam.transform.position;
+            Vector3 toCam = camPos - Drive.position;
+            // If target is flying away from camera (dot < 0)
+            if (Vector3.Dot(vel, toCam) < 0f)
+            {
+                _camTimer += Plugin.Clock.Speed * Time.deltaTime;
+                if (_camTimer > 4f)
+                {
+                    // Trigger reposition by calling GetTVCamPoint via reflection
+                    TriggerTVReposition(vel);
+                    _camTimer = 0f;
+                }
+            }
+            else
+            {
+                _camTimer = 0f;
+            }
+        }
+
+        void TriggerTVReposition(Vector3 vel)
+        {
+            var camType = Plugin.FindGameType("CameraStateManager");
+            if (camType == null) return;
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+            foreach (var cam in Resources.FindObjectsOfTypeAll(camType))
+            {
+                if (cam == null) continue;
+                var tv = camType.GetField("TVState", flags)?.GetValue(cam);
+                if (tv == null) continue;
+                var method = tv.GetType().GetMethod("GetTVCamPoint", flags);
+                if (method != null)
+                {
+                    method.Invoke(tv, new object[] { Drive.position, vel });
+                    Plugin.Log.LogInfo("TV reposition triggered");
+                }
+                break;
+            }
+        }
+
+        void LogCameraState()
+        {
+            var camType = Plugin.FindGameType("CameraStateManager");
+            if (camType == null) return;
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+            foreach (var cam in Resources.FindObjectsOfTypeAll(camType))
+            {
+                if (cam == null) continue;
+                var cur = camType.GetField("currentState", flags)?.GetValue(cam);
+                var tv = camType.GetField("TVState", flags)?.GetValue(cam);
+                var orbit = camType.GetField("orbitState", flags)?.GetValue(cam);
+                string state = cur == tv ? "TV" : cur == orbit ? "Orbit" : cur?.GetType().Name ?? "?";
+                Plugin.Log.LogInfo("CamState=" + state);
+                break;
+            }
+        }
+
         static int _camFrame;
 
         void DetectKind()
@@ -564,7 +629,7 @@ namespace NOReplay
                     || nm.IndexOf("Prop", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Swash", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Gear", StringComparison.OrdinalIgnoreCase) >= 0
-                    || nm.IndexOf("Wheel", StringComparison.OrdinalIgnoreCase) >= 0
+                    // Wheel not skipped - keep attached
                     || nm.IndexOf("Hinge", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Door", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Split", StringComparison.OrdinalIgnoreCase) >= 0
@@ -709,7 +774,13 @@ namespace NOReplay
                 _colsOff = true;
             }
             var p = Plugin.GlobalToLocal(s.X, s.Y, s.Z);
-            Quaternion q = Quaternion.Euler(-s.Pitch, s.Yaw, -s.Roll);
+            Quaternion q;
+            if (s.HasQuat)
+                q = new Quaternion(s.Qx, s.Qy, s.Qz, s.Qw);
+            else if (Track.Samples.Count > 0 && Track.Samples[0].HasQuat)
+                q = new Quaternion(Track.Samples[0].Qx, Track.Samples[0].Qy, Track.Samples[0].Qz, Track.Samples[0].Qw);
+            else
+                q = Quaternion.Euler(-s.Pitch, s.Yaw, -s.Roll);
             var drive = _drive != null ? _drive : transform;
             if (_air && Drive.childCount != _lastKids)
             {
@@ -718,6 +789,8 @@ namespace NOReplay
                 FreezePhysics();
             }
             drive.SetPositionAndRotation(p, q);
+            if (_air && Time.frameCount % 60 == 0)
+                Plugin.Log.LogInfo("Rot " + gameObject.name + " HasQuat=" + s.HasQuat + " q=" + q.eulerAngles);
             if (_air)
             {
                 if (!_surfBound) CaptureSurfaceRest();
@@ -738,10 +811,15 @@ namespace NOReplay
                 if (rb == null || IsIgnored(rb.transform)) continue;
                 rb.isKinematic = true;
                 rb.detectCollisions = false;
-                if (_ordnance)
-                    rb.velocity = (p - drive.position) / Mathf.Max(Time.deltaTime, 0.02f);
-                else
-                    rb.velocity = Vector3.zero;
+                // Set velocity from position delta for TV camera
+                var vel = (_prevT >= 0f) ? (p - _prevLocalPos) / Mathf.Max(Plugin.Clock.Time - _prevT, 0.02f) : Vector3.zero;
+                Velocities[GetInstanceID()] = vel;
+                rb.velocity = vel;
+                _prevLocalPos = p;
+                if (_air && gameObject == Plugin._ghost)
+                    CheckCameraReposition(vel);
+                if (_air && gameObject == Plugin._ghost && Time.frameCount % 120 == 0)
+                    Plugin.Log.LogInfo("RB.vel=" + rb.velocity + " fwd=" + drive.forward + " pos=" + Drive.position);
                 rb.angularVelocity = Vector3.zero;
             }
             _prevX = s.X;

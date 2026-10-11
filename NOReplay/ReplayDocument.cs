@@ -81,7 +81,12 @@ namespace NOReplay
                 HasTas = a.HasTas || b.HasTas,
                 Tas = a.HasTas ? a.Tas : b.Tas,
                 HasThrottle = a.HasThrottle || b.HasThrottle,
-                Throttle = a.HasThrottle ? a.Throttle : b.Throttle
+                Throttle = a.HasThrottle ? a.Throttle : b.Throttle,
+                HasQuat = a.HasQuat || b.HasQuat,
+                Qx = a.HasQuat ? Mathf.Lerp(a.Qx, b.Qx, u) : b.Qx,
+                Qy = a.HasQuat ? Mathf.Lerp(a.Qy, b.Qy, u) : b.Qy,
+                Qz = a.HasQuat ? Mathf.Lerp(a.Qz, b.Qz, u) : b.Qz,
+                Qw = a.HasQuat ? Mathf.Lerp(a.Qw, b.Qw, u) : b.Qw
             };
             return true;
         }
@@ -111,6 +116,8 @@ namespace NOReplay
         public float Time;
         public float X, Y, Z;
         public float Pitch, Yaw, Roll;
+        public bool HasQuat;
+        public float Qx, Qy, Qz, Qw;
         public bool HasGear;
         public float Gear;
         public bool HasTas;

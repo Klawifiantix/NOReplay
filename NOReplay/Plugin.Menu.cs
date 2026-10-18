@@ -224,6 +224,13 @@ namespace NOReplay
             if (GUI.Button(new Rect(x + 406, y + 36, 36, 18), "1x")) Clock.Speed = 1f;
             if (GUI.Button(new Rect(x + 444, y + 36, 36, 18), "2x")) Clock.Speed = 2f;
             if (GUI.Button(new Rect(x + 482, y + 36, 36, 18), "4x")) Clock.Speed = 4f;
+            if (GUI.Button(new Rect(x + 530, y + 36, 64, 18), TrailsOn ? "Trails: an" : "Trails: aus"))
+                TrailsOn = !TrailsOn;
+            float mins = TrailSeconds / 60f;
+            GUI.Label(new Rect(x + 600, y + 36, 52, 18), $"{mins:0.0}m");
+            float nextMin = GUI.HorizontalSlider(new Rect(x + 652, y + 40, 180, 16), mins, 0f, 10f);
+            if (Math.Abs(nextMin - mins) > 0.01f)
+                TrailSeconds = nextMin * 60f;
         }
 
         void StartSelectedReplay()

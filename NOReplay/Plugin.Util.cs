@@ -38,6 +38,11 @@ namespace NOReplay
         static Transform? _datum;
         static bool _datumLogged;
 
+        internal static Transform? Datum
+        {
+            get { EnsureDatum(); return _datum; }
+        }
+
         internal static void EnsureDatum()
         {
             if (_datum != null) return;

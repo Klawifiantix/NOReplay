@@ -98,6 +98,7 @@ namespace NOReplay
         bool _asleep;
         float _fold;
         bool _air;
+        LineRenderer? _trail;
         bool _ship;
         bool _ordnance;
         internal bool IsOrdnancePublic => _ordnance;
@@ -287,6 +288,11 @@ namespace NOReplay
 
         void OnDestroy()
         {
+            if (_trail != null)
+            {
+                UnityEngine.Object.Destroy(_trail.gameObject);
+                _trail = null;
+            }
             try
             {
                 Plugin.Log.LogInfo("GO weg " + name + " " + (Track != null ? Track.Name : "?")
@@ -703,6 +709,154 @@ namespace NOReplay
             }
         }
 
+        internal void UpdateTrail(float t, float lengthSec)
+        {
+            if (!_air)
+            {
+                HideTrail();
+                return;
+            }
+            bool dead = Track != null && Track.RemovedAt >= 0f && t >= Track.RemovedAt;
+            if (lengthSec <= 0.5f || dead || Track == null || Track.Samples.Count == 0)
+            {
+                HideTrail();
+                return;
+            }
+            EnsureTrail();
+            if (_trail == null) return;
+            float from = t - lengthSec;
+            var raw = new System.Collections.Generic.List<Vector3>(64);
+            var samples = Track.Samples;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                var s = samples[i];
+                if (s.Time < from) continue;
+                if (s.Time > t) break;
+                var p = new Vector3(s.X, s.Y, s.Z);
+                if (float.IsNaN(p.x) || float.IsNaN(p.y) || float.IsNaN(p.z)) continue;
+                raw.Add(p);
+            }
+            if (Track.TrySample(t, out var now))
+            {
+                var p = new Vector3(now.X, now.Y, now.Z);
+                if (!float.IsNaN(p.x)) raw.Add(p);
+            }
+            var pts = new System.Collections.Generic.List<Vector3>(raw.Count);
+            const float maxStep = 2500f;
+            for (int i = 0; i < raw.Count; i++)
+            {
+                if (pts.Count == 0) { pts.Add(raw[i]); continue; }
+                float d = Vector3.Distance(pts[pts.Count - 1], raw[i]);
+                if (d < 0.5f) continue;
+                if (d > maxStep) continue;
+                pts.Add(raw[i]);
+            }
+            if (pts.Count < 2)
+            {
+                if (_trail.positionCount >= 2) return;
+                HideTrail();
+                return;
+            }
+            _trail.positionCount = 0;
+            _trail.positionCount = pts.Count;
+            for (int i = 0; i < pts.Count; i++)
+                _trail.SetPosition(i, pts[i]);
+            _trail.enabled = true;
+            var col = FactionTrailColor(Track.Coalition);
+            _trail.startColor = col;
+            _trail.endColor = col;
+            ApplyTrailColor(col);
+        }
+
+        void EnsureTrail()
+        {
+            if (_trail != null) return;
+            var go = new GameObject("NOReplay_Trail");
+            var datum = Plugin.Datum;
+            go.transform.SetParent(datum != null ? datum : null, false);
+            _trail = go.AddComponent<LineRenderer>();
+            _trail.useWorldSpace = false;
+            _trail.widthMultiplier = 8f;
+            _trail.numCornerVertices = 4;
+            _trail.numCapVertices = 4;
+            _trail.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            _trail.receiveShadows = false;
+            _trail.alignment = LineAlignment.View;
+            _trail.textureMode = LineTextureMode.Stretch;
+            var sh = Shader.Find("Universal Render Pipeline/Unlit")
+                     ?? Shader.Find("Unlit/Color")
+                     ?? Shader.Find("Hidden/Internal-Colored")
+                     ?? Shader.Find("Sprites/Default");
+            if (sh != null && sh.name.IndexOf("Particle", StringComparison.OrdinalIgnoreCase) >= 0)
+                sh = Shader.Find("Sprites/Default") ?? sh;
+            if (sh != null)
+            {
+                var mat = new Material(sh) { hideFlags = HideFlags.HideAndDontSave };
+                mat.SetOverrideTag("RenderType", "Opaque");
+                mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
+                mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);
+                mat.SetInt("_ZWrite", 1);
+                mat.DisableKeyword("_ALPHABLEND_ON");
+                mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+                mat.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
+                mat.color = Color.white;
+                if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", Color.white);
+                if (mat.HasProperty("_Color")) mat.SetColor("_Color", Color.white);
+                if (mat.HasProperty("_EmissionColor"))
+                {
+                    mat.EnableKeyword("_EMISSION");
+                    mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+                    mat.SetColor("_EmissionColor", Color.white * 2f);
+                }
+                _trail.material = mat;
+                Plugin.Log?.LogInfo("Trail-Shader " + sh.name);
+            }
+            else Plugin.Log?.LogWarning("Trail: kein Shader");
+            _trail.startWidth = 8f;
+            _trail.endWidth = 6f;
+        }
+
+        void ApplyTrailColor(Color col)
+        {
+            if (_trail == null || _trail.material == null) return;
+            var mat = _trail.material;
+            mat.color = col;
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", col);
+            if (mat.HasProperty("_Color")) mat.SetColor("_Color", col);
+            if (mat.HasProperty("_EmissionColor"))
+                mat.SetColor("_EmissionColor", col * 2.2f);
+        }
+
+        void HideTrail()
+        {
+            if (_trail != null) _trail.enabled = false;
+        }
+
+        static Color FactionTrailColor(string? coal)
+        {
+            string c = coal ?? "";
+            if (c.IndexOf("Primeva", StringComparison.OrdinalIgnoreCase) >= 0)
+                return new Color(1f, 0.48f, 0.05f, 1f);
+            if (c.IndexOf("Boscali", StringComparison.OrdinalIgnoreCase) >= 0)
+                return new Color(0.2f, 0.55f, 1f, 1f);
+            return new Color(0.85f, 0.85f, 0.85f, 1f);
+        }
+
+        internal void TryBoom(float t)
+        {
+            if (_boomed || !_ordnance || IsFlareTrack() || Track == null) return;
+            float end = Track.RemovedAt;
+            if (end < 0f && Track.Samples != null && Track.Samples.Count > 0)
+                end = Track.Samples[Track.Samples.Count - 1].Time;
+            if (end < 0f || t < end) return;
+            _boomed = true;
+            Plugin.Log?.LogInfo("Boom-Trigger " + (Track.Name ?? name)
+                + " removed=" + end.ToString("0.00") + " t=" + t.ToString("0.00"));
+            PlayWarheadBoom(transform.position);
+            SetGhostVisible(false);
+        }
+
         internal bool IsTrackAlive()
         {
             if (Track == null || Track.Samples == null || Track.Samples.Count == 0)
@@ -712,7 +866,10 @@ namespace NOReplay
             float born = Track.Samples[0].Time;
             if (Track.SpawnAt > born) born = Track.SpawnAt;
             if (t < born) return false;
-            if (Track.RemovedAt >= 0f && t > Track.RemovedAt) return false;
+            if (Track.RemovedAt >= 0f && t >= Track.RemovedAt) return false;
+            if (Track.RemovedAt < 0f && Track.Samples.Count > 0
+                && t >= Track.Samples[Track.Samples.Count - 1].Time + 0.05f)
+                return false;
             return true;
         }
 
@@ -721,12 +878,19 @@ namespace NOReplay
             if (Track == null) return;
             if (!IsTrackAlive())
             {
-                if (!_boomed && Track.RemovedAt >= 0f
-                    && Plugin.Clock.Time >= Track.RemovedAt)
+                float end = Track.RemovedAt;
+                if (end < 0f && Track.Samples.Count > 0)
+                    end = Track.Samples[Track.Samples.Count - 1].Time;
+                if (!_boomed && (end < 0f || Plugin.Clock.Time >= end))
                 {
                     _boomed = true;
                     if (_ordnance && !IsFlareTrack())
+                    {
+                        Plugin.Log?.LogInfo("Boom-Trigger " + (Track.Name ?? name)
+                            + " removed=" + Track.RemovedAt.ToString("0.00")
+                            + " t=" + Plugin.Clock.Time.ToString("0.00"));
                         PlayWarheadBoom(transform.position);
+                    }
                     else if (!_ordnance)
                         PlayUnitWreckFx(transform.position, transform.rotation);
                 }
@@ -800,8 +964,9 @@ namespace NOReplay
             if (!_ordnance && !_neutral) AimGuns();
             if (_ordnance && _prevT >= 0f && Plugin.Clock.Time + 0.05f < _prevT)
             {
-                _ordAudioOn = false;
-                _ordVoiceHeld = false;
+                StopOrdnanceAudio();
+                _startupPlayed = false;
+                _nextVoiceTry = 0f;
             }
             if (_ordnance && _visible && !_ordAudioOn) IgniteMissileFx();
             if (_ordnance) LateOrdnanceAudio();

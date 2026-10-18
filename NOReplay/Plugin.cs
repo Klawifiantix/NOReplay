@@ -33,6 +33,8 @@ namespace NOReplay
         bool _seenWorld;
         bool _pendingOfficialStart;
         bool _timelineHidden;
+        internal static bool TrailsOn;
+        internal static float TrailSeconds = 60f;
         static bool _holdClock;
         Vector2 _pickerScroll;
         internal static ConfigEntry<string>? ReplayFolder;
@@ -187,6 +189,8 @@ namespace NOReplay
                 }
                 TickGhostSpawns();
                 TickGhostSleep();
+                TickMissileBooms();
+                TickTrails();
                 WarmOrdnance();
                 ShellReplay.Tick(CurrentDoc, Clock.Time);
                 TickPanel();
@@ -202,6 +206,35 @@ namespace NOReplay
         }
 
         float _panelAt;
+
+        void TickMissileBooms()
+        {
+            if (_ghosts == null) return;
+            float t = Clock.Time;
+            for (int i = 0; i < _ghosts.Count; i++)
+            {
+                var go = _ghosts[i];
+                if (go == null) continue;
+                var rg = go.GetComponent<ReplayGhost>();
+                if (rg == null || !rg.IsOrdnancePublic) continue;
+                rg.TryBoom(t);
+            }
+        }
+
+        void TickTrails()
+        {
+            if (_ghosts == null) return;
+            float t = Clock.Time;
+            float len = TrailsOn ? TrailSeconds : 0f;
+            for (int i = 0; i < _ghosts.Count; i++)
+            {
+                var go = _ghosts[i];
+                if (go == null) continue;
+                var rg = go.GetComponent<ReplayGhost>();
+                if (rg == null) continue;
+                rg.UpdateTrail(t, len);
+            }
+        }
 
         void TickPanel()
         {

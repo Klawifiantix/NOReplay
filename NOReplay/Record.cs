@@ -35,6 +35,8 @@ namespace NOReplay
                 go.hideFlags = HideFlags.HideAndDontSave;
                 Hud = go.AddComponent<RecLabel>();
             }
+            try { RecordListener.Install(); }
+            catch (Exception ex) { Plugin.Log.LogError("RecordListener.Install: " + ex); }
             Plugin.Log.LogInfo("Aufnahme bereit. F8 startet und stoppt.");
         }
 

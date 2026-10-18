@@ -123,8 +123,6 @@ namespace NOReplay
                         var src = sources.GetValue(0);
                         var st = src.GetType();
                         st.GetProperty("mute")?.SetValue(src, false);
-                        st.GetProperty("spatialBlend")?.SetValue(src, 1f);
-                        st.GetProperty("volume")?.SetValue(src, 1f);
                         var play = st.GetMethod("PlayOneShot", new[] { clips.GetValue(0).GetType() });
                         play?.Invoke(src, new[] { clips.GetValue(0) });
                     }
@@ -149,7 +147,6 @@ namespace NOReplay
             var st = _loopSrc.GetType();
             var playing = st.GetProperty("isPlaying")?.GetValue(_loopSrc) as bool? ?? false;
             st.GetProperty("mute")?.SetValue(_loopSrc, !near);
-            st.GetProperty("volume")?.SetValue(_loopSrc, near ? 1f : 0f);
             if (!near) st.GetMethod("Stop", Type.EmptyTypes)?.Invoke(_loopSrc, null);
             else if (!playing) st.GetMethod("Play", Type.EmptyTypes)?.Invoke(_loopSrc, null);
         }

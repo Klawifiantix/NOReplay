@@ -21,7 +21,11 @@ namespace NOReplay
                 var recorder = Record.Host?.GetComponent<RecordEngine>();
                 if (recorder == null) return;
                 var burst = Begin(gun, recorder);
-                if (burst != null) _open[id] = burst;
+                if (burst != null)
+                {
+                    _open[id] = burst;
+                    Record.Log?.LogInfo("GunBurst start " + (gun.attachedUnit?.unitName ?? "?"));
+                }
             }
         }
         Gun[] _guns = Array.Empty<Gun>();
@@ -36,6 +40,7 @@ namespace NOReplay
 
         void Awake()
         {
+            Instance = this;
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             _ticks = typeof(Gun).GetField("ticksSinceTriggerPull", flags);
             _muzzles = typeof(Gun).GetField("muzzles", flags);
@@ -48,35 +53,27 @@ namespace NOReplay
 
         void Update()
         {
-            _scan += Time.deltaTime;
-            if (_scan > 0.5f)
-            {
-                _scan = 0f;
-                _guns = UnityEngine.Object.FindObjectsOfType<Gun>();
-            }
-            var recorder = Record.Host.GetComponent<RecordEngine>();
+            // Fallback polling removed. Bursts are started only via NotifyFire (Harmony on Gun.SpawnBullet).
+            // Here we only update aim and end bursts that have stopped.
+            if (_open.Count == 0) return;
+            var recorder = Record.Host?.GetComponent<RecordEngine>();
+            if (recorder == null) return;
             float now = Time.time;
-            var seen = new HashSet<int>();
-            for (int i = 0; i < _guns.Length; i++)
+            var toEnd = new List<int>();
+            foreach (var pair in _open)
             {
-                var gun = _guns[i];
-                if (gun == null || gun.attachedUnit == null) continue;
-                int id = gun.GetInstanceID();
-                seen.Add(id);
+                var burst = pair.Value;
+                var gun = burst.Gun;
+                if (gun == null)
+                {
+                    toEnd.Add(pair.Key);
+                    continue;
+                }
                 bool firing = false;
                 if (_lastFired?.GetValue(gun) is float fired)
                     firing = Time.timeSinceLevelLoad - fired < 0.5f;
                 else if (_ticks?.GetValue(gun) is int ticks)
                     firing = ticks > 0;
-                else
-                    firing = gun.isActiveAndEnabled && gun.gameObject.activeInHierarchy;
-                if (!_open.TryGetValue(id, out var burst))
-                {
-                    if (!firing) continue;
-                    burst = Begin(gun, recorder);
-                    if (burst == null) continue;
-                    _open[id] = burst;
-                }
                 if (firing)
                 {
                     if (now - burst.LastAim >= 0.1f)
@@ -84,17 +81,16 @@ namespace NOReplay
                 }
                 else if (now - burst.LastAim > 0.15f)
                 {
-                    End(burst);
-                    _open.Remove(id);
+                    toEnd.Add(pair.Key);
                 }
             }
-            var stale = new List<int>();
-            foreach (var pair in _open)
-                if (!seen.Contains(pair.Key)) stale.Add(pair.Key);
-            for (int i = 0; i < stale.Count; i++)
+            foreach (var id in toEnd)
             {
-                End(_open[stale[i]]);
-                _open.Remove(stale[i]);
+                if (_open.TryGetValue(id, out var b))
+                {
+                    End(b);
+                    _open.Remove(id);
+                }
             }
         }
 

@@ -36,6 +36,11 @@ namespace NOReplay
 
 
         static int _missileVoices;
+        static int _nextVoiceSeq;
+        static float _nextStartupAt;
+        static readonly System.Collections.Generic.List<ReplayGhost> _voiceHolders = new();
+        int _voiceSeq;
+        float _nextVoiceTry;
         object? _flightSrc;
         object? _detonateClip;
 
@@ -81,6 +86,8 @@ namespace NOReplay
             var mt = Plugin.FindGameType("Missile");
             object? missile = mt != null ? (GetComponent(mt) ?? GetComponentInChildren(mt, true)) : null;
             if (missile == null || mt == null) return;
+            if (!_ordVoiceHeld)
+                ApplyMissileAudio(missile, mt);
             DriveMissileAudio(missile, mt);
         }
 
@@ -132,14 +139,7 @@ namespace NOReplay
             if (flight != null)
             {
                 var ft = flight.GetType();
-                bool flightLoop = true;
-                try { if (ft.GetProperty("loop")?.GetValue(flight) is bool lb) flightLoop = lb; } catch { }
                 ft.GetProperty("mute")?.SetValue(flight, false);
-                ft.GetProperty("loop")?.SetValue(flight, flightLoop);
-                ft.GetProperty("spatialBlend")?.SetValue(flight, 1f);
-                ft.GetProperty("dopplerLevel")?.SetValue(flight, 0f);
-                ft.GetProperty("minDistance")?.SetValue(flight, 15f);
-                ft.GetProperty("maxDistance")?.SetValue(flight, 1600f);
                 float vol = 0f;
                 try { if (ft.GetProperty("volume")?.GetValue(flight) is float v) vol = v; } catch { }
                 ft.GetProperty("volume")?.SetValue(flight, vol < num ? Mathf.Min(num, vol + Time.deltaTime) : num);
@@ -161,8 +161,6 @@ namespace NOReplay
                     {
                         var st = start.GetType();
                         st.GetProperty("mute")?.SetValue(start, false);
-                        st.GetProperty("loop")?.SetValue(start, false);
-                        st.GetProperty("volume")?.SetValue(start, 1f);
                         bool sp = false;
                         try { sp = st.GetProperty("isPlaying")?.GetValue(start) is bool b && b; } catch { }
                         if (!sp) st.GetMethod("Play", Type.EmptyTypes)?.Invoke(start, null);
@@ -175,14 +173,7 @@ namespace NOReplay
                     {
                         if (s == null || ReferenceEquals(s, start)) continue;
                         var st = s.GetType();
-                        bool loop = false;
-                        try { if (st.GetProperty("loop")?.GetValue(s) is bool b) loop = b; } catch { }
                         st.GetProperty("mute")?.SetValue(s, false);
-                        st.GetProperty("loop")?.SetValue(s, loop);
-                        st.GetProperty("spatialBlend")?.SetValue(s, 1f);
-                        st.GetProperty("volume")?.SetValue(s, 0.8f);
-                        st.GetProperty("minDistance")?.SetValue(s, 15f);
-                        st.GetProperty("maxDistance")?.SetValue(s, 1600f);
                         bool playing = false;
                         try { playing = st.GetProperty("isPlaying")?.GetValue(s) is bool pb && pb; } catch { }
                         if (!playing) st.GetMethod("Play", Type.EmptyTypes)?.Invoke(s, null);
@@ -286,6 +277,13 @@ namespace NOReplay
             return int.TryParse(parent, System.Globalization.NumberStyles.HexNumber, null, out var mine) && mine == _ownerId && _ownerId != 0;
         }
 
+        bool TryClaimMissileVoice()
+        {
+            if (_ordVoiceHeld) return true;
+            _ordVoiceHeld = true;
+            return true;
+        }
+
         void ApplyMissileAudio(object missile, Type mt)
         {
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
@@ -295,11 +293,9 @@ namespace NOReplay
                 return;
             }
             if (_ordVoiceHeld) return;
-            if (!Plugin.IsFollowed(gameObject) && _missileVoices >= 4) return;
+            if (!TryClaimMissileVoice()) return;
             try { _flightSrc = mt.GetField("flightSound", flags)?.GetValue(missile); } catch { }
             try { _detonateClip = mt.GetField("nearbyDetonationClip", flags)?.GetValue(missile); } catch { }
-            _missileVoices++;
-            _ordVoiceHeld = true;
             try
             {
                 var motors = mt.GetField("motors", flags)?.GetValue(missile) as Array;
@@ -310,8 +306,12 @@ namespace NOReplay
                         if (motor == null) continue;
                         var tt = motor.GetType();
                         var start = tt.GetField("startupSource", flags)?.GetValue(motor);
-                        if (start != null)
-                            PlaySrc(start, 1f, loop: false, restart: true);
+                        if (start != null && !_startupPlayed)
+                        {
+                            start.GetType().GetProperty("mute")?.SetValue(start, false);
+                            start.GetType().GetMethod("Play", Type.EmptyTypes)?.Invoke(start, null);
+                            _startupPlayed = true;
+                        }
                         var srcs = tt.GetField("audioSources", flags)?.GetValue(motor) as Array;
                         if (srcs == null) continue;
                         foreach (var s in srcs)
@@ -331,18 +331,25 @@ namespace NOReplay
                                 tag = ((cl != null ? cl.ToString() : "") + " " + (s as Component)?.name).ToLowerInvariant();
                             }
                             catch { }
-                            if (tag.IndexOf("launch") >= 0 || tag.IndexOf("fire") >= 0
-                                || tag.IndexOf("shot") >= 0 || tag.IndexOf("ignit") >= 0
-                                || tag.IndexOf("start") >= 0)
-                                loop = false;
-                            PlaySrc(s, 0.7f, loop, restart: !loop ? false : true);
+                            // Prefab decides loop/volume/distance. Just ensure it plays.
+                            var st = s.GetType();
+                            st.GetProperty("mute")?.SetValue(s, false);
+                            bool playing = false;
+                            try { playing = st.GetProperty("isPlaying")?.GetValue(s) is bool b && b; } catch { }
+                            if (!playing) st.GetMethod("Play", Type.EmptyTypes)?.Invoke(s, null);
                         }
                     }
                 }
             }
             catch { }
             if (_flightSrc != null)
-                PlaySrc(_flightSrc, 0.65f, loop: true, restart: true);
+            {
+                var ft = _flightSrc.GetType();
+                ft.GetProperty("mute")?.SetValue(_flightSrc, false);
+                bool fp = false;
+                try { fp = ft.GetProperty("isPlaying")?.GetValue(_flightSrc) is bool b && b; } catch { }
+                if (!fp) ft.GetMethod("Play", Type.EmptyTypes)?.Invoke(_flightSrc, null);
+            }
         }
 
         static void PlaySrc(object? src, float vol, bool loop, bool restart = true)
@@ -408,8 +415,7 @@ namespace NOReplay
 
         void StopOrdnanceAudio()
         {
-            if (!_ordAudioOn) return;
-            if (_ordVoiceHeld && _missileVoices > 0) _missileVoices--;
+            if (!_ordAudioOn && !_ordVoiceHeld) return;
             _ordVoiceHeld = false;
             var at = Type.GetType("UnityEngine.AudioSource, UnityEngine.AudioModule")
                      ?? Plugin.FindGameType("AudioSource");
@@ -506,6 +512,7 @@ namespace NOReplay
 
         void PlayWarheadBoom(Vector3 pos)
         {
+            Plugin.Log?.LogInfo("Boom " + gameObject.name + " at " + pos);
             var mt = Plugin.FindGameType("Missile");
             object? missile = mt != null ? (GetComponent(mt) ?? GetComponentInChildren(mt, true)) : null;
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
@@ -590,9 +597,11 @@ namespace NOReplay
             }
             if (fx != null)
             {
+                Plugin.Log?.LogInfo("Boom-FX " + fx.name + " for " + gameObject.name);
                 var go = UnityEngine.Object.Instantiate(fx, pos, Quaternion.identity);
                 go.name = "NOReplay_Boom";
                 go.transform.SetParent(null, true);
+                go.SetActive(true);
                 PlayParticles(go);
                 foreach (var c in go.GetComponentsInChildren<MonoBehaviour>(true))
                 {
@@ -602,6 +611,7 @@ namespace NOReplay
                 UnityEngine.Object.Destroy(go, 12f);
                 return;
             }
+            Plugin.Log?.LogWarning("Boom kein Effekt für " + gameObject.name);
         }
 
         static void MuteBoomAudio(GameObject go)

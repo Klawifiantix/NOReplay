@@ -623,9 +623,71 @@ namespace NOReplay
                 }
             }
             UnityEngine.Object.Destroy(go, 8f);
+            PlayFlareEjectSound(host, launch);
             if (_flareFxLog < 12)
                 Log.LogInfo("Flare " + launch.name + " seite=" + (_flareSide % Math.Max(1, points.Count)));
             return true;
+        }
+
+        static void PlayFlareEjectSound(GameObject host, Transform launch)
+        {
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var ejectType = FindGameType("FlareEjector");
+            if (ejectType == null) return;
+            var ejectors = host.GetComponentsInChildren(ejectType, true);
+            if (ejectors == null || ejectors.Length == 0) return;
+            object? clip = null;
+            float vol = 1f;
+            foreach (var ej in ejectors)
+            {
+                clip = ej.GetType().GetField("ejectionSound", flags)?.GetValue(ej);
+                var v = ej.GetType().GetField("ejectionVolume", flags)?.GetValue(ej);
+                if (v is float f && f > 0f) vol = f;
+                if (clip != null) break;
+            }
+            if (clip == null) return;
+            var at = Type.GetType("UnityEngine.AudioSource, UnityEngine.AudioModule")
+                     ?? FindGameType("AudioSource");
+            if (at == null) return;
+            // Prefer the source the ejector already uses; only create if missing, then assign mixer like the game.
+            var src = launch.gameObject.GetComponent(at);
+            bool created = false;
+            if (src == null)
+            {
+                src = launch.gameObject.AddComponent(at);
+                created = true;
+            }
+            if (src == null) return;
+            try
+            {
+                if (created)
+                {
+                    var sm = FindGameType("SoundManager");
+                    object? mixer = null;
+                    if (sm != null)
+                    {
+                        var inst = sm.GetProperty("i", BindingFlags.Static | BindingFlags.Public)?.GetValue(null);
+                        mixer = inst?.GetType().GetField("EffectsMixer")?.GetValue(inst);
+                    }
+                    if (mixer != null)
+                        src.GetType().GetProperty("outputAudioMixerGroup")?.SetValue(src, mixer);
+                    src.GetType().GetProperty("spatialBlend")?.SetValue(src, 1f);
+                    src.GetType().GetProperty("dopplerLevel")?.SetValue(src, 0f);
+                    src.GetType().GetProperty("minDistance")?.SetValue(src, 5f);
+                    src.GetType().GetProperty("maxDistance")?.SetValue(src, 40f);
+                }
+                src.GetType().GetProperty("mute")?.SetValue(src, false);
+                var playOne = src.GetType().GetMethod("PlayOneShot", new[] { clip.GetType(), typeof(float) })
+                           ?? src.GetType().GetMethod("PlayOneShot", new[] { clip.GetType() });
+                if (playOne != null)
+                {
+                    if (playOne.GetParameters().Length == 2)
+                        playOne.Invoke(src, new object[] { clip, vol });
+                    else
+                        playOne.Invoke(src, new object[] { clip });
+                }
+            }
+            catch { }
         }
 
         static void SpawnFlareOrb(Vector3 pos)

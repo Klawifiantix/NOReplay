@@ -61,6 +61,11 @@ namespace NOReplay
                     acmi = new GameObject();
                     acmi.AddComponent<RecordBuilding>().Init(building);
                     break;
+                case Missile missile:
+                    acmi = new GameObject();
+                    acmi.AddComponent<RecordMissile>().Init(missile);
+                    Record.Log?.LogInfo("Listener: Missile " + (missile.definition?.unitName ?? "?"));
+                    break;
             }
             if (acmi != null)
                 unitObjects.Add(unit.persistentID.Id, acmi);
@@ -91,6 +96,10 @@ namespace NOReplay
                     case Building building:
                         acmi = new GameObject();
                         acmi.AddComponent<RecordBuilding>().Init(building);
+                        break;
+                    case Missile missile:
+                        acmi = new GameObject();
+                        acmi.AddComponent<RecordMissile>().Init(missile);
                         break;
                 }
                 if (acmi != null)
@@ -140,6 +149,8 @@ namespace NOReplay
         void Update()
         {
             curTime += TimeSpan.FromSeconds(Time.deltaTime);
+            if (GetComponent<RecordGunBurst>() == null)
+                gameObject.AddComponent<RecordGunBurst>();
             if (!units.Any())
             {
                 return;
@@ -252,9 +263,6 @@ namespace NOReplay
             {
                 processBulletSims = false;
             }
-            if (GetComponent<RecordGunBurst>() == null)
-                gameObject.AddComponent<RecordGunBurst>();
-
             if (processShockWaves)
             {
                 foreach (Shockwave wave in shockwaves)
@@ -280,10 +288,12 @@ namespace NOReplay
             {
                 processShockWaves = ShockWaveDiscovery();
             }
-            if (unitDiscoveryTimer >= RecordConfig.unitDiscoveryDelta.Value)
-            {
-                processUnits = UnitDiscovery();
-            }
+            // Unit discovery is now event-driven via RecordListener (UnitRegistry.RegisterUnit).
+            // Periodic FindObjectsByType scan disabled.
+            // if (unitDiscoveryTimer >= RecordConfig.unitDiscoveryDelta.Value)
+            // {
+            //     processUnits = UnitDiscovery();
+            // }
             if (bulletSimDiscoveryTimer >= RecordConfig.bulletSimDiscoveryDelta.Value)
             {
                 processBulletSims = BulletSimDiscovery();

@@ -41,11 +41,19 @@ namespace NOReplay
             base.unitId = missile.persistentID.Id;
             base.tacviewId = missile.persistentID.Id + 1;
             base.canTarget = true;
-            string[] info = { "Default", "Weapon" };
+            string[] info = { "Default", "Weapon+Missile" };
             if (Record.UnitInfo["missiles"].ContainsKey(missile.definition.code))
             {
                 info = Record.UnitInfo["missiles"][missile.definition.code];
             }
+            string code = missile.definition?.code ?? "";
+            if (TYPES.TryGetValue(code, out var mapped))
+                info[1] = mapped;
+            else if ((missile.definition?.unitName ?? "").IndexOf("Bomb", StringComparison.OrdinalIgnoreCase) >= 0
+                     || code.IndexOf("BOMB", StringComparison.OrdinalIgnoreCase) >= 0)
+                info[1] = "Weapon+Bomb";
+            else
+                info[1] = "Weapon+Missile";
             if (unit.unitName.EndsWith("kt)"))
             {
                 base.destroyedEvent = true;
@@ -74,9 +82,45 @@ namespace NOReplay
             this.enabled = true;
             base.enabled = true;
         }
+        bool _deathWritten;
+
+        void WriteDeath()
+        {
+            if (_deathWritten || !this.enabled) return;
+            _deathWritten = true;
+            try
+            {
+                props.Add("Visible", "0.0");
+                props.Add("Type", null);
+                Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
+                props = [];
+                Record.Host.GetComponent<RecordEngine>().invokeWriterRemove(this);
+                Record.Log?.LogInfo("Missile tot " + (missile != null ? missile.definition.unitName : "?")
+                    + " id=" + tacviewId.ToString("X"));
+            }
+            catch { }
+            this.enabled = false;
+        }
+
+        void OnDisable()
+        {
+            WriteDeath();
+        }
+
+        void OnDestroy()
+        {
+            WriteDeath();
+        }
+
         public override void Update()
         {
-            if (!this.enabled || unit.disabled)
+            if (_deathWritten) return;
+            if (unit != null && unit.disabled)
+            {
+                WriteDeath();
+                return;
+            }
+            if (!this.enabled)
             {
                 return;
             }
@@ -95,6 +139,21 @@ namespace NOReplay
 
         void UpdateMissile()
         {
+            try
+            {
+                var wf = typeof(Missile).GetField("warhead", BindingFlags.NonPublic | BindingFlags.Instance);
+                var wh = wf?.GetValue(missile);
+                if (wh != null)
+                {
+                    var det = wh.GetType().GetField("detonated", BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(wh);
+                    if (det is bool d && d)
+                    {
+                        WriteDeath();
+                        return;
+                    }
+                }
+            }
+            catch { }
             //warheadField = typeof(Missile).GetField("warhead", BindingFlags.NonPublic | BindingFlags.Instance);
             //object warheadInstance = warheadField.GetValue(unit);
             //Type warheadType = warheadInstance.GetType();

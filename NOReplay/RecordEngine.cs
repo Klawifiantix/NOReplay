@@ -97,6 +97,10 @@ namespace NOReplay
                         acmi = new GameObject();
                         acmi.AddComponent<RecordBuilding>().Init(building);
                         break;
+                    case Scenery scenery:
+                        acmi = new GameObject();
+                        acmi.AddComponent<RecordScenery>().Init(scenery);
+                        break;
                     case Missile missile:
                         acmi = new GameObject();
                         acmi.AddComponent<RecordMissile>().Init(missile);

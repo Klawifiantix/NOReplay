@@ -7,6 +7,12 @@ namespace NOReplay
     {
         public string Title = "";
         public string MapId = "";
+        public float TimeOfDay = -1f;
+        public float Conditions = -1f;
+        public float CloudHeight = -1f;
+        public float WindSpeed = -1f;
+        public float WindTurbulence = -1f;
+        public float MoonPhase = -1f;
         public string DataRecorder = "";
         public float Duration;
         public List<ReplayObject> Objects = new List<ReplayObject>();

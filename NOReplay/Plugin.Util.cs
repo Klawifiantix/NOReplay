@@ -50,6 +50,7 @@ namespace NOReplay
             if (_datum == null || _datumLogged) return;
             _datumLogged = true;
             Log.LogInfo("Datum bereit " + _datum.position.ToString("F0"));
+            if (CurrentDoc != null) ApplyWeather(CurrentDoc);
         }
 
         internal static Vector3 GlobalToLocal(float gx, float gy, float gz)

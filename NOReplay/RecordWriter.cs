@@ -62,6 +62,21 @@ namespace NOReplay
                     initProps.Add("Briefing", briefing);
             }
             */
+            try
+            {
+                var li = UnityEngine.Object.FindObjectOfType<LevelInfo>();
+                if (li != null)
+                {
+                    initProps.Add("TimeOfDay", li.timeOfDay.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+                    initProps.Add("Conditions", li.conditions.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+                    initProps.Add("CloudHeight", li.cloudHeight.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+                    initProps.Add("WindSpeed", li.windSpeed.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+                    initProps.Add("WindTurbulence", li.windTurbulence.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+                    if (li.moonPhase.HasValue)
+                        initProps.Add("MoonPhase", li.moonPhase.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+                }
+            }
+            catch { }
             output.WriteLine($"0,{StringifyProps(initProps)}");
             output.Flush();
 

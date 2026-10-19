@@ -348,7 +348,7 @@ namespace NOReplay
             if (_air && !_gearStartChecked && Physics.Raycast(transform.position + Vector3.up * 4f, Vector3.down, out var ground, 1200f, ~0, QueryTriggerInteraction.Ignore))
             {
                 _gearStartChecked = true;
-                _startedAir = ground.distance > 18f;
+                _startedAir = ground.distance > 2f;
                 if (_startedAir) _fold = 1f;
             }
             if (s.HasGear)
@@ -363,7 +363,7 @@ namespace NOReplay
             }
             bool gearDown = _haveGearAcmi ? _gearFromAcmi : !airborne;
             // Respect ACMI gear state – do not override with height check
-            if (!_haveGearAcmi && _startedAir && gearDown && Physics.Raycast(transform.position + Vector3.up * 4f, Vector3.down, out var still, 1200f, ~0, QueryTriggerInteraction.Ignore) && still.distance > 18f)
+            if (!_haveGearAcmi && _startedAir && gearDown && Physics.Raycast(transform.position + Vector3.up * 4f, Vector3.down, out var still, 1200f, ~0, QueryTriggerInteraction.Ignore) && still.distance > 2f)
                 gearDown = false;
             if (_startedAir && !gearDown) _fold = 1f;
             ApplyReplayGear(gearDown);

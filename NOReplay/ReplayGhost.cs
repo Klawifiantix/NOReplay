@@ -711,7 +711,7 @@ namespace NOReplay
 
         internal void UpdateTrail(float t, float lengthSec)
         {
-            if (!_air)
+            if (!_air && !_ordnance)
             {
                 HideTrail();
                 return;
@@ -762,6 +762,11 @@ namespace NOReplay
             for (int i = 0; i < pts.Count; i++)
                 _trail.SetPosition(i, pts[i]);
             _trail.enabled = true;
+            float w = _ordnance ? 2f : 8f;
+            _trail.widthMultiplier = w;
+            _trail.widthCurve = AnimationCurve.Constant(0f, 1f, 1f);
+            if (Track != null && Track.Name != null && Track.Name.IndexOf("MMR", StringComparison.OrdinalIgnoreCase) >= 0)
+                Plugin.Log.LogInfo("Trail-W " + Track.Name + " ord=" + _ordnance + " w=" + w);
             var col = FactionTrailColor(Track.Coalition);
             _trail.startColor = col;
             _trail.endColor = col;
@@ -776,7 +781,7 @@ namespace NOReplay
             go.transform.SetParent(datum != null ? datum : null, false);
             _trail = go.AddComponent<LineRenderer>();
             _trail.useWorldSpace = false;
-            _trail.widthMultiplier = 8f;
+            _trail.widthMultiplier = _ordnance ? 2f : 8f;
             _trail.numCornerVertices = 4;
             _trail.numCapVertices = 4;
             _trail.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;

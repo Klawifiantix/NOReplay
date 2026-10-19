@@ -363,6 +363,24 @@ namespace NOReplay
                 Log.LogInfo($"  [{i}] {_replayFiles[i]}");
         }
 
+        static void ApplyWeather(ReplayDocument doc)
+        {
+            if (doc.TimeOfDay < 0f) return;
+            try
+            {
+                var li = UnityEngine.Object.FindObjectOfType<LevelInfo>();
+                if (li == null) return;
+                li.SetTimeOfDay(doc.TimeOfDay);
+                if (doc.Conditions >= 0f) li.conditions = doc.Conditions;
+                if (doc.CloudHeight >= 0f) li.cloudHeight = doc.CloudHeight;
+                if (doc.WindSpeed >= 0f) li.windSpeed = doc.WindSpeed;
+                if (doc.WindTurbulence >= 0f) li.windTurbulence = doc.WindTurbulence;
+                if (doc.MoonPhase >= 0f) li.moonPhase = doc.MoonPhase;
+                Log.LogInfo("Weather: TOD=" + doc.TimeOfDay.ToString("0.0") + " cond=" + doc.Conditions.ToString("0.0") + " cloud=" + doc.CloudHeight.ToString("0"));
+            }
+            catch (Exception ex) { Log.LogError("Weather: " + ex); }
+        }
+
         void LoadReplayAt(int index)
         {
             if (_replayFiles.Count == 0) return;

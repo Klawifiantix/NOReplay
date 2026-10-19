@@ -277,6 +277,18 @@ namespace NOReplay
                     doc.MapId = val;
                 else if (key.Equals("DataRecorder", StringComparison.OrdinalIgnoreCase))
                     doc.DataRecorder = val;
+                else if (key.Equals("TimeOfDay", StringComparison.OrdinalIgnoreCase) && float.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float tod))
+                    doc.TimeOfDay = tod;
+                else if (key.Equals("Conditions", StringComparison.OrdinalIgnoreCase) && float.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float cond))
+                    doc.Conditions = cond;
+                else if (key.Equals("CloudHeight", StringComparison.OrdinalIgnoreCase) && float.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ch))
+                    doc.CloudHeight = ch;
+                else if (key.Equals("WindSpeed", StringComparison.OrdinalIgnoreCase) && float.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ws))
+                    doc.WindSpeed = ws;
+                else if (key.Equals("WindTurbulence", StringComparison.OrdinalIgnoreCase) && float.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float wt))
+                    doc.WindTurbulence = wt;
+                else if (key.Equals("MoonPhase", StringComparison.OrdinalIgnoreCase) && float.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float mp))
+                    doc.MoonPhase = mp;
             }
         }
 

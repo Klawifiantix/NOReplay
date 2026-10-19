@@ -52,16 +52,14 @@ namespace NOReplay
             if (_dedupAt > 0f && Time.unscaledTime >= _dedupAt)
             {
                 _dedupAt = 0f;
-                try { DedupNearbyStatics(); }
-                catch (Exception ex) { Log.LogError("Dedup: " + ex); }
+                // DedupNearbyStatics disabled
             }
             if (!_bindGhosts) return;
             if (Time.unscaledTime < _bindAt) return;
             _bindGhosts = false;
             try { BindGhostsToMissionUnits(); }
             catch (Exception ex) { Log.LogError("Bind Ghosts: " + ex); }
-            try { DedupNearbyStatics(); }
-            catch (Exception ex) { Log.LogError("Dedup: " + ex); }
+            // DedupNearbyStatics disabled
             _dedupAt = Time.unscaledTime + 2f;
         }
 
@@ -108,12 +106,15 @@ namespace NOReplay
                 bool isStatic = (obj.Type ?? "").IndexOf("Static", StringComparison.OrdinalIgnoreCase) >= 0;
                 if (isStatic && late < 3)
                     Log.LogInfo("PRE filter: id=" + obj.Id + " samples=" + obj.Samples.Count + " ShouldQueue=" + ShouldQueue(obj) + " IsStart=" + IsStartUnit(obj) + " IsBld=" + IsBuilding(obj.Type, obj.Name) + " IsScn=" + IsScenery(obj.Type, obj.Name));
-                if (dupIds.Contains(obj.Id ?? "")) continue;
+                // dedup disabled
+                // if (dupIds.Contains(obj.Id ?? "")) continue;
                 bool forceStatic = IsBuilding(obj.Type, obj.Name) || IsScenery(obj.Type, obj.Name);
                 if ((!ShouldQueue(obj) && !forceStatic) || obj.Samples.Count == 0) continue;
                 if (IsOrdnance(obj.Type, obj.Name)) { late++; continue; }
-                // Aircraft always go into the JSON so the mission loader sets their rotation
-                if (!IsStartUnit(obj) && !IsAircraft(obj.Type, obj.Name) && !IsBuilding(obj.Type, obj.Name) && !IsScenery(obj.Type, obj.Name)) { late++; continue; }
+                // Aircraft are spawned as ghosts only. The mission loader would place
+                // them with collisions inside a carrier hull and tear the gear off.
+                if (IsAircraft(obj.Type, obj.Name)) { late++; continue; }
+                if (!IsStartUnit(obj) && !IsBuilding(obj.Type, obj.Name) && !IsScenery(obj.Type, obj.Name)) { late++; continue; }
                 ReplaySample s;
                 if (!obj.TrySample(0f, out s)) s = obj.Samples[0];
 
@@ -123,10 +124,8 @@ namespace NOReplay
                     Log.LogInfo("DEBUG static: id=" + obj.Id + " name=" + obj.Name + " type=" + obj.Type + " IsBld=" + IsBuilding(obj.Type, obj.Name) + " IsScn=" + IsScenery(obj.Type, obj.Name));
                 string uid = UniqueId(obj, na + nv + ns);
                 string t = obj.Type ?? "";
-                // Only nudge aircraft and vehicles, never statics
-                if (!IsBuilding(t, obj.Name) && !IsScenery(t, obj.Name)
-                    && (IsAircraft(t, obj.Name)
-                        || t.IndexOf("Vehicle", StringComparison.OrdinalIgnoreCase) >= 0))
+                // Only nudge aircraft that share a spawn pad. Vehicles park close on purpose.
+                if (IsAircraft(t, obj.Name))
                     NudgeApart(obj, ref s, usedAir, 36f);
                 Quaternion q;
                 if (s.HasQuat)
@@ -208,7 +207,8 @@ namespace NOReplay
             int bJson = 0;
             foreach (var obj in doc.Objects)
             {
-                if (dupIds.Contains(obj.Id ?? "")) continue;
+                // dedup disabled
+                // if (dupIds.Contains(obj.Id ?? "")) continue;
                 if (!ShouldQueue(obj) || obj.Samples.Count == 0) continue;
                 if (IsFlareType(obj.Type, obj.Name))
                 {
@@ -360,8 +360,8 @@ namespace NOReplay
             foreach (var obj in doc.Objects)
             {
                 if (obj.Samples.Count == 0) continue;
-                if (!IsBuilding(obj.Type, obj.Name) && !IsScenery(obj.Type, obj.Name)
-                    && !IsEmplacement(obj.Type, obj.Name))
+                if (IsScenery(obj.Type, obj.Name)) continue;
+                if (!IsBuilding(obj.Type, obj.Name) && !IsEmplacement(obj.Type, obj.Name))
                     continue;
                 ReplaySample s;
                 if (!obj.TrySample(obj.SpawnAt >= 0f ? obj.SpawnAt : 0f, out s))
@@ -408,6 +408,7 @@ namespace NOReplay
             new[] { "FS-20 Vortex", "SmallFighter1" },
             new[] { "T/A-30 Compass", "trainer" },
             new[] { "UH-90 Ibis", "UtilityHelo1" },
+            new[] { "Pipeline", "pipeline1" },
             new[] { "Munitions Bunker", "ammunitionBunker" },
             new[] { "Control Tower", "controlTower1" },
             new[] { "Cooling Tower", "coolingTower" },

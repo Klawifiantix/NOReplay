@@ -458,6 +458,9 @@ namespace NOReplay
                 bool isShip = (obj.Type ?? "").IndexOf("Sea", StringComparison.OrdinalIgnoreCase) >= 0
                            || (obj.Type ?? "").IndexOf("Watercraft", StringComparison.OrdinalIgnoreCase) >= 0;
                 if (!isAircraft && !isVehicle && !isShip) continue;
+                // Static vehicles are already placed by the mission JSON.
+                // A ghost would spawn a second copy at a drifting position.
+                if (isVehicle && !isAircraft && obj.Samples.Count <= 1) continue;
                 _pendingAir.Add(obj);
                 n++;
             }
@@ -796,6 +799,12 @@ namespace NOReplay
 
             go.name = "NOReplay_" + (obj.Name ?? obj.Id);
             if (!flare && !ordnance) SilenceAiOnly(go);
+            if (visualOnly)
+            {
+                var rends = go.GetComponentsInChildren<Renderer>(true);
+                for (int i = 0; i < rends.Length; i++)
+                    if (rends[i] != null) rends[i].enabled = true;
+            }
             var rg = go.GetComponent<ReplayGhost>();
             if (rg == null) rg = go.AddComponent<ReplayGhost>();
             rg.Adopt(obj);
@@ -1000,11 +1009,13 @@ namespace NOReplay
         {
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             var lt = FindGameType("Laser");
+            int found = 0;
             if (lt != null)
             {
                 foreach (var c in go.GetComponentsInChildren(lt, true))
                 {
                     if (c == null) continue;
+                    found++;
                     try
                     {
                         if (c is Behaviour b) b.enabled = false;
@@ -1022,6 +1033,37 @@ namespace NOReplay
                     }
                     catch { }
                 }
+            }
+            if (go.name.IndexOf("LFD", StringComparison.OrdinalIgnoreCase) >= 0
+                || go.name.IndexOf("Cursor", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Log.LogInfo("KillLaser " + go.name + " found=" + found);
+                var kids = go.GetComponentsInChildren<Transform>(true);
+                for (int k = 0; k < kids.Length; k++)
+                {
+                    var tr = kids[k];
+                    if (tr == null) continue;
+                    var comps = tr.GetComponents<Component>();
+                    string cn = "";
+                    for (int c = 0; c < comps.Length; c++)
+                        if (comps[c] != null) cn += comps[c].GetType().Name + ",";
+                    Log.LogInfo("  LFD-child " + tr.name + " [" + cn + "]");
+                }
+            }
+            var ldt = FindGameType("LaserDesignator");
+            if (ldt != null)
+            {
+                foreach (var c in go.GetComponentsInChildren(ldt, true))
+                {
+                    if (c == null) continue;
+                    if (c is Behaviour b) b.enabled = false;
+                }
+            }
+            foreach (var tr in go.GetComponentsInChildren<Transform>(true))
+            {
+                if (tr == null) continue;
+                if (string.Equals(tr.name, "beam", StringComparison.OrdinalIgnoreCase))
+                    tr.gameObject.SetActive(false);
             }
             var lrType = FindGameType("LineRenderer")
                          ?? Type.GetType("UnityEngine.LineRenderer, UnityEngine.CoreModule");

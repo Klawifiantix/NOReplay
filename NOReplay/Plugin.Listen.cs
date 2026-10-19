@@ -560,6 +560,21 @@ namespace NOReplay
                 catch { }
             }
             Log.LogInfo("Laser-Sim-Block Methoden: " + n);
+            BlockGearPhysics();
+        }
+
+        static void BlockGearPhysics()
+        {
+            var t = FindGameType("LandingGear");
+            if (t == null) return;
+            var m = t.GetMethod("FixedUpdate", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (m == null) return;
+            try
+            {
+                Harmony.Patch(m, prefix: new HarmonyMethod(typeof(Plugin), nameof(SkipIfGhost)));
+                Log.LogInfo("Gear-Phys-Block LandingGear.FixedUpdate");
+            }
+            catch (Exception ex) { Log.LogWarning("Gear-Phys-Block: " + ex.Message); }
         }
 
         static void BlockComplexPhysics()
@@ -869,7 +884,7 @@ namespace NOReplay
             }
             catch { }
         }
-    
+
 
         static void RecordSpawnedFlare(object[]? args, object? result)
         {

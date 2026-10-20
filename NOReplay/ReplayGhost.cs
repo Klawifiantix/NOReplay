@@ -47,6 +47,8 @@ namespace NOReplay
         static FieldInfo? _fFoldDeg;
         static FieldInfo? _fHingePos;
         static FieldInfo? _fHingeMotion;
+        static FieldInfo? _fStrut;
+        static FieldInfo? _fStrutRot;
         static FieldInfo? _fAngSpeed;
         static FieldInfo? _fAngPos;
         static FieldInfo? _fNomRpm;
@@ -97,6 +99,7 @@ namespace NOReplay
         bool _visible = true;
         bool _asleep;
         float _fold;
+        float _doorAmt = 1f;
         bool _air;
         LineRenderer? _trail;
         bool _ship;
@@ -635,7 +638,10 @@ namespace NOReplay
                     || nm.IndexOf("Prop", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Swash", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Gear", StringComparison.OrdinalIgnoreCase) >= 0
-                    // Wheel not skipped - keep attached
+                    || nm.IndexOf("Strut", StringComparison.OrdinalIgnoreCase) >= 0
+                    || nm.IndexOf("Arm", StringComparison.OrdinalIgnoreCase) >= 0
+                    || nm.IndexOf("Unsprung", StringComparison.OrdinalIgnoreCase) >= 0
+                    || nm.IndexOf("Sprung", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Hinge", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Door", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Split", StringComparison.OrdinalIgnoreCase) >= 0
@@ -765,8 +771,8 @@ namespace NOReplay
             float w = _ordnance ? 2f : 8f;
             _trail.widthMultiplier = w;
             _trail.widthCurve = AnimationCurve.Constant(0f, 1f, 1f);
-            if (Track != null && Track.Name != null && Track.Name.IndexOf("MMR", StringComparison.OrdinalIgnoreCase) >= 0)
-                Plugin.Log.LogInfo("Trail-W " + Track.Name + " ord=" + _ordnance + " w=" + w);
+            if (Track != null && _ordnance)
+                Plugin.Log.LogInfo("Trail-W " + (Track.Name ?? "?") + " type=" + (Track.Type ?? "?") + " w=" + w);
             var col = FactionTrailColor(Track.Coalition);
             _trail.startColor = col;
             _trail.endColor = col;

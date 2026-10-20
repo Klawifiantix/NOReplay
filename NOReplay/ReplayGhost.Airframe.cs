@@ -493,34 +493,22 @@ namespace NOReplay
             DriveJetExhaust(true, thr);
             if (_gears.Length > 0)
             {
-                float target = gearDown ? 0f : 1f;
-                _fold = Mathf.MoveTowards(_fold, target, 0.6f * dt);
-                for (int i = 0; i < _gears.Length; i++)
+                // Gear animation driven by game's MoveGear via Extending/Retracting states
+                // Gear animation handled by game's MoveGear
+                if (_gearLog < 8 && _gears.Length > 0)
                 {
-                    var c = _gears[i];
-                    if (c == null) continue;
-                    _fFold?.SetValue(c, _fold);
-                    var hinge = _fGearHinge?.GetValue(c) as Transform;
-                    if (hinge != null)
+                    var c = _gears[0];
+                    if (c != null)
                     {
-                        Vector3 baseAng = _fHingeBase != null && _fHingeBase.GetValue(c) is Vector3 ba ? ba : hinge.localEulerAngles;
-                        Vector3 basePos = _fHingePos != null && _fHingePos.GetValue(c) is Vector3 bp ? bp : hinge.localPosition;
-                        Vector3 motion = _fHingeMotion != null && _fHingeMotion.GetValue(c) is Vector3 mo ? mo : Vector3.zero;
-                        float deg = _fFoldDeg != null && _fFoldDeg.GetValue(c) is float fd ? fd : 90f;
-                        hinge.localEulerAngles = baseAng + new Vector3(deg * _fold, 0f, 0f);
-                        hinge.localPosition = Vector3.Lerp(basePos, basePos + motion, _fold);
+                        var hinge = _fGearHinge?.GetValue(c) as Transform;
+                        var strut = _fStrut?.GetValue(c) as Transform;
+                        float fold = _fFold?.GetValue(c) is float f ? f : -1f;
+                        float strutRot = _fStrutRot?.GetValue(c) is float sr ? sr : -999f;
+                        string h = hinge != null ? hinge.localEulerAngles.ToString("F1") : "?";
+                        string strutAng = strut != null ? strut.localEulerAngles.ToString("F1") : "?";
+                        Plugin.Log.LogInfo("Gear " + gameObject.name + " fold=" + fold.ToString("F2") + " strutRot=" + strutRot.ToString("F1") + " hinge=" + h + " strut=" + strutAng);
+                        _gearLog++;
                     }
-                    var doors = _fGearDoors?.GetValue(c) as System.Collections.IEnumerable;
-                    if (doors != null)
-                    {
-                        foreach (var d in doors)
-                        {
-                            if (d == null) continue;
-                            var am = d.GetType().GetMethod("Animate");
-                            am?.Invoke(d, new object[] { 1f - _fold });
-                        }
-                    }
-                    // nicht MuteOn: LandingGear sitzt oft am Root und killt Rotor/Jet-Sources
                 }
                 ApplyLandingLights(gearDown);
             }
@@ -692,8 +680,8 @@ namespace NOReplay
                     _gearStateEnum = lg?.GetNestedType("GearState");
                     if (_gearStateEnum != null)
                     {
-                        _gsLockedUp = Enum.Parse(_gearStateEnum, "LockedRetracted");
-                        _gsLockedDown = Enum.Parse(_gearStateEnum, "LockedExtended");
+                        _gsLockedUp = Enum.Parse(_gearStateEnum, "Retracting");
+                        _gsLockedDown = Enum.Parse(_gearStateEnum, "Extending");
                         _mSetGearState = act.GetMethod("SetGear", new[] { _gearStateEnum });
                     }
                 }
@@ -1067,6 +1055,27 @@ namespace NOReplay
 
         internal void PaintMissingLivery()
         {
+            if (name.IndexOf("Vagrant", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("VT-7", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                var rs = GetComponentsInChildren<Renderer>(true);
+                for (int i = 0; i < rs.Length; i++)
+                {
+                    var r = rs[i];
+                    if (r == null) continue;
+                    var ms = r.sharedMaterials;
+                    if (ms == null) continue;
+                    for (int m = 0; m < ms.Length; m++)
+                    {
+                        var mat = ms[m];
+                        if (mat == null) continue;
+                        string sh = mat.shader != null ? mat.shader.name : "null";
+                        bool hasL = mat.HasProperty("_Livery") && mat.GetTexture("_Livery") != null;
+                        bool hasB = mat.HasProperty("_BaseMap") && mat.GetTexture("_BaseMap") != null;
+                        Plugin.Log.LogInfo("Vagrant-Mat " + r.name + " sh=" + sh + " L=" + hasL + " B=" + hasB);
+                    }
+                }
+            }
             Texture? tex = null;
             var rends = GetComponentsInChildren<Renderer>(true);
             for (int i = 0; i < rends.Length; i++)
@@ -1092,6 +1101,27 @@ namespace NOReplay
                 if (tex != null) break;
             }
             if (tex == null) return;
+            var err = Shader.Find("Hidden/InternalErrorShader");
+            var fix = Shader.Find("Shader Graphs/AircraftSkin")
+                     ?? Shader.Find("Universal Render Pipeline/Lit");
+            if (err != null && fix != null)
+            {
+                for (int i = 0; i < rends.Length; i++)
+                {
+                    var r = rends[i];
+                    if (r == null) continue;
+                    var ms = r.materials;
+                    if (ms == null) continue;
+                    bool dirty = false;
+                    for (int m = 0; m < ms.Length; m++)
+                    {
+                        var mat = ms[m];
+                        if (mat == null || mat.shader != err) continue;
+                        r.enabled = false;
+                    }
+                    if (dirty) r.materials = ms;
+                }
+            }
             for (int i = 0; i < rends.Length; i++)
             {
                 var r = rends[i];
@@ -1442,6 +1472,8 @@ namespace NOReplay
                 _fFoldDeg = _gearType.GetField("foldDegrees", flags);
                 _fHingePos = _gearType.GetField("hingeBasePos", flags);
                 _fHingeMotion = _gearType.GetField("hingeFoldMotion", flags);
+                _fStrut = _gearType.GetField("strutRotationTransform", flags);
+                _fStrutRot = _gearType.GetField("strutRotation", flags);
                 _mSetGear = _gearType.GetMethod("LandingGear_OnSetGear", flags);
                 _mMoveGear = _gearType.GetMethod("MoveGear", flags);
                 _mUpdateParts = _gearType.GetMethod("UpdateMovingParts", flags);

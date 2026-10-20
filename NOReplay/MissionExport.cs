@@ -111,9 +111,15 @@ namespace NOReplay
                 bool forceStatic = IsBuilding(obj.Type, obj.Name) || IsScenery(obj.Type, obj.Name);
                 if ((!ShouldQueue(obj) && !forceStatic) || obj.Samples.Count == 0) continue;
                 if (IsOrdnance(obj.Type, obj.Name)) { late++; continue; }
-                // Aircraft are spawned as ghosts only. The mission loader would place
-                // them with collisions inside a carrier hull and tear the gear off.
+                // Aircraft, vehicles and ships are spawned as ghosts only.
+                // The mission loader would otherwise place a second copy.
                 if (IsAircraft(obj.Type, obj.Name)) { late++; continue; }
+                string typCheck = obj.Type ?? "";
+                bool isVehOrShip = typCheck.IndexOf("Vehicle", StringComparison.OrdinalIgnoreCase) >= 0
+                                || typCheck == "Ground"
+                                || typCheck.IndexOf("Sea", StringComparison.OrdinalIgnoreCase) >= 0
+                                || typCheck.IndexOf("Watercraft", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (isVehOrShip) { late++; continue; }
                 if (!IsStartUnit(obj) && !IsBuilding(obj.Type, obj.Name) && !IsScenery(obj.Type, obj.Name)) { late++; continue; }
                 ReplaySample s;
                 if (!obj.TrySample(0f, out s)) s = obj.Samples[0];
@@ -218,7 +224,15 @@ namespace NOReplay
                 bool start = IsStartUnit(obj);
                 bool scnObj = IsScenery(obj.Type, obj.Name);
                 bool bldObj = IsBuilding(obj.Type, obj.Name);
-                if (scnObj || IsOrdnance(obj.Type, obj.Name) || !start)
+                // Do not re-queue scenery/buildings that were already written into the mission JSON.
+                // Vehicles and ships are handled exclusively by QueueOwnAircraft.
+                string typ = obj.Type ?? "";
+                bool isVehOrShip = typ.IndexOf("Vehicle", StringComparison.OrdinalIgnoreCase) >= 0
+                                || typ == "Ground"
+                                || typ.IndexOf("Sea", StringComparison.OrdinalIgnoreCase) >= 0
+                                || typ.IndexOf("Watercraft", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (isVehOrShip) continue;
+                if (IsOrdnance(obj.Type, obj.Name) || (!start && !scnObj && !bldObj))
                     _pendingAir.Add(obj);
                 else if (bldObj && ++bJson > 180)
                     _pendingAir.Add(obj);

@@ -671,6 +671,9 @@ namespace NOReplay
                 float end = o.RemovedAt >= 0f ? o.RemovedAt : o.Samples[o.Samples.Count - 1].Time;
                 var shooter = FindParent(o);
                 var ghost = GhostFor(shooter);
+                // Dead / wrecked units must not produce gun effects.
+                if (ghost != null && (ghost.IsWrecked || !ghost.IsTrackAlive()))
+                    continue;
                 if (time > end && _heard.Contains(o.Id))
                 {
                     _heard.Remove(o.Id);

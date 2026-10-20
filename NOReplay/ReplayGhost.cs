@@ -112,6 +112,7 @@ namespace NOReplay
         readonly List<Transform> _brakeTr = new();
         readonly List<Quaternion> _brakeRest = new();
         bool _boomed;
+        internal bool IsWrecked => _boomed;
         bool _ordAudioOn;
         bool _ordVoiceHeld;
         Component[] _ordFx = Array.Empty<Component>();
@@ -877,10 +878,12 @@ namespace NOReplay
             float born = Track.Samples[0].Time;
             if (Track.SpawnAt > born) born = Track.SpawnAt;
             if (t < born) return false;
+            // Explicit death from ACMI.
             if (Track.RemovedAt >= 0f && t >= Track.RemovedAt) return false;
-            if (Track.RemovedAt < 0f && Track.Samples.Count > 0
-                && t >= Track.Samples[Track.Samples.Count - 1].Time + 0.05f)
-                return false;
+            // No RemovedAt: stay alive until the replay ends.
+            // (No static/moving distinction — all units get the same treatment.)
+            float end = Plugin.CurrentDoc != null ? Plugin.CurrentDoc.Duration : 0f;
+            if (end > 0f && t >= end + 0.05f) return false;
             return true;
         }
 

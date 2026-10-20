@@ -481,7 +481,10 @@ namespace NOReplay
             if (Track == null || Track.RemovedAt < 0f) return;
             if (Plugin.Clock.Time + 0.05f < Track.RemovedAt) return;
             _boomed = true;
+            EndBurstAudio();
             PlayUnitWreckFx(transform.position, transform.rotation);
+            // After RemovedAt the unit must not produce further effects.
+            SetGhostVisible(false);
         }
 
         static void PlayDetachedShot(object? clip, Vector3 pos)

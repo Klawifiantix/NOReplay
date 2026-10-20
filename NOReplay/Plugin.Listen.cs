@@ -273,9 +273,15 @@ namespace NOReplay
             return CurrentDoc == null;
         }
 
+        static int _fireBlockLogs;
         static bool SkipFireInReplay()
         {
             if (AllowOrdnanceSpawn) return true;
+            if (CurrentDoc != null && _fireBlockLogs < 5)
+            {
+                _fireBlockLogs++;
+                Log.LogWarning("Fire blocked (no replay marker) #" + _fireBlockLogs);
+            }
             return CurrentDoc == null;
         }
 

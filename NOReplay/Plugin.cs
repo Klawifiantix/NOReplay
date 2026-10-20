@@ -280,8 +280,11 @@ namespace NOReplay
             }
         }
 
+        static int _sleepFrame;
         static void TickGhostSleep()
         {
+            // Full check only every 4 frames; the rest just keep current state.
+            if ((Time.frameCount & 3) != 0) return;
             for (int i = 0; i < _ghosts.Count; i++)
             {
                 var go = _ghosts[i];

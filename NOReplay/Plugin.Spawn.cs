@@ -458,9 +458,8 @@ namespace NOReplay
                 bool isShip = (obj.Type ?? "").IndexOf("Sea", StringComparison.OrdinalIgnoreCase) >= 0
                            || (obj.Type ?? "").IndexOf("Watercraft", StringComparison.OrdinalIgnoreCase) >= 0;
                 if (!isAircraft && !isVehicle && !isShip) continue;
-                // Static vehicles are already placed by the mission JSON.
-                // A ghost would spawn a second copy at a drifting position.
-                if (isVehicle && !isAircraft && obj.Samples.Count <= 1) continue;
+                // All vehicles and ships get a ghost (no longer skipped for static).
+                // They are no longer placed by the mission JSON.
                 _pendingAir.Add(obj);
                 n++;
             }
@@ -479,7 +478,7 @@ namespace NOReplay
                 return;
             }
             float t = Clock.Time;
-            int budget = 2;
+            int budget = 8;
             for (int i = 0; i < _pendingAir.Count && budget > 0;)
             {
                 var obj = _pendingAir[i];

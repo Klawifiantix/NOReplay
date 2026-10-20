@@ -357,7 +357,6 @@ namespace NOReplay
                 ForceSimplePhysics();
                 CacheLocals();
                 PaintMissingLivery();
-                Invoke(nameof(PaintMissingLivery), 1.5f);
                 Invoke(nameof(Recache), 2f);
                 Bind();
                 CacheFx();

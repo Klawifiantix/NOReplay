@@ -814,6 +814,11 @@ namespace NOReplay
                 WarmLoadout(obj);
                 ApplyHq(go, obj.Coalition);
                 try { TryRegisterGhostOnMap(go, false); } catch { }
+                // Fix missing livery textures right after spawn (esp. late Vagrants).
+                string nm = obj.Name ?? "";
+                if (nm.IndexOf("Vagrant", StringComparison.OrdinalIgnoreCase) >= 0
+                    || nm.IndexOf("VT-7", StringComparison.OrdinalIgnoreCase) >= 0)
+                    rg.PaintMissingLivery();
             }
             if (ordnance && !flare)
             {

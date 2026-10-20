@@ -1104,7 +1104,7 @@ namespace NOReplay
             var err = Shader.Find("Hidden/InternalErrorShader");
             var fix = Shader.Find("Shader Graphs/AircraftSkin")
                      ?? Shader.Find("Universal Render Pipeline/Lit");
-            if (err != null && fix != null)
+            if (err != null && fix != null && tex != null)
             {
                 for (int i = 0; i < rends.Length; i++)
                 {
@@ -1117,7 +1117,12 @@ namespace NOReplay
                     {
                         var mat = ms[m];
                         if (mat == null || mat.shader != err) continue;
-                        r.enabled = false;
+                        // Replace error shader with a working one and assign the found texture.
+                        mat.shader = fix;
+                        if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", tex);
+                        if (mat.HasProperty("_MainTex")) mat.SetTexture("_MainTex", tex);
+                        if (mat.HasProperty("_Livery")) mat.SetTexture("_Livery", tex);
+                        dirty = true;
                     }
                     if (dirty) r.materials = ms;
                 }

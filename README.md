@@ -1,3 +1,6 @@
+First of all, I would like to thank KopterBuzz for creating the NoBlackBoxMod. Without his tremendous achievement, I likely would never have begun developing the ReplayMod.
+https://github.com/KopterBuzz | https://github.com/KopterBuzz/NOBlackBox
+
 Overview
 
 NOReplay is a BepInEx mod for Nuclear Option. It records a match to an ACMI file and plays that file back inside the game, on the real map, with the game's own aircraft, vehicles, ships and buildings.
@@ -36,10 +39,11 @@ Timeline
 * Drag the marker to scrub. Units jump to that time. Dragging backward shows the reverse motion.
 * Speeds: -4x -2x -1x -0.5x -0.25x 0.25x 0.5x 1x 2x 4x.
 * F10 hides the timeline. F10 shows it again.
+* Trails button toggles flight paths. The slider next to it sets trail length from 0 to 10 minutes. Dead airframes lose their trail.
 
 Camera
 * The normal spectator path is unchanged. Pick a faction screen, then spectator, or click a unit.
-* Orbit around a unit works. Free camera and fly-by work (45%).
+* Orbit around a unit works. Free camera and fly-by work.
 * If the unit you are watching is destroyed, the camera is released before the unit is removed.
 * Clicking a missile follows that missile. The camera does not jump to a missile on its own.
 
@@ -49,33 +53,37 @@ What you see
 * Aircraft, helicopters, vehicles, ships, buildings and scenery from the ACMI.
 * The pilot name from the callsign, in the info panel. State reads Replay. Speed is taken from the recording, metric or imperial as the game is set.
 * Loadout and livery from the recording, including empty pylons.
-* Landing gear from the ACMI LandingGear flag. Doors follow the gear.
+* Landing gear from the ACMI LandingGear flag. Doors follow the gear. Gear stays attached through ship elevator traversal.
 * Rotors, propellers and the engine sound of the unit you are near.
-* Flares from the left and right ejectors of the airframe.
-* Missiles and bombs in the world and on the map, in the faction of the shooter, with launch and flight effect.
+* Flares from the left and right ejectors of the airframe, with sound.
+* Missiles and bombs in the world and on the map, in the faction of the shooter, with launch and flight effect. Explosion at track end.
 * Gun bursts as tracers from the firing unit, with the weapon's loop sound while the burst is active.
+* Trails behind airframes and ordnance. Airframe trails are thicker, ordnance trails thinner. Faction color. Dead units lose their trail.
+* Weather from the recording: time of day, cloud height, weather intensity. Applied when the world loads.
 
 ---
 
 How it works
 
 Record
-* F8 toggles a recorder in the live match. It writes Tacview-style ACMI: unit id, parent, coalition, position samples, loadout, livery, and gun-burst windows (who fired, from when to when, muzzle speed, spread). Shells are not stored one by one. A burst is enough to rebuild the stream on playback.
+* F8 toggles a recorder in the live match. It writes Tacview-style ACMI: unit id, parent, coalition, position samples, loadout, livery, gun-burst windows, and weather (time of day, conditions, cloud height, wind). Shells are not stored one by one. A burst is enough to rebuild the stream on playback.
 * The recorder does not run during a replay. Replay patches that mute AI do not run in a normal match, so leaving the aircraft and normal firing stay intact.
 
 Load
 * Choosing a file parses the ACMI into a document: one track per object, samples in time, spawn time, death time. Units that exist at the start go into NOReplay.json. Units that appear later stay in a queue. The JSON is a normal Nuclear Option mission, so the game loads the map, buildings and units through its own spawner. Heartland and Igus Archipelago come from the map id in the ACMI.
-* After the scene is up, each spawned unit gets a ghost. The ghost is the only thing that moves it.
+* After the scene is up, each spawned unit gets a ghost. The ghost is the only thing that moves it. Weather is applied from the ACMI header.
 
 Playback
 * The clock is the timeline. Each frame the ghost reads the sample at the current time and writes position and rotation. Physics, joints and AI flight are held off, otherwise the airframe tears itself apart or taxis away on its own.
 * A unit whose spawn time is still ahead is hidden. At that time it is shown, already at the recorded pose. At its death time the ghost releases the camera if needed, hides the map icon, and disables the object. Scrubbing backward enables it again.
 * Neutral units are drawn and not driven. No rotor, no sound, no exhaust.
+* Trails are LineRenderers rebuilt each frame from the samples within the length window. Dead airframes are excluded. Scrubbing rebuilds the trail for the new time.
 
 Weapons
-* Missiles are spawned through the game's missile spawner when their sample begins, then moved by a ghost. The faction is the parent's faction. At the end of the track the explosion effect is played and the object is removed.
-* Flares instantiate the airframe's own flare prefab and call the game's launch on the next ejector point, left then right.
+* Missiles are spawned through the game's missile spawner when their sample begins, then moved by a ghost. The faction is the parent's faction. At the end of the track the explosion effect is played and the object is removed. Sound comes from the prefab's AudioSources.
+* Flares instantiate the airframe's own flare prefab and call the game's launch on the next ejector point, left then right. Sound is played.
 * Gun bursts spawn a short-lived tracer from the shooter toward the recorded aim, at the weapon's rate, for the length of the burst. One loop sound starts with the burst and stops at the end. Only sounds near the listener play.
+* Lasers on tanks and ships are disabled. The beam child of the LFD is deactivated.
 
 ---
 
@@ -89,4 +97,4 @@ Files
 Limits
 * The ACMI time step is about a fifth of a second. Several missiles fired inside that window share one timestamp, so a salvo appears as a short burst of spawns rather than millisecond gaps.
 * Shells are rebuilt from the burst, not from every projectile in the file. The first tracer leaves the shooter. The line is a stand-in for the round, not the game's bullet.
-* Old ACMI files from before this recorder have no loadout, livery or gun-burst lines. Playback still moves units. Those extras stay empty.
+* Old ACMI files from before this recorder have no loadout, livery, gun-burst or weather lines. Playback still moves units. Those extras stay empty.

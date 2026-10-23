@@ -24,7 +24,7 @@ namespace NOReplay
             var h = go.AddComponent<ReplayStaticHandler>();
             h.Init(doc);
             // Auto-start progress display
-            ReplayLoadProgress.Begin("Lade Statik…");
+            // ReplayLoadProgress.Begin("Lade Statik…");
         }
 
         public void Init(ReplayDocument doc)
@@ -86,7 +86,7 @@ namespace NOReplay
                     matched++;
                 }
             }
-            ReplayLoadProgress.Set(0.4f, $"Statik zugeordnet: {matched}");
+            Plugin.Log?.LogInfo($"ReplayStaticHandler: {matched} zugeordnet");
         }
 
         private bool ObjectMoved(ReplayObject obj)
@@ -129,19 +129,11 @@ namespace NOReplay
                     _done.Add(key);
                 }
             }
-            if (_tracked.Count > 0)
-            {
-                float p = 1f - (remaining / (float)_tracked.Count);
-                ReplayLoadProgress.Set(Mathf.Lerp(0.4f, 1f, p));
-            }
-            if (remaining == 0 && _tracked.Count > 0)
-                ReplayLoadProgress.End();
         }
 
         void OnDestroy()
         {
             _tracked.Clear();
-            ReplayLoadProgress.End();
         }
     }
 }

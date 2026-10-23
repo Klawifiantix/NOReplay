@@ -25,8 +25,11 @@ namespace NOReplay
                 Directory.CreateDirectory(dir);
             }
 
-            string basename = Path.Combine(dir, DateTime.Now.ToString("s").Replace(":", "-"));
-            basename += "_" + MissionManager.CurrentMission.Name + "_" + MapSettingsManager.i.MapLoader.CurrentMap.Path;
+            string missionName = MissionManager.CurrentMission?.Name ?? "Mission";
+            foreach (char c in Path.GetInvalidFileNameChars())
+                missionName = missionName.Replace(c, '_');
+            string stamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm");
+            string basename = Path.Combine(dir, missionName + "_" + stamp);
             filename = basename + ".acmi";
             int postfix = 0;
             while (File.Exists(filename))

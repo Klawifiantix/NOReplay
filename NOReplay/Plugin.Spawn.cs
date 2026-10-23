@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
@@ -508,8 +509,7 @@ namespace NOReplay
                         try { TryFollowGhost(go); }
                         catch (Exception ex) { Log.LogWarning("Follow: " + ex.Message); }
                     }
-                    if (_ghosts.Count <= 8 || (_ghosts.Count % 50) == 0)
-                        Log.LogInfo("Spawn now " + obj.Name + " t=" + t.ToString("0.0") + " n=" + _ghosts.Count);
+
                 }
                 _pendingAir.RemoveAt(i);
                 budget--;
@@ -626,8 +626,7 @@ namespace NOReplay
             }
             UnityEngine.Object.Destroy(go, 8f);
             PlayFlareEjectSound(host, launch);
-            if (_flareFxLog < 12)
-                Log.LogInfo("Flare " + launch.name + " seite=" + (_flareSide % Math.Max(1, points.Count)));
+
             return true;
         }
 
@@ -814,11 +813,7 @@ namespace NOReplay
                 WarmLoadout(obj);
                 ApplyHq(go, obj.Coalition);
                 try { TryRegisterGhostOnMap(go, false); } catch { }
-                // Fix missing livery textures right after spawn (esp. late Vagrants).
-                string nm = obj.Name ?? "";
-                if (nm.IndexOf("Vagrant", StringComparison.OrdinalIgnoreCase) >= 0
-                    || nm.IndexOf("VT-7", StringComparison.OrdinalIgnoreCase) >= 0)
-                    rg.PaintMissingLivery();
+                rg.StartCoroutine(SimpleLiveryFix(go));
             }
             if (ordnance && !flare)
             {
@@ -1453,7 +1448,6 @@ namespace NOReplay
                     }
                 }
             }
-            Log.LogInfo("Missile-Vis " + go.name + " renderer=" + rends);
         }
 
         static object? FindLaunchOwner(ReplayObject obj, Type? unitType)
@@ -1727,7 +1721,6 @@ namespace NOReplay
             try { t.GetField("unitName", flags)?.SetValue(unit, label); } catch { }
             RefreshSpectatorName(unit, label);
             ApplyPanel(go, obj, label);
-            Log.LogInfo("Spielername " + label + " -> " + go.name);
         }
 
         internal static void ApplyPanel(GameObject go, ReplayObject? obj, string? label)
@@ -1992,5 +1985,76 @@ namespace NOReplay
             if (followCam)
                 TryFollowGhost(go);
         }
+
+        static System.Collections.IEnumerator SimpleLiveryFix(GameObject go)
+        {
+            yield return new WaitForSeconds(4f);
+            if (go == null) yield break;
+            var rg = go.GetComponent<ReplayGhost>();
+            if (rg == null) yield break;
+            rg.PaintMissingLivery();
+            Log.LogInfo("Livery-SimpleFix " + go.name);
+        }
+
+        static Texture? FindLiveryTexture(GameObject go)
+        {
+            var rends = go.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < rends.Length; i++)
+            {
+                var mats = rends[i]?.sharedMaterials;
+                if (mats == null) continue;
+                for (int m = 0; m < mats.Length; m++)
+                {
+                    var mat = mats[m];
+                    if (mat != null && mat.HasProperty("_Livery"))
+                    {
+                        var t = mat.GetTexture("_Livery");
+                        if (t != null) return t;
+                    }
+                }
+            }
+            return null;
+        }
+
+        static void SpreadLiveryTexture(GameObject go, Texture src)
+        {
+            var rends = go.GetComponentsInChildren<Renderer>(true);
+            int fixedCount = 0;
+            for (int i = 0; i < rends.Length; i++)
+            {
+                var r = rends[i];
+                if (r == null) continue;
+                var mats = r.materials;
+                if (mats == null) continue;
+                bool dirty = false;
+                for (int m = 0; m < mats.Length; m++)
+                {
+                    var mat = mats[m];
+                    if (mat == null) continue;
+                    string sh = mat.shader != null ? mat.shader.name : "";
+                    bool skin = sh.IndexOf("AircraftSkin", StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool lit = sh.IndexOf("Universal Render Pipeline/Lit", StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (!skin && !lit) continue;
+                    if (skin && mat.HasProperty("_Livery"))
+                    {
+                        mat.SetTexture("_Livery", src);
+                        if (mat.HasProperty("_Glossiness")) mat.SetFloat("_Glossiness", 0.3f);
+                        dirty = true;
+                        fixedCount++;
+                    }
+                    else if (lit && mat.HasProperty("_BaseMap"))
+                    {
+                        mat.SetTexture("_BaseMap", src);
+                        if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.3f);
+                        dirty = true;
+                        fixedCount++;
+                    }
+                }
+                if (dirty) r.materials = mats;
+            }
+            if (fixedCount > 0)
+                Log.LogInfo("Livery-Spread " + fixedCount + " mats on " + go.name);
+        }
+
     }
 }

@@ -299,8 +299,8 @@ namespace NOReplay
             }
             try
             {
-                Plugin.Log.LogInfo("GO weg " + name + " " + (Track != null ? Track.Name : "?")
-                    + " t=" + Plugin.Clock.Time.ToString("0.0"));
+                // Plugin.Log.LogInfo("GO weg " + name + " " + (Track != null ? Track.Name : "?")
+                //     + " t=" + Plugin.Clock.Time.ToString("0.0"));
             }
             catch { }
         }
@@ -332,11 +332,11 @@ namespace NOReplay
             {
                 int rc = _drive.GetComponentsInChildren<Renderer>(true).Length;
                 string par = transform.parent != null ? transform.parent.name : "-";
-                Plugin.Log.LogInfo("Ghost-Hier " + gameObject.name
-                    + " parent=" + par
-                    + " children=" + transform.childCount
-                    + " drive=" + _drive.name
-                    + " rend=" + rc);
+                // Plugin.Log.LogInfo("Ghost-Hier " + gameObject.name
+                // + " parent=" + par
+                // + " children=" + transform.childCount
+                // + " drive=" + _drive.name
+                // + " rend=" + rc);
             }
             FreezePhysics();
             SilenceAirframe();
@@ -449,14 +449,14 @@ namespace NOReplay
             CacheFx();
             AdoptOrphanFx();
             CacheLocals();
-            Plugin.Log.LogInfo("Ghost-Recache " + gameObject.name
-                + " drive=" + Drive.name
-                + " kids=" + Drive.childCount
-                + " parts=" + _parts.Length
-                + " shaft=" + _shafts.Length
-                + " prop=" + _props.Length
-                + " gear=" + _gears.Length
-                + " eng=" + _engs.Length);
+            // Plugin.Log.LogInfo("Ghost-Recache " + gameObject.name
+            // + " drive=" + Drive.name
+            // + " kids=" + Drive.childCount
+            // + " parts=" + _parts.Length
+            // + " shaft=" + _shafts.Length
+            // + " prop=" + _props.Length
+            // + " gear=" + _gears.Length
+            // + " eng=" + _engs.Length);
         }
 
         void ForceSimplePhysics()
@@ -471,7 +471,7 @@ namespace NOReplay
                 {
                     try { m.Invoke(beh, null); }
                     catch { }
-                    Plugin.Log.LogInfo("Ghost-Simple " + gameObject.name);
+                    // Plugin.Log.LogInfo("Ghost-Simple " + gameObject.name);
                 }
             }
         }
@@ -506,7 +506,7 @@ namespace NOReplay
             if (best != null && best != Drive)
             {
                 _drive = best;
-                Plugin.Log.LogInfo("Ghost-Vis " + gameObject.name + " -> " + best.name + " rend=" + bestR);
+                // Plugin.Log.LogInfo("Ghost-Vis " + gameObject.name + " -> " + best.name + " rend=" + bestR);
             }
         }
 
@@ -518,8 +518,8 @@ namespace NOReplay
             string extra = "";
             Transform ch = n > 0 ? Drive.GetChild(n - 1) : null;
             if (ch != null) extra = " +" + ch.name;
-            Plugin.Log.LogInfo("Ghost-Kids " + gameObject.name + " " + _lastKids + " -> " + n
-                + extra + " t=" + Plugin.Clock.Time.ToString("0.0"));
+            // Plugin.Log.LogInfo("Ghost-Kids " + gameObject.name + " " + _lastKids + " -> " + n
+            // + extra + " t=" + Plugin.Clock.Time.ToString("0.0"));
             _lastKids = n;
             if (ch != null && IsIgnored(ch)) return;
             FreezePhysics();
@@ -722,8 +722,20 @@ namespace NOReplay
                 HideTrail();
                 return;
             }
-            bool dead = Track != null && Track.RemovedAt >= 0f && t >= Track.RemovedAt;
-            if (lengthSec <= 0.5f || dead || Track == null || Track.Samples.Count == 0)
+            if (Track == null || Track.Samples.Count == 0 || !gameObject.activeSelf)
+            {
+                HideTrail();
+                return;
+            }
+            float born = Track.Samples[0].Time;
+            if (Track.SpawnAt > born) born = Track.SpawnAt;
+            if (t < born)
+            {
+                HideTrail();
+                return;
+            }
+            bool dead = Track.RemovedAt >= 0f && t >= Track.RemovedAt;
+            if (lengthSec <= 0.5f || dead)
             {
                 HideTrail();
                 return;
@@ -771,8 +783,6 @@ namespace NOReplay
             float w = _ordnance ? 2f : 8f;
             _trail.widthMultiplier = w;
             _trail.widthCurve = AnimationCurve.Constant(0f, 1f, 1f);
-            if (Track != null && _ordnance)
-                Plugin.Log.LogInfo("Trail-W " + (Track.Name ?? "?") + " type=" + (Track.Type ?? "?") + " w=" + w);
             var col = FactionTrailColor(Track.Coalition);
             _trail.startColor = col;
             _trail.endColor = col;
@@ -821,7 +831,7 @@ namespace NOReplay
                     mat.SetColor("_EmissionColor", Color.white * 2f);
                 }
                 _trail.material = mat;
-                Plugin.Log?.LogInfo("Trail-Shader " + sh.name);
+                // Plugin.Log?.LogInfo("Trail-Shader " + sh.name);
             }
             else Plugin.Log?.LogWarning("Trail: kein Shader");
             _trail.startWidth = 8f;
@@ -839,9 +849,18 @@ namespace NOReplay
                 mat.SetColor("_EmissionColor", col * 2.2f);
         }
 
+        internal void ForceHideTrail()
+        {
+            if (_trail != null)
+            {
+                _trail.positionCount = 0;
+                _trail.enabled = false;
+            }
+        }
+
         void HideTrail()
         {
-            if (_trail != null) _trail.enabled = false;
+            ForceHideTrail();
         }
 
         static Color FactionTrailColor(string? coal)
@@ -862,8 +881,8 @@ namespace NOReplay
                 end = Track.Samples[Track.Samples.Count - 1].Time;
             if (end < 0f || t < end) return;
             _boomed = true;
-            Plugin.Log?.LogInfo("Boom-Trigger " + (Track.Name ?? name)
-                + " removed=" + end.ToString("0.00") + " t=" + t.ToString("0.00"));
+            // Plugin.Log?.LogInfo("Boom-Trigger " + (Track.Name ?? name)
+            //     + " removed=" + end.ToString("0.00") + " t=" + t.ToString("0.00"));
             PlayWarheadBoom(transform.position);
             SetGhostVisible(false);
         }
@@ -899,9 +918,9 @@ namespace NOReplay
                     _boomed = true;
                     if (_ordnance && !IsFlareTrack())
                     {
-                        Plugin.Log?.LogInfo("Boom-Trigger " + (Track.Name ?? name)
-                            + " removed=" + Track.RemovedAt.ToString("0.00")
-                            + " t=" + Plugin.Clock.Time.ToString("0.00"));
+                        // Plugin.Log?.LogInfo("Boom-Trigger " + (Track.Name ?? name)
+                        //     + " removed=" + Track.RemovedAt.ToString("0.00")
+                        //     + " t=" + Plugin.Clock.Time.ToString("0.00"));
                         PlayWarheadBoom(transform.position);
                     }
                     else if (!_ordnance)
@@ -966,8 +985,6 @@ namespace NOReplay
                 FreezePhysics();
             }
             drive.SetPositionAndRotation(p, q);
-            if (_air && Time.frameCount % 60 == 0)
-                Plugin.Log.LogInfo("Rot " + gameObject.name + " HasQuat=" + s.HasQuat + " q=" + q.eulerAngles);
             if (_air)
             {
                 if (!_surfBound) CaptureSurfaceRest();

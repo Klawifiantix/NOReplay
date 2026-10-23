@@ -23,6 +23,7 @@ namespace NOReplay
         internal static ReplayLog Log = new ReplayLog();
         internal static Harmony Harmony = null!;
         internal static ReplayDocument? CurrentDoc;
+        static bool _staticHandlerStarted;
         internal static ReplayClock Clock = new ReplayClock();
 
         float _logAcc;
@@ -152,6 +153,7 @@ namespace NOReplay
             _holdClock = false;
             _pickerOpen = false;
             CurrentDoc = null;
+            _staticHandlerStarted = false;
             Clock.Reset(0f);
             _menuHooked = false;
             _replayBtn = null;
@@ -189,6 +191,11 @@ namespace NOReplay
                 }
                 TickGhostSpawns();
                 TickGhostSleep();
+                if (!_staticHandlerStarted && InGameWorld() && Time.timeSinceLevelLoad > 2f)
+                {
+                    _staticHandlerStarted = true;
+                    ReplayStaticHandler.StartFor(CurrentDoc);
+                }
                 TickMissileBooms();
                 TickTrails();
                 WarmOrdnance();
@@ -218,6 +225,18 @@ namespace NOReplay
                 var rg = go.GetComponent<ReplayGhost>();
                 if (rg == null || !rg.IsOrdnancePublic) continue;
                 rg.TryBoom(t);
+            }
+        }
+
+        static void ClearAllTrails()
+        {
+            for (int i = 0; i < _ghosts.Count; i++)
+            {
+                var go = _ghosts[i];
+                if (go == null) continue;
+                var rg = go.GetComponent<ReplayGhost>();
+                if (rg == null) continue;
+                rg.ForceHideTrail();
             }
         }
 
@@ -280,12 +299,13 @@ namespace NOReplay
             }
         }
 
-        static int _sleepFrame;
         static void TickGhostSleep()
         {
-            // Full check only every 4 frames; the rest just keep current state.
-            if ((Time.frameCount & 3) != 0) return;
-            for (int i = 0; i < _ghosts.Count; i++)
+            // Only check a quarter of the ghosts each frame.
+            if (_ghosts.Count == 0) return;
+            int stride = 4;
+            int start = Time.frameCount % stride;
+            for (int i = start; i < _ghosts.Count; i += stride)
             {
                 var go = _ghosts[i];
                 if (go == null) continue;

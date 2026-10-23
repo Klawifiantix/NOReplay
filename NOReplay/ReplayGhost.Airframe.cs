@@ -1072,7 +1072,7 @@ namespace NOReplay
                         string sh = mat.shader != null ? mat.shader.name : "null";
                         bool hasL = mat.HasProperty("_Livery") && mat.GetTexture("_Livery") != null;
                         bool hasB = mat.HasProperty("_BaseMap") && mat.GetTexture("_BaseMap") != null;
-                        Plugin.Log.LogInfo("Vagrant-Mat " + r.name + " sh=" + sh + " L=" + hasL + " B=" + hasB);
+                        // Plugin.Log.LogInfo("Vagrant-Mat " + r.name + " sh=" + sh + " L=" + hasL + " B=" + hasB);
                     }
                 }
             }

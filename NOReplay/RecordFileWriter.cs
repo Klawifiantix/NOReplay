@@ -1,9 +1,6 @@
-﻿using BepInEx.Logging;
-using System;
+﻿using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -11,68 +8,60 @@ namespace NOReplay
 {
     internal class RecordFileWriter
     {
-        private StreamWriter _writer;
-        private object _stateLock = new object();
-        private volatile bool _shouldFlush = false;
-        private volatile bool _shouldClose = false;
-        private ConcurrentQueue<string> _lineQueue;
-        private Task _writeTask;
+        private readonly StreamWriter _writer;
+        private readonly object _stateLock = new object();
+        private volatile bool _shouldFlush;
+        private volatile bool _shouldClose;
+        private readonly ConcurrentQueue<string> _lineQueue = new ConcurrentQueue<string>();
+        private readonly ManualResetEventSlim _signal = new ManualResetEventSlim(false);
+        private readonly Task _writeTask;
+        private int _closed;
 
         public RecordFileWriter(StreamWriter writer)
         {
             _writer = writer;
-            _lineQueue = new ConcurrentQueue<string>();
-            _writeTask = Task.Run(() => _writeLoop());
+            _writeTask = Task.Run((Action)_writeLoop);
         }
 
         private void _writeLoop()
         {
             Record.Log?.LogDebug("Starting ACMI StreamWriter Thread.");
-            bool flushThisLoop = false;
-            bool closeThisLoop = false;
             while (true)
             {
+                _signal.Wait();
+                while (_lineQueue.TryDequeue(out var line))
+                    _writer.WriteLine(line);
+
+                bool flush;
+                bool close;
                 lock (_stateLock)
                 {
-                    flushThisLoop = _shouldFlush;
-                    closeThisLoop = _shouldClose;
+                    flush = _shouldFlush;
+                    close = _shouldClose;
+                    if (flush)
+                        _shouldFlush = false;
                 }
 
-                if (closeThisLoop)
+                if (close)
                 {
-                    while (!_lineQueue.IsEmpty)
-                    {
-                        //Empty the line queue
-                        string newLine;
-                        _lineQueue.TryDequeue(out newLine);
-                        _writer.WriteLine(_lineQueue);
-                    }
+                    while (_lineQueue.TryDequeue(out var line))
+                        _writer.WriteLine(line);
                     _writer.Flush();
                     _writer.Close();
                     Record.Log?.LogDebug("Exiting ACMI StreamWriter Thread.");
                     return;
                 }
 
-                if (flushThisLoop)
+                if (flush)
                 {
                     Record.Log?.LogDebug("ACMI Flush started.");
                     _writer.Flush();
                     Record.Log?.LogDebug("ACMI Flush complete.");
-                    lock (_stateLock)
-                    {
-                        _shouldFlush = false;
-                        flushThisLoop = false;
-                    }
                 }
 
-                var linesWrittenThisLoop = 0;
-                while (!_lineQueue.IsEmpty && linesWrittenThisLoop < 100)
-                {
-                    string newLine;
-                    _lineQueue.TryDequeue(out newLine);
-                    _writer.WriteLine(newLine);
-                    linesWrittenThisLoop++;
-                }
+                _signal.Reset();
+                if (!_lineQueue.IsEmpty || _shouldFlush || _shouldClose)
+                    _signal.Set();
             }
         }
 
@@ -88,21 +77,28 @@ namespace NOReplay
             {
                 _shouldFlush = true;
             }
+            _signal.Set();
         }
 
         public void Close()
         {
-            //Set the close flag and wait for the task to finish.
+            if (Interlocked.Exchange(ref _closed, 1) != 0)
+            {
+                try { _writeTask.Wait(); } catch { }
+                return;
+            }
             lock (_stateLock)
             {
                 _shouldClose = true;
             }
+            _signal.Set();
             _writeTask.Wait();
         }
 
         public void WriteLine(string line)
         {
             _lineQueue.Enqueue(line);
+            _signal.Set();
         }
     }
 }

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
@@ -6,39 +7,94 @@ namespace NOReplay
 {
     public partial class ReplayGhost
     {
+        sealed class AudioSrcProps
+        {
+            public PropertyInfo? Clip;
+            public PropertyInfo? Loop;
+            public PropertyInfo? Mute;
+            public PropertyInfo? Enabled;
+            public PropertyInfo? IgnoreListenerPause;
+            public PropertyInfo? SpatialBlend;
+            public PropertyInfo? MinDistance;
+            public PropertyInfo? MaxDistance;
+            public PropertyInfo? DopplerLevel;
+            public PropertyInfo? Priority;
+            public PropertyInfo? Pitch;
+            public PropertyInfo? Volume;
+            public PropertyInfo? IsPlaying;
+            public MethodInfo? Play;
+        }
+
+        static readonly Dictionary<Type, AudioSrcProps> _audioProps = new Dictionary<Type, AudioSrcProps>();
+        static readonly Dictionary<(Type, string), FieldInfo?> _fieldCache = new Dictionary<(Type, string), FieldInfo?>();
+
+        static AudioSrcProps PropsFor(Type st)
+        {
+            if (_audioProps.TryGetValue(st, out var p)) return p;
+            p = new AudioSrcProps
+            {
+                Clip = st.GetProperty("clip"),
+                Loop = st.GetProperty("loop"),
+                Mute = st.GetProperty("mute"),
+                Enabled = st.GetProperty("enabled"),
+                IgnoreListenerPause = st.GetProperty("ignoreListenerPause"),
+                SpatialBlend = st.GetProperty("spatialBlend"),
+                MinDistance = st.GetProperty("minDistance"),
+                MaxDistance = st.GetProperty("maxDistance"),
+                DopplerLevel = st.GetProperty("dopplerLevel"),
+                Priority = st.GetProperty("priority"),
+                Pitch = st.GetProperty("pitch"),
+                Volume = st.GetProperty("volume"),
+                IsPlaying = st.GetProperty("isPlaying"),
+                Play = st.GetMethod("Play", Type.EmptyTypes),
+            };
+            _audioProps[st] = p;
+            return p;
+        }
+
         static void DriveEngineSrc(Component host, object? src, object? clip, float vol, float pitch)
         {
             if (host is Behaviour bh && bh.enabled) bh.enabled = false;
             if (src == null) return;
             if (Plugin.Clock.Paused) vol = 0f;
             bool followed = host != null && Plugin.IsFollowed(host.gameObject);
-            if (!followed && host != null && vol > 0f && !Plugin.AudioNear(host.gameObject, 550f))
-                vol = 0f;
-            var st = src.GetType();
+            if (host != null && !followed && !Plugin.AudioNear(host.gameObject, 550f))
+            {
+                try { PropsFor(src.GetType()).Volume?.SetValue(src, 0f); } catch { }
+                return;
+            }
+            var p = PropsFor(src.GetType());
             try
             {
-                if (clip != null) st.GetProperty("clip")?.SetValue(src, clip);
-                st.GetProperty("loop")?.SetValue(src, true);
-                st.GetProperty("mute")?.SetValue(src, false);
-                st.GetProperty("enabled")?.SetValue(src, true);
-                try { st.GetProperty("ignoreListenerPause")?.SetValue(src, true); } catch { }
-                st.GetProperty("spatialBlend")?.SetValue(src, followed ? 0f : 1f);
-                st.GetProperty("minDistance")?.SetValue(src, 12f);
-                st.GetProperty("maxDistance")?.SetValue(src, 700f);
-                st.GetProperty("dopplerLevel")?.SetValue(src, 0f);
-                st.GetProperty("priority")?.SetValue(src, followed ? 0 : 64);
-                st.GetProperty("pitch")?.SetValue(src, pitch);
-                st.GetProperty("volume")?.SetValue(src, vol);
-                object? playing = st.GetProperty("isPlaying")?.GetValue(src);
+                if (clip != null) p.Clip?.SetValue(src, clip);
+                p.Loop?.SetValue(src, true);
+                p.Mute?.SetValue(src, false);
+                p.Enabled?.SetValue(src, true);
+                try { p.IgnoreListenerPause?.SetValue(src, true); } catch { }
+                p.SpatialBlend?.SetValue(src, followed ? 0f : 1f);
+                p.MinDistance?.SetValue(src, 12f);
+                p.MaxDistance?.SetValue(src, 700f);
+                p.DopplerLevel?.SetValue(src, 0f);
+                p.Priority?.SetValue(src, followed ? 0 : 64);
+                p.Pitch?.SetValue(src, pitch);
+                p.Volume?.SetValue(src, vol);
+                object? playing = p.IsPlaying?.GetValue(src);
                 if (!(playing is bool on && on) && vol > 0.01f)
-                    st.GetMethod("Play", Type.EmptyTypes)?.Invoke(src, null);
+                    p.Play?.Invoke(src, null);
             }
             catch { }
         }
 
         static object? FieldOn(Component c, string name)
         {
-            return c.GetType().GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(c);
+            var t = c.GetType();
+            var key = (t, name);
+            if (!_fieldCache.TryGetValue(key, out var f))
+            {
+                f = t.GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                _fieldCache[key] = f;
+            }
+            return f?.GetValue(c);
         }
 
 

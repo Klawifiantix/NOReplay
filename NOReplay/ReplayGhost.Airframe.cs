@@ -389,6 +389,46 @@ namespace NOReplay
                     }
                     _fStartup?.SetValue(c, 1f);
                     _fRotorUnfold?.SetValue(c, true);
+                    // Unfold rotor hinges visually.
+                    try
+                    {
+                        var hinges = c.GetType().GetField("rotorHinges", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(c) as System.Array;
+                        if (hinges != null)
+                        {
+                            for (int h = 0; h < hinges.Length; h++)
+                            {
+                                var hinge = hinges.GetValue(h);
+                                if (hinge == null) continue;
+                                hinge.GetType().GetMethod("Initialize")?.Invoke(hinge, new object[] { 1f, 0f });
+                            }
+                        }
+                    }
+                    catch { }
+                    // Diagnostic: dump Ibis renderers once.
+                    if (gameObject.name.IndexOf("Ibis", StringComparison.OrdinalIgnoreCase) >= 0 && _ibisDump == 0)
+                    {
+                        _ibisDump = 1;
+                        // Dump only this Ibis, not the whole scene.
+                        string[] doorNames = { "door_FL", "door_FR", "slidingDoor_L", "slidingDoor_R", "windowCover_L", "windowCover_R" };
+                        var ibisAll = gameObject.GetComponentsInChildren<Transform>(true);
+                        for (int ii = 0; ii < ibisAll.Length; ii++)
+                        {
+                            var tt = ibisAll[ii];
+                            if (tt == null) continue;
+                            string nn = tt.gameObject.name;
+                            bool match = false;
+                            for (int k = 0; k < doorNames.Length; k++)
+                                if (nn == doorNames[k]) { match = true; break; }
+                            if (!match) continue;
+                            var rends = tt.GetComponentsInChildren<Renderer>(true);
+                            for (int ri = 0; ri < rends.Length; ri++)
+                            {
+                                var r = rends[ri];
+                                if (r == null) continue;
+                                Plugin.Log.LogInfo("Ibis-Door " + nn + "/" + r.gameObject.name + " en=" + r.enabled + " act=" + r.gameObject.activeInHierarchy);
+                            }
+                        }
+                    }
                     float rad = Plugin.Clock.Paused ? 0f : nom * 0.1047f;
                     _fAngSpeed?.SetValue(c, rad);
                     if (!Plugin.Clock.Paused)
@@ -1361,6 +1401,7 @@ namespace NOReplay
         }
 
         static int _fxDumpLeft = 4;
+        int _ibisDump;
 
 
         void DumpFxNames()

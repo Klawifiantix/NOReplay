@@ -105,8 +105,8 @@ namespace NOReplay
             string[] keys =
             {
                 "vagrant", "chicane", "compass", "cricket", "tarantula", "ibis",
-                "revoker", "darkreach", "medusa", "scorpion",
-                "vt-7", "sah-46", "t/a-30", "ci-22", "vl-49", "uh-90"
+                "revoker", "darkreach", "medusa", "scorpion", "ifrit", "vortex",
+                "vt-7", "sah-46", "t/a-30", "ci-22", "vl-49", "uh-90", "kr-67", "fs-20"
             };
             foreach (var k in keys)
                 if (n.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0) return true;

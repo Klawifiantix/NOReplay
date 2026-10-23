@@ -48,7 +48,7 @@ namespace NOReplay
         {
             _ordAudioOn = false;
             _ordVoiceHeld = false;
-            if (_ordnance && IsTrackAlive()) IgniteMissileFx();
+            if (_ordnance && IsTrackAlive()) { _bornAt = Time.unscaledTime; IgniteMissileFx(); }
         }
 
         void IgniteMissileFx()
@@ -184,6 +184,7 @@ namespace NOReplay
         }
 
         bool _startupPlayed;
+        float _bornAt;
 
         static void PlayPs(object? ps)
         {
@@ -306,7 +307,9 @@ namespace NOReplay
                         if (motor == null) continue;
                         var tt = motor.GetType();
                         var start = tt.GetField("startupSource", flags)?.GetValue(motor);
-                        if (start != null && !_startupPlayed)
+                        // Launch sound only at actual launch, not when flying past later.
+                        float age = Time.unscaledTime - _bornAt;
+                        if (start != null && !_startupPlayed && age < 1.5f)
                         {
                             start.GetType().GetProperty("mute")?.SetValue(start, false);
                             start.GetType().GetMethod("Play", Type.EmptyTypes)?.Invoke(start, null);

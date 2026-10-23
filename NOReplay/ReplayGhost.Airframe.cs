@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
@@ -181,19 +182,21 @@ namespace NOReplay
             _engs = CollectFx(_engType);
             _tfans = CollectFx(_tfanType);
             _gears = CollectFx(_gearType);
+            BindNozzles();
+            BindMotion();
         }
 
 
         void DriveCspAudio(Component c, float rpm)
         {
             DriveEngineSrc(c, _fCspAudio?.GetValue(c) ?? FieldOn(c, "propAudio"),
-                FieldOn(c, "exteriorSound"), rpm > 1f ? 0.55f : 0f, 0.95f);
+                _fCspExt?.GetValue(c) ?? FieldOn(c, "exteriorSound"), rpm > 1f ? 0.55f : 0f, 0.95f);
         }
 
         void DriveRotorAudio(Component c, float ratio)
         {
             DriveEngineSrc(c, _fRotorSrc?.GetValue(c) ?? FieldOn(c, "rotorSource"),
-                FieldOn(c, "exteriorSound"), ratio * 0.7f, 0.9f + 0.15f * ratio);
+                _fRotorExt?.GetValue(c) ?? FieldOn(c, "exteriorSound"), ratio * 0.7f, 0.9f + 0.15f * ratio);
         }
 
         void DriveTurbofanAudio(Component c, float ratio)
@@ -211,16 +214,50 @@ namespace NOReplay
                 ratio > 0.05f ? 0.45f : 0f, 0.85f + 0.2f * ratio);
         }
 
+        struct JetRpmBind
+        {
+            public FieldInfo? Rpm;
+            public FieldInfo? MaxRpm;
+            public FieldInfo? TurbineAudio;
+        }
+        static readonly Dictionary<Type, JetRpmBind> _jetRpm = new Dictionary<Type, JetRpmBind>();
+        static readonly Dictionary<Type, FieldInfo?> _rotorHingeField = new Dictionary<Type, FieldInfo?>();
+        static readonly Dictionary<Type, MethodInfo?> _hingeInit = new Dictionary<Type, MethodInfo?>();
+        static readonly object[] _hingeInitArgs = { 1f, 0f };
+        static readonly Dictionary<Type, MethodInfo?> _hazeUpdate = new Dictionary<Type, MethodInfo?>();
+        static readonly Dictionary<Type, AbFields> _abFields = new Dictionary<Type, AbFields>();
+        static readonly Dictionary<Type, MethodInfo?> _fbwByType = new Dictionary<Type, MethodInfo?>();
+        static readonly Dictionary<Type, MethodInfo?> _hoverByType = new Dictionary<Type, MethodInfo?>();
+
+        struct AbFields
+        {
+            public FieldInfo? Amount;
+            public FieldInfo? Flame;
+            public FieldInfo? Glow;
+        }
+
+        static JetRpmBind JetRpmOf(Type t)
+        {
+            if (_jetRpm.TryGetValue(t, out var b)) return b;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            b = new JetRpmBind
+            {
+                Rpm = t.GetField("rpm", flags) ?? t.GetField("currentRPM", flags),
+                MaxRpm = t.GetField("maxRPM", flags),
+                TurbineAudio = t.GetField("turbineAudio", flags),
+            };
+            _jetRpm[t] = b;
+            return b;
+        }
+
         void DriveJetAudio(Component c, float ratio)
         {
             if (c is Behaviour jb) jb.enabled = false;
-            var rpmF = c.GetType().GetField("rpm", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                    ?? c.GetType().GetField("currentRPM", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            var maxF = c.GetType().GetField("maxRPM", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            var bind = JetRpmOf(c.GetType());
             float max = 10000f;
-            if (maxF?.GetValue(c) is float mx && mx > 1f) max = mx;
-            rpmF?.SetValue(c, max * Mathf.Clamp01(ratio));
-            object? src = FieldOn(c, "turbineAudio");
+            if (bind.MaxRpm?.GetValue(c) is float mx && mx > 1f) max = mx;
+            bind.Rpm?.SetValue(c, max * Mathf.Clamp01(ratio));
+            object? src = bind.TurbineAudio != null ? bind.TurbineAudio.GetValue(c) : FieldOn(c, "turbineAudio");
             DriveEngineSrc(c, src, null, ratio > 0.05f ? 0.55f : 0f, 0.75f + 0.35f * ratio);
         }
 
@@ -337,7 +374,6 @@ namespace NOReplay
             if (spd > 0.5f)
                 _velMs = transform.forward * spd;
             WriteUnitMotion(spd, _velMs);
-            DisableFlightAssist();
             CloseAirbrakes();
             if (Time.unscaledTime >= _dmgNext)
             {
@@ -367,13 +403,7 @@ namespace NOReplay
                 gearDown = false;
             if (_startedAir && !gearDown) _fold = 1f;
             ApplyReplayGear(gearDown);
-            foreach (var beh in GetComponents<MonoBehaviour>())
-            {
-                if (beh == null || beh.GetType().Name != "Aircraft") continue;
-                if (_fIgnition == null)
-                    _fIgnition = beh.GetType().GetField("Ignition", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                _fIgnition?.SetValue(beh, true);
-            }
+            KeepIgnition();
             if (_shafts.Length > 0)
             {
                 for (int i = 0; i < _shafts.Length; i++)
@@ -392,14 +422,28 @@ namespace NOReplay
                     // Unfold rotor hinges visually.
                     try
                     {
-                        var hinges = c.GetType().GetField("rotorHinges", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(c) as System.Array;
+                        var shaftType = c.GetType();
+                        if (!_rotorHingeField.TryGetValue(shaftType, out var hingeField))
+                        {
+                            hingeField = shaftType.GetField("rotorHinges", BindingFlags.Instance | BindingFlags.NonPublic);
+                            _rotorHingeField[shaftType] = hingeField;
+                        }
+                        var hinges = hingeField?.GetValue(c) as System.Array;
                         if (hinges != null)
                         {
                             for (int h = 0; h < hinges.Length; h++)
                             {
                                 var hinge = hinges.GetValue(h);
                                 if (hinge == null) continue;
-                                hinge.GetType().GetMethod("Initialize")?.Invoke(hinge, new object[] { 1f, 0f });
+                                var ht = hinge.GetType();
+                                if (!_hingeInit.TryGetValue(ht, out var init))
+                                {
+                                    init = ht.GetMethod("Initialize");
+                                    _hingeInit[ht] = init;
+                                }
+                                _hingeInitArgs[0] = 1f;
+                                _hingeInitArgs[1] = 0f;
+                                init?.Invoke(hinge, _hingeInitArgs);
                             }
                         }
                     }
@@ -498,9 +542,8 @@ namespace NOReplay
                     float rpm = 0.3f;
                     if (_engType != null)
                     {
-                        var fMax = _engType.GetField("maxRPM", BindingFlags.Instance | BindingFlags.Public);
                         float max = 10000f;
-                        if (fMax != null && fMax.GetValue(c) is float mx) max = mx;
+                        if (_fEngMaxPublic != null && _fEngMaxPublic.GetValue(c) is float mx) max = mx;
                         rpm = max * (airborne ? 0.8f : 0.35f);
                     }
                     _fRpm?.SetValue(c, rpm);
@@ -669,28 +712,60 @@ namespace NOReplay
         {
             if (!_air) return;
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            foreach (var name in new[] { "ControlsFilter", "HeloControlsFilter", "RelaxedStabilityController", "MagicTorqueController", "TiltWingController", "SwingWingController", "CompoundHeloController", "PilotPlayerState" })
+            if (!_assistTypesBound)
             {
-                var t = Plugin.FindGameType(name);
-                if (t == null) continue;
-                foreach (var c in GetComponentsInChildren(t, true))
+                _assistTypesBound = true;
+                string[] names =
                 {
-                    if (c is Behaviour b) b.enabled = false;
+                    "ControlsFilter", "HeloControlsFilter", "RelaxedStabilityController",
+                    "MagicTorqueController", "TiltWingController", "SwingWingController",
+                    "CompoundHeloController", "PilotPlayerState"
+                };
+                _assistTypes = new Type?[names.Length];
+                for (int i = 0; i < names.Length; i++)
+                    _assistTypes[i] = Plugin.FindGameType(names[i]);
+                if (_acType == null) _acType = Plugin.FindGameType("Aircraft");
+                if (_acType != null)
+                {
+                    _mSetFlightAssist = _acType.GetMethod("SetFlightAssist", flags);
+                    _mGetControlsFilter = _acType.GetMethod("GetControlsFilter", flags);
                 }
             }
-            var act = Plugin.FindGameType("Aircraft");
-            if (act == null) return;
-            var ac = GetComponent(act) ?? GetComponentInChildren(act, true);
+            var types = _assistTypes;
+            if (types != null)
+            {
+                for (int i = 0; i < types.Length; i++)
+                {
+                    var t = types[i];
+                    if (t == null) continue;
+                    var comps = GetComponentsInChildren(t, true);
+                    for (int c = 0; c < comps.Length; c++)
+                    {
+                        if (comps[c] is Behaviour b) b.enabled = false;
+                    }
+                }
+            }
+            if (_acType == null) return;
+            var ac = GetComponent(_acType) ?? GetComponentInChildren(_acType, true);
             if (ac == null) return;
-            try { act.GetMethod("SetFlightAssist", flags)?.Invoke(ac, new object[] { false }); } catch { }
+            try { _mSetFlightAssist?.Invoke(ac, new object[] { false }); } catch { }
             try
             {
-                var gf = act.GetMethod("GetControlsFilter", flags);
-                var filter = gf?.Invoke(ac, null);
-                filter?.GetType().GetMethod("SetFlyByWireParameters", flags)
-                    ?.Invoke(filter, new object[] { false, Array.Empty<float>() });
-                filter?.GetType().GetMethod("SetAutoHover", flags)
-                    ?.Invoke(filter, new object[] { false });
+                var filter = _mGetControlsFilter?.Invoke(ac, null);
+                if (filter == null) return;
+                var ft = filter.GetType();
+                if (!_fbwByType.TryGetValue(ft, out var setFbw))
+                {
+                    setFbw = ft.GetMethod("SetFlyByWireParameters", flags);
+                    _fbwByType[ft] = setFbw;
+                }
+                if (!_hoverByType.TryGetValue(ft, out var setHover))
+                {
+                    setHover = ft.GetMethod("SetAutoHover", flags);
+                    _hoverByType[ft] = setHover;
+                }
+                setFbw?.Invoke(filter, new object[] { false, Array.Empty<float>() });
+                setHover?.Invoke(filter, new object[] { false });
             }
             catch { }
         }
@@ -1027,55 +1102,154 @@ namespace NOReplay
             }
         }
 
+        void KeepIgnition()
+        {
+            if (!_ignitionBound)
+            {
+                var behs = GetComponents<MonoBehaviour>();
+                var found = new List<Component>(1);
+                for (int i = 0; i < behs.Length; i++)
+                {
+                    var beh = behs[i];
+                    if (beh == null || beh.GetType().Name != "Aircraft") continue;
+                    found.Add(beh);
+                }
+                if (found.Count == 0) return;
+                if (_fIgnition == null)
+                    _fIgnition = found[0].GetType().GetField("Ignition", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                _ignitionTargets = found.ToArray();
+                _ignitionBound = true;
+            }
+            for (int i = 0; i < _ignitionTargets.Length; i++)
+            {
+                var beh = _ignitionTargets[i];
+                if (beh != null)
+                    _fIgnition?.SetValue(beh, true);
+            }
+        }
+
         void WriteThrottle(float throttle)
         {
-            var act = Plugin.FindGameType("Aircraft");
-            if (act == null) return;
-            var ac = GetComponent(act) ?? GetComponentInChildren(act, true);
-            if (ac == null) return;
+            if (_throttleGiveUp) return;
+            if (!_throttleBound || _throttleAc == null)
+            {
+                Bind();
+                if (_acType == null)
+                {
+                    _throttleGiveUp = true;
+                    return;
+                }
+                _throttleAc = GetComponent(_acType) ?? GetComponentInChildren(_acType, true);
+                if (_throttleAc == null) return;
+                if (_mGetInputs == null && !_getInputsLooked)
+                {
+                    _getInputsLooked = true;
+                    var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                    _mGetInputs = _acType.GetMethod("GetInputs", flags);
+                }
+                if (_mGetInputs == null)
+                {
+                    _throttleGiveUp = true;
+                    return;
+                }
+                _throttleBound = true;
+            }
             try
             {
-                var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-                var inputs = act.GetMethod("GetInputs", flags)?.Invoke(ac, null);
+                var inputs = _mGetInputs?.Invoke(_throttleAc, null);
                 if (inputs == null) return;
-                var it = inputs.GetType();
-                it.GetField("throttle")?.SetValue(inputs, Mathf.Clamp01(throttle));
-                it.GetField("brake")?.SetValue(inputs, 0f);
+                if (!_inputFieldsLooked)
+                {
+                    _inputFieldsLooked = true;
+                    var it = inputs.GetType();
+                    _fInThrottle = it.GetField("throttle");
+                    _fInBrake = it.GetField("brake");
+                }
+                _fInThrottle?.SetValue(inputs, Mathf.Clamp01(throttle));
+                _fInBrake?.SetValue(inputs, 0f);
             }
             catch { }
         }
 
+        void BindNozzles()
+        {
+            Bind();
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            if (_nozzleType == null)
+                _nozzleType = Plugin.FindGameType("JetNozzle");
+            if (_nozzleType == null)
+            {
+                _nozzles = Array.Empty<Component>();
+                _nozzlesBound = true;
+                return;
+            }
+            if (_fHeatHaze == null)
+                _fHeatHaze = _nozzleType.GetField("heatHaze", flags);
+            if (_fAfterburners == null)
+                _fAfterburners = _nozzleType.GetField("afterburners", flags);
+            if (_mThrust == null)
+            {
+                try { _mThrust = _nozzleType.GetMethod("Thrust", flags); }
+                catch { }
+            }
+            _nozzles = CollectFx(_nozzleType);
+            _nozzlesBound = true;
+        }
+
         void DriveJetExhaust(bool on, float throttle)
         {
-            var jn = Plugin.FindGameType("JetNozzle");
-            if (jn == null) return;
-            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            if (!_nozzlesBound) BindNozzles();
+            if (_nozzleType == null || _nozzles.Length == 0) return;
             throttle = on ? Mathf.Clamp01(throttle) : 0f;
             float rpmRatio = on ? Mathf.Lerp(0.25f, 1f, throttle) : 0f;
             float thrustRatio = throttle;
             bool allowAb = on && throttle > 0.92f;
-            var mThrust = jn.GetMethod("Thrust", flags);
-            foreach (var c in GetComponentsInChildren(jn, true))
+            float abAmt = allowAb ? Mathf.Clamp01((throttle - 0.92f) / 0.08f) : 0f;
+            var abFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            for (int i = 0; i < _nozzles.Length; i++)
             {
+                var c = _nozzles[i];
                 if (c == null) continue;
                 try
                 {
-                    mThrust?.Invoke(c, new object[] { 0f, rpmRatio, thrustRatio, throttle, allowAb });
-                    var haze = jn.GetField("heatHaze", flags)?.GetValue(c);
+                    _thrustArgs[0] = 0f;
+                    _thrustArgs[1] = rpmRatio;
+                    _thrustArgs[2] = thrustRatio;
+                    _thrustArgs[3] = throttle;
+                    _thrustArgs[4] = allowAb;
+                    _mThrust?.Invoke(c, _thrustArgs);
+                    var haze = _fHeatHaze?.GetValue(c);
                     if (haze != null)
                     {
                         var ht = haze.GetType();
-                        ht.GetMethod("UpdateParticles")?.Invoke(haze, new object[] { thrustRatio, rpmRatio, _spdMs });
+                        if (!_hazeUpdate.TryGetValue(ht, out var upd))
+                        {
+                            upd = ht.GetMethod("UpdateParticles");
+                            _hazeUpdate[ht] = upd;
+                        }
+                        _particleArgs[0] = thrustRatio;
+                        _particleArgs[1] = rpmRatio;
+                        _particleArgs[2] = _spdMs;
+                        upd?.Invoke(haze, _particleArgs);
                     }
-                    var abs = jn.GetField("afterburners", flags)?.GetValue(c) as Array;
+                    var abs = _fAfterburners?.GetValue(c) as Array;
                     if (abs == null) continue;
-                    float abAmt = allowAb ? Mathf.Clamp01((throttle - 0.92f) / 0.08f) : 0f;
                     foreach (var ab in abs)
                     {
                         if (ab == null) continue;
                         var at = ab.GetType();
-                        at.GetField("afterburnerAmount", flags)?.SetValue(ab, abAmt);
-                        var flame = at.GetField("flameRenderer", flags)?.GetValue(ab) as Renderer;
+                        if (!_abFields.TryGetValue(at, out var af))
+                        {
+                            af = new AbFields
+                            {
+                                Amount = at.GetField("afterburnerAmount", abFlags),
+                                Flame = at.GetField("flameRenderer", abFlags),
+                                Glow = at.GetField("nozzleGlowRenderer", abFlags),
+                            };
+                            _abFields[at] = af;
+                        }
+                        af.Amount?.SetValue(ab, abAmt);
+                        var flame = af.Flame?.GetValue(ab) as Renderer;
                         if (flame != null)
                         {
                             flame.enabled = abAmt > 0.01f;
@@ -1085,7 +1259,7 @@ namespace NOReplay
                                 flame.material.SetFloat("_Temperature", abAmt);
                             }
                         }
-                        var glowR = at.GetField("nozzleGlowRenderer", flags)?.GetValue(ab) as Renderer;
+                        var glowR = af.Glow?.GetValue(ab) as Renderer;
                         if (glowR != null) glowR.enabled = abAmt > 0.01f;
                     }
                 }
@@ -1491,6 +1665,7 @@ namespace NOReplay
                 _fCspHub = _cspType.GetField("hubVisible", flags);
                 _fCspDir = _cspType.GetField("turnDirection", flags);
                 _fCspAudio = _cspType.GetField("propAudio", flags);
+                _fCspExt = _cspType.GetField("exteriorSound", flags);
                 _fCspVol = _cspType.GetField("volumeBase", flags);
                 _fCspPitch = _cspType.GetField("pitchBase", flags);
             }
@@ -1508,6 +1683,7 @@ namespace NOReplay
                 _fStarted = _engType.GetField("startedAmount", flags);
                 _fOperable = _engType.GetField("operable", flags);
                 _fHasFuel = _engType.GetField("hasFuel", flags);
+                _fEngMaxPublic = _engType.GetField("maxRPM", BindingFlags.Instance | BindingFlags.Public);
             }
             if (_gearType != null)
             {

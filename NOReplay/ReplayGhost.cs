@@ -60,6 +60,20 @@ namespace NOReplay
         static FieldInfo? _fOperable;
         static FieldInfo? _fHasFuel;
         static FieldInfo? _fIgnition;
+        static FieldInfo? _fEngMaxPublic;
+        static FieldInfo? _fCspExt;
+        static Type? _nozzleType;
+        static MethodInfo? _mThrust;
+        static FieldInfo? _fHeatHaze;
+        static FieldInfo? _fAfterburners;
+        static MethodInfo? _mSetFlightAssist;
+        static MethodInfo? _mGetControlsFilter;
+        static Type?[]? _assistTypes;
+        static bool _assistTypesBound;
+        static bool _getInputsLooked;
+        static bool _inputFieldsLooked;
+        static FieldInfo? _fInThrottle;
+        static FieldInfo? _fInBrake;
         static FieldInfo? _fFold;
         static MethodInfo? _mSetGear;
         static MethodInfo? _mMoveGear;
@@ -74,6 +88,23 @@ namespace NOReplay
         Component[] _tfans = Array.Empty<Component>();
         Component[] _engineList = Array.Empty<Component>();
         bool _engineListReady;
+        Component[] _nozzles = Array.Empty<Component>();
+        bool _nozzlesBound;
+        bool _ignitionBound;
+        Component[] _ignitionTargets = Array.Empty<Component>();
+        bool _throttleBound;
+        bool _throttleGiveUp;
+        Component? _throttleAc;
+        readonly object[] _thrustArgs = new object[5];
+        readonly object[] _particleArgs = new object[3];
+        struct SpeedWrite
+        {
+            public object Target;
+            public FieldInfo Field;
+        }
+        SpeedWrite[] _speeds = Array.Empty<SpeedWrite>();
+        Rigidbody[] _motionRbs = Array.Empty<Rigidbody>();
+        bool _motionBound;
         bool _surfDone;
         Component[] _gears = Array.Empty<Component>();
         Component[] _shipProps = Array.Empty<Component>();
@@ -285,6 +316,8 @@ namespace NOReplay
 
         void Update()
         {
+            // Non-neutral aircraft get their one WriteUnitMotion from ApplyFx.
+            if (_air && !_neutral) return;
             if (!_air && !_ship && !_ordnance) return;
             if (!Plugin.AudioNear(gameObject, 800f) && !_air) return;
             WriteUnitMotion(_spdMs, _velMs);
@@ -446,6 +479,7 @@ namespace NOReplay
             FreezePhysics();
             SilenceAirframe();
             SuppressDamageFx();
+            DisableFlightAssist();
             CacheFx();
             AdoptOrphanFx();
             CacheLocals();
@@ -668,8 +702,14 @@ namespace NOReplay
                 if (par != null && tr.parent != par)
                     tr.SetParent(par, false);
                 if (_partSkip[i]) continue;
-                tr.localPosition = _partPos[i];
-                tr.localRotation = _partRot[i];
+                var wantPos = _partPos[i];
+                var havePos = tr.localPosition;
+                if (havePos.x != wantPos.x || havePos.y != wantPos.y || havePos.z != wantPos.z)
+                    tr.localPosition = wantPos;
+                var wantRot = _partRot[i];
+                var haveRot = tr.localRotation;
+                if (haveRot.x != wantRot.x || haveRot.y != wantRot.y || haveRot.z != wantRot.z || haveRot.w != wantRot.w)
+                    tr.localRotation = wantRot;
             }
         }
 
@@ -983,6 +1023,9 @@ namespace NOReplay
                 _lastKids = Drive.childCount;
                 CacheLocals();
                 FreezePhysics();
+                InvalidatePlaybackCaches();
+                BindNozzles();
+                BindMotion();
             }
             drive.SetPositionAndRotation(p, q);
             if (_air)
@@ -1091,17 +1134,42 @@ namespace NOReplay
             }
         }
 
-        void WriteUnitMotion(float spdMs, Vector3 vel)
+        void BindMotion()
         {
-            foreach (var c in GetComponentsInChildren<MonoBehaviour>(true))
+            var list = new List<SpeedWrite>();
+            var behs = GetComponentsInChildren<MonoBehaviour>(true);
+            for (int i = 0; i < behs.Length; i++)
             {
+                var c = behs[i];
                 if (c == null) continue;
                 var f = FindInstField(c.GetType(), "speed");
                 if (f == null || f.FieldType != typeof(float)) continue;
-                try { f.SetValue(c, spdMs); } catch { }
+                list.Add(new SpeedWrite { Target = c, Field = f });
             }
-            foreach (var rb in GetComponentsInChildren<Rigidbody>(true))
+            _speeds = list.ToArray();
+            _motionRbs = GetComponentsInChildren<Rigidbody>(true);
+            _motionBound = true;
+        }
+
+        internal void InvalidatePlaybackCaches()
+        {
+            _motionBound = false;
+            _engineListReady = false;
+            _nozzlesBound = false;
+            _ignitionBound = false;
+            _throttleBound = false;
+        }
+
+        void WriteUnitMotion(float spdMs, Vector3 vel)
+        {
+            if (!_motionBound) BindMotion();
+            for (int i = 0; i < _speeds.Length; i++)
             {
+                try { _speeds[i].Field.SetValue(_speeds[i].Target, spdMs); } catch { }
+            }
+            for (int i = 0; i < _motionRbs.Length; i++)
+            {
+                var rb = _motionRbs[i];
                 if (rb == null) continue;
                 try
                 {

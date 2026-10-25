@@ -12,13 +12,23 @@ namespace NOReplay
         readonly Dictionary<int, Burst> _open = new();
         public static RecordGunBurst? Instance;
 
+        RecordEngine? _engine;
+        readonly List<int> _toEnd = new();
+
+        RecordEngine? Recorder()
+        {
+            if (_engine == null && Record.Host != null)
+                _engine = Record.Host.GetComponent<RecordEngine>();
+            return _engine;
+        }
+
         public void NotifyFire(Gun gun)
         {
             if (gun == null) return;
             int id = gun.GetInstanceID();
             if (!_open.ContainsKey(id))
             {
-                var recorder = Record.Host?.GetComponent<RecordEngine>();
+                var recorder = Recorder();
                 if (recorder == null) return;
                 var burst = Begin(gun, recorder);
                 if (burst != null)
@@ -41,6 +51,7 @@ namespace NOReplay
         void Awake()
         {
             Instance = this;
+            _engine = Record.Host != null ? Record.Host.GetComponent<RecordEngine>() : null;
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             _ticks = typeof(Gun).GetField("ticksSinceTriggerPull", flags);
             _muzzles = typeof(Gun).GetField("muzzles", flags);
@@ -53,42 +64,40 @@ namespace NOReplay
 
         void Update()
         {
-            // Fallback polling removed. Bursts are started only via NotifyFire (Harmony on Gun.SpawnBullet).
-            // Here we only update aim and end bursts that have stopped.
+            // Bursts start via NotifyFire. Aim and the end-of-burst poll share a 0.1s clock
+            // so lastFired is not boxed every frame.
             if (_open.Count == 0) return;
-            var recorder = Record.Host?.GetComponent<RecordEngine>();
+            var recorder = Recorder();
             if (recorder == null) return;
             float now = Time.time;
-            var toEnd = new List<int>();
+            _toEnd.Clear();
             foreach (var pair in _open)
             {
                 var burst = pair.Value;
                 var gun = burst.Gun;
                 if (gun == null)
                 {
-                    toEnd.Add(pair.Key);
+                    _toEnd.Add(pair.Key);
                     continue;
                 }
+                if (now - burst.LastAim < 0.1f)
+                    continue;
                 bool firing = false;
                 if (_lastFired?.GetValue(gun) is float fired)
                     firing = Time.timeSinceLevelLoad - fired < 0.5f;
                 else if (_ticks?.GetValue(gun) is int ticks)
                     firing = ticks > 0;
                 if (firing)
-                {
-                    if (now - burst.LastAim >= 0.1f)
-                        WriteAim(burst, gun);
-                }
+                    WriteAim(burst, gun, recorder);
                 else if (now - burst.LastAim > 0.15f)
-                {
-                    toEnd.Add(pair.Key);
-                }
+                    _toEnd.Add(pair.Key);
             }
-            foreach (var id in toEnd)
+            for (int i = 0; i < _toEnd.Count; i++)
             {
+                int id = _toEnd[i];
                 if (_open.TryGetValue(id, out var b))
                 {
-                    End(b);
+                    End(b, recorder);
                     _open.Remove(id);
                 }
             }
@@ -131,16 +140,20 @@ namespace NOReplay
                 { "Weapon", GunPath(unit.transform, gun.transform) }
             };
             recorder.invokeWriterUpdate(burst.Host);
-            burst.Host.props = new Dictionary<string, string>();
-            WriteAim(burst, gun);
+            burst.Host.props.Clear();
+            WriteAim(burst, gun, recorder);
             return burst;
         }
 
-        void WriteAim(Burst burst, Gun gun)
+        void WriteAim(Burst burst, Gun gun, RecordEngine recorder)
         {
             var muzzles = _muzzles?.GetValue(gun) as Transform[];
             Transform? muzzle = muzzles != null && muzzles.Length > 0 ? muzzles[0] : gun.transform;
-            if (muzzle == null) return;
+            if (muzzle == null)
+            {
+                burst.LastAim = Time.time;
+                return;
+            }
             Vector3 p = muzzle.position;
             try
             {
@@ -162,16 +175,15 @@ namespace NOReplay
                 p.x.ToString("0.##", CultureInfo.InvariantCulture),
                 p.z.ToString("0.##", CultureInfo.InvariantCulture),
                 yaw.ToString("0.##", CultureInfo.InvariantCulture));
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(burst.Host);
-            burst.Host.props = new Dictionary<string, string>();
+            recorder.invokeWriterUpdate(burst.Host);
+            burst.Host.props.Clear();
             burst.LastAim = Time.time;
         }
 
-        void End(Burst burst)
+        void End(Burst burst, RecordEngine recorder)
         {
             burst.Host.props["Visible"] = "0";
             burst.Host.props["Type"] = "";
-            var recorder = Record.Host.GetComponent<RecordEngine>();
             recorder.invokeWriterUpdate(burst.Host);
             recorder.invokeWriterRemove(burst.Host);
             UnityEngine.Object.Destroy(burst.Host);

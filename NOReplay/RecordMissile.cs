@@ -16,9 +16,9 @@ namespace NOReplay
             {"SHL", "Projectile+Shell" }
         };
 
-        FieldInfo warheadField;
-        FieldInfo detonatedField;
-        FieldInfo armedField;
+        static readonly FieldInfo? warheadField =
+            typeof(Missile).GetField("warhead", BindingFlags.NonPublic | BindingFlags.Instance);
+        static readonly Dictionary<Type, FieldInfo?> detonatedByType = new();
 
         private float lastAGL = float.NaN;
         private float lastTAS = float.NaN;
@@ -70,7 +70,7 @@ namespace NOReplay
                 { "CallSign", $"{missile.definition.unitName} {tacviewId:X}" },
                 { "Debug", lastState.ToString()}
             };
-            var recorder = Record.Host.GetComponent<RecordEngine>();
+            var recorder = Engine;
             if (missile.owner != null && recorder.unitObjects.TryGetValue(missile.owner.persistentID.Id, out var ownerGo) && ownerGo != null)
             {
                 var ownerRec = ownerGo.GetComponent<RecordUnit>();
@@ -78,7 +78,7 @@ namespace NOReplay
                     props["Parent"] = ownerRec.tacviewId.ToString("X", CultureInfo.InvariantCulture);
             }
             recorder.invokeWriterUpdate(this);
-            props = [];
+            props.Clear();
             this.enabled = true;
             base.enabled = true;
         }
@@ -92,9 +92,9 @@ namespace NOReplay
             {
                 props.Add("Visible", "0.0");
                 props.Add("Type", null);
-                Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-                props = [];
-                Record.Host.GetComponent<RecordEngine>().invokeWriterRemove(this);
+                Engine.invokeWriterUpdate(this);
+                props.Clear();
+                Engine.invokeWriterRemove(this);
                 Record.Log?.LogInfo("Missile tot " + (missile != null ? missile.definition.unitName : "?")
                     + " id=" + tacviewId.ToString("X"));
             }
@@ -132,8 +132,8 @@ namespace NOReplay
             UpdatePose();
             UpdateState();
             UpdateMissile();
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
             timer = 0;
         }
 
@@ -141,12 +141,16 @@ namespace NOReplay
         {
             try
             {
-                var wf = typeof(Missile).GetField("warhead", BindingFlags.NonPublic | BindingFlags.Instance);
-                var wh = wf?.GetValue(missile);
+                var wh = warheadField?.GetValue(missile);
                 if (wh != null)
                 {
-                    var det = wh.GetType().GetField("detonated", BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(wh);
-                    if (det is bool d && d)
+                    var wt = wh.GetType();
+                    if (!detonatedByType.TryGetValue(wt, out var detField))
+                    {
+                        detField = wt.GetField("detonated", BindingFlags.NonPublic | BindingFlags.Instance);
+                        detonatedByType[wt] = detField;
+                    }
+                    if (detField?.GetValue(wh) is bool d && d)
                     {
                         WriteDeath();
                         return;
@@ -154,13 +158,6 @@ namespace NOReplay
                 }
             }
             catch { }
-            //warheadField = typeof(Missile).GetField("warhead", BindingFlags.NonPublic | BindingFlags.Instance);
-            //object warheadInstance = warheadField.GetValue(unit);
-            //Type warheadType = warheadInstance.GetType();
-            //detonatedField = warheadType.GetField("detonated", BindingFlags.NonPublic | BindingFlags.Instance);
-            //armedField = warheadType.GetField("Armed", BindingFlags.Public | BindingFlags.Instance);
-            //bool isDetonated = (bool)detonatedField.GetValue(warheadInstance);
-            //bool isArmed = (bool)armedField.GetValue(warheadInstance);
 
             if (unit.speed != lastTAS && RecordConfig.RecordSpeed.Value == true)
             {

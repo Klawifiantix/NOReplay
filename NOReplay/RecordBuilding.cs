@@ -35,8 +35,8 @@ namespace NOReplay
 
             UpdatePose();
             UpdateState();
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
 
             // Events statt Polling
             if (!subscribed && unit != null)
@@ -78,8 +78,8 @@ namespace NOReplay
             props.Add("Color", color);
             props.Add("Debug", building.unitState.ToString());
 
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
         }
 
         private void OnUnitDisabled(Unit u)
@@ -91,12 +91,12 @@ namespace NOReplay
             props.Add("Visible", "0.0");
             props.Add("Type", null);
 
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
 
             if (base.destroyedEvent)
             {
-                Record.Host.GetComponent<RecordEngine>().invokeWriterDestroy(this);
+                Engine.invokeWriterDestroy(this);
             }
 
             Unsubscribe();

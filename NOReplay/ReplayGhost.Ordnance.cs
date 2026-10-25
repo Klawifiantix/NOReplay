@@ -84,17 +84,11 @@ namespace NOReplay
         {
             public FieldInfo? Speed, MaxPitch, PitchRange, BasePitch, Flight, Motors;
         }
-        struct AudioSourceProps
-        {
-            public PropertyInfo? Mute, Volume, Pitch, Playing;
-            public MethodInfo? Play;
-        }
         struct MotorAudioFields
         {
             public FieldInfo? Startup, Sources;
         }
         static readonly Dictionary<Type, MissileAudioFields> _missileAudio = new();
-        static readonly Dictionary<Type, AudioSourceProps> _audioProps = new();
         static readonly Dictionary<Type, MotorAudioFields> _motorAudio = new();
         float _ordPrevX, _ordPrevY, _ordPrevZ, _ordPrevT = -1f;
 
@@ -112,21 +106,6 @@ namespace NOReplay
                 Motors = mt.GetField("motors", flags),
             };
             _missileAudio[mt] = bind;
-            return bind;
-        }
-
-        static AudioSourceProps AudioPropsOf(Type t)
-        {
-            if (_audioProps.TryGetValue(t, out var bind)) return bind;
-            bind = new AudioSourceProps
-            {
-                Mute = t.GetProperty("mute"),
-                Volume = t.GetProperty("volume"),
-                Pitch = t.GetProperty("pitch"),
-                Playing = t.GetProperty("isPlaying"),
-                Play = t.GetMethod("Play", Type.EmptyTypes),
-            };
-            _audioProps[t] = bind;
             return bind;
         }
 
@@ -199,14 +178,14 @@ namespace NOReplay
             try { flight = bind.Flight?.GetValue(missile); } catch { }
             if (flight != null)
             {
-                var audio = AudioPropsOf(flight.GetType());
+                var audio = PropsFor(flight.GetType());
                 audio.Mute?.SetValue(flight, false);
                 float vol = 0f;
                 try { if (audio.Volume?.GetValue(flight) is float v) vol = v; } catch { }
                 audio.Volume?.SetValue(flight, vol < num ? Mathf.Min(num, vol + Time.deltaTime) : num);
                 audio.Pitch?.SetValue(flight, pitchRange * num + basePitch);
                 bool playing = false;
-                try { playing = audio.Playing?.GetValue(flight) is bool on && on; } catch { }
+                try { playing = audio.IsPlaying?.GetValue(flight) is bool on && on; } catch { }
                 if (!playing) audio.Play?.Invoke(flight, null);
             }
             try
@@ -220,10 +199,10 @@ namespace NOReplay
                     var start = motorFields.Startup?.GetValue(motor);
                     if (start != null && !_startupPlayed)
                     {
-                        var st = AudioPropsOf(start.GetType());
+                        var st = PropsFor(start.GetType());
                         st.Mute?.SetValue(start, false);
                         bool sp = false;
-                        try { sp = st.Playing?.GetValue(start) is bool b && b; } catch { }
+                        try { sp = st.IsPlaying?.GetValue(start) is bool b && b; } catch { }
                         if (!sp) st.Play?.Invoke(start, null);
                         _startupPlayed = true;
                     }
@@ -233,10 +212,10 @@ namespace NOReplay
                     foreach (var src in srcs)
                     {
                         if (src == null || ReferenceEquals(src, start)) continue;
-                        var st = AudioPropsOf(src.GetType());
+                        var st = PropsFor(src.GetType());
                         st.Mute?.SetValue(src, false);
                         bool playing = false;
-                        try { playing = st.Playing?.GetValue(src) is bool pb && pb; } catch { }
+                        try { playing = st.IsPlaying?.GetValue(src) is bool pb && pb; } catch { }
                         if (!playing) st.Play?.Invoke(src, null);
                     }
                 }

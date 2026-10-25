@@ -684,7 +684,7 @@ namespace NOReplay
                     rg.Track = obj;
                     ApplyReplayIdentity(go, obj);
                     SilenceAiOnly(go);
-                    _ghosts.Add(go);
+                    AddGhost(go);
                     rg.SetGhostVisible(false);
                     n++;
                 }
@@ -733,7 +733,7 @@ namespace NOReplay
             rg.Track = obj;
             ApplyReplayIdentity(go, obj);
             SilenceAiOnly(go);
-            _ghosts.Add(go);
+            AddGhost(go);
             rg.SetGhostVisible(false);
             if (_ghosts.Count <= 8 || (_ghosts.Count % 50) == 0)
                 Log.LogInfo("Ghost " + (uid ?? "?") + " -> " + go.name + " n=" + _ghosts.Count);

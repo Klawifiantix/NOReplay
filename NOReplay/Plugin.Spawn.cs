@@ -364,7 +364,7 @@ namespace NOReplay
                 rg.Track = obj;
                 var col = go.GetComponent<Collider>();
                 if (col != null) UnityEngine.Object.Destroy(col);
-                _ghosts.Add(go);
+                AddGhost(go);
                 n++;
             }
             _ghost = _ghosts.Count > 0 ? _ghosts[0] : null;
@@ -398,13 +398,15 @@ namespace NOReplay
 
         static void ClearGhosts()
         {
-            foreach (var g in _ghosts)
+            for (int i = 0; i < _ghosts.Count; i++)
             {
+                var g = _ghosts[i];
                 if (g == null) continue;
-                var rg = g.GetComponent<ReplayGhost>();
+                var rg = i < _ghostComps.Count ? _ghostComps[i] : g.GetComponent<ReplayGhost>();
                 if (rg != null) UnityEngine.Object.Destroy(rg);
             }
             _ghosts.Clear();
+            _ghostComps.Clear();
             _ghost = null;
             _pendingAir.Clear();
             _flareEvents.Clear();
@@ -502,7 +504,7 @@ namespace NOReplay
                 }
                 if (go != null)
                 {
-                    _ghosts.Add(go);
+                    AddGhost(go);
                     if (_ghost == null && !IsOrdnance(obj.Type, obj.Name)) _ghost = go;
                     if (follow)
                     {

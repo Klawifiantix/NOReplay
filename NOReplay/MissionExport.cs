@@ -404,7 +404,10 @@ namespace NOReplay
             new[] { "Hexhound SAM", "UGV1_SAM" },
             new[] { "M12 Jackknife", "UGVDozer1" },
             new[] { "HLT Mobile Artillery", "HLT-MART" },
-            new[] { "MSV MLRS", "Truck2-MLRS" },};
+            new[] { "MSV MLRS", "Truck2-MLRS" },
+            new[] { "Hull down square", "Hulldown1" },
+            new[] { "Hull down circular", "Hulldown2" },
+        };
 
         static string LookupDevName(string? name)
         {
@@ -422,19 +425,22 @@ namespace NOReplay
         {
             string mapped = LookupDevName(obj.Name);
             if (mapped.Length > 0) return mapped;
-            string prefab = "";
             var def = FindAnyDef(obj);
             if (def != null)
             {
+                var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                if (def.GetType().GetField("jsonKey", flags)?.GetValue(def) is string jk && jk.Length > 0)
+                    return jk;
+                string prefab = "";
                 var go = GetDefPrefab(def);
                 if (go != null) prefab = go.name;
                 if (string.IsNullOrEmpty(prefab)) prefab = def.name;
-            }
-            if (!string.IsNullOrEmpty(prefab))
-            {
-                string viaPrefab = LookupDevName(prefab);
-                if (viaPrefab.Length > 0) return viaPrefab;
-                return prefab;
+                if (!string.IsNullOrEmpty(prefab))
+                {
+                    string viaPrefab = LookupDevName(prefab);
+                    if (viaPrefab.Length > 0) return viaPrefab;
+                    return prefab;
+                }
             }
             return obj.Name ?? "unknown";
         }

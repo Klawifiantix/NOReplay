@@ -1138,9 +1138,10 @@ namespace NOReplay
                 StopOrdnanceAudio();
                 _startupPlayed = false;
                 _nextVoiceTry = 0f;
+                _ordPrevT = -1f;
             }
             if (_ordnance && _visible && !_ordAudioOn) IgniteMissileFx();
-            if (_ordnance) LateOrdnanceAudio();
+            if (_ordnance) LateOrdnanceAudio(s);
             for (int i = 0; i < _rbs.Length; i++)
             {
                 var rb = _rbs[i];
@@ -1154,8 +1155,6 @@ namespace NOReplay
                 _prevLocalPos = p;
                 if (_air && gameObject == Plugin._ghost)
                     CheckCameraReposition(vel);
-                if (_air && gameObject == Plugin._ghost && Time.frameCount % 120 == 0)
-                    Plugin.Log.LogInfo("RB.vel=" + rb.velocity + " fwd=" + drive.forward + " pos=" + Drive.position);
                 rb.angularVelocity = Vector3.zero;
             }
             _prevX = s.X;

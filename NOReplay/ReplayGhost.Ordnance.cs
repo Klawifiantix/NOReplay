@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
@@ -79,104 +80,164 @@ namespace NOReplay
             _ordAudioOn = true;
         }
 
-        void LateOrdnanceAudio()
+        struct MissileAudioFields
+        {
+            public FieldInfo? Speed, MaxPitch, PitchRange, BasePitch, Flight, Motors;
+        }
+        struct AudioSourceProps
+        {
+            public PropertyInfo? Mute, Volume, Pitch, Playing;
+            public MethodInfo? Play;
+        }
+        struct MotorAudioFields
+        {
+            public FieldInfo? Startup, Sources;
+        }
+        static readonly Dictionary<Type, MissileAudioFields> _missileAudio = new();
+        static readonly Dictionary<Type, AudioSourceProps> _audioProps = new();
+        static readonly Dictionary<Type, MotorAudioFields> _motorAudio = new();
+        float _ordPrevX, _ordPrevY, _ordPrevZ, _ordPrevT = -1f;
+
+        static MissileAudioFields MissileAudioOf(Type mt)
+        {
+            if (_missileAudio.TryGetValue(mt, out var bind)) return bind;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            bind = new MissileAudioFields
+            {
+                Speed = mt.GetField("speed", flags),
+                MaxPitch = mt.GetField("maxPitchSpeed", flags),
+                PitchRange = mt.GetField("pitchRange", flags),
+                BasePitch = mt.GetField("basePitch", flags),
+                Flight = mt.GetField("flightSound", flags),
+                Motors = mt.GetField("motors", flags),
+            };
+            _missileAudio[mt] = bind;
+            return bind;
+        }
+
+        static AudioSourceProps AudioPropsOf(Type t)
+        {
+            if (_audioProps.TryGetValue(t, out var bind)) return bind;
+            bind = new AudioSourceProps
+            {
+                Mute = t.GetProperty("mute"),
+                Volume = t.GetProperty("volume"),
+                Pitch = t.GetProperty("pitch"),
+                Playing = t.GetProperty("isPlaying"),
+                Play = t.GetMethod("Play", Type.EmptyTypes),
+            };
+            _audioProps[t] = bind;
+            return bind;
+        }
+
+        static MotorAudioFields MotorAudioOf(Type t)
+        {
+            if (_motorAudio.TryGetValue(t, out var bind)) return bind;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            bind = new MotorAudioFields
+            {
+                Startup = t.GetField("startupSource", flags),
+                Sources = t.GetField("audioSources", flags),
+            };
+            _motorAudio[t] = bind;
+            return bind;
+        }
+
+        void LateOrdnanceAudio(ReplaySample s)
         {
             if (!_ordnance || _boomed) return;
-            if (!Plugin.IsFollowed(gameObject) && !NearMe(1400f)) return;
+            if (!NearMe(500f)) return;
             var mt = Plugin.FindGameType("Missile");
             object? missile = mt != null ? (GetComponent(mt) ?? GetComponentInChildren(mt, true)) : null;
             if (missile == null || mt == null) return;
             if (!_ordVoiceHeld)
                 ApplyMissileAudio(missile, mt);
-            DriveMissileAudio(missile, mt);
+            DriveMissileAudio(missile, mt, s);
         }
 
-        void DriveMissileAudio(object missile, Type mt)
+        void DriveMissileAudio(object missile, Type mt, ReplaySample s)
         {
-            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var bind = MissileAudioOf(mt);
             float spd = 0f;
             try
             {
-                object? sv = mt.GetField("speed", flags)?.GetValue(missile);
-                if (sv is float sf) spd = sf;
+                if (bind.Speed?.GetValue(missile) is float sf) spd = sf;
             }
             catch { }
-            if (Track != null && Track.TrySample(Plugin.Clock.Time, out var sample))
+            float fromTrack = 0f;
+            if (s.HasTas && s.Tas > 1f)
+                fromTrack = s.Tas > 40f ? s.Tas / 1.94384f : s.Tas;
+            if (fromTrack < 1f && _ordPrevT >= 0f)
             {
-                float fromTrack = 0f;
-                if (sample.HasTas && sample.Tas > 1f)
-                    fromTrack = sample.Tas > 40f ? sample.Tas / 1.94384f : sample.Tas;
-                if (fromTrack < 1f && Track.Samples.Count > 1)
+                float dt = Plugin.Clock.Time - _ordPrevT;
+                if (dt > 0.01f)
                 {
-                    int i = 0;
-                    var samples = Track.Samples;
-                    while (i < samples.Count - 1 && samples[i + 1].Time < Plugin.Clock.Time) i++;
-                    var a = samples[i];
-                    var b = samples[Math.Min(i + 1, samples.Count - 1)];
-                    float dt = b.Time - a.Time;
-                    if (dt > 0.01f)
-                    {
-                        float dx = b.X - a.X, dy = b.Y - a.Y, dz = b.Z - a.Z;
-                        fromTrack = Mathf.Sqrt(dx * dx + dy * dy + dz * dz) / dt;
-                    }
+                    float dx = s.X - _ordPrevX;
+                    float dy = s.Y - _ordPrevY;
+                    float dz = s.Z - _ordPrevZ;
+                    fromTrack = Mathf.Sqrt(dx * dx + dy * dy + dz * dz) / dt;
                 }
-                if (fromTrack > spd) spd = fromTrack;
             }
-            try { mt.GetField("speed", flags)?.SetValue(missile, spd); } catch { }
+            _ordPrevX = s.X;
+            _ordPrevY = s.Y;
+            _ordPrevZ = s.Z;
+            _ordPrevT = Plugin.Clock.Time;
+            if (fromTrack > spd) spd = fromTrack;
+            try { bind.Speed?.SetValue(missile, spd); } catch { }
             float maxPitch = 340f;
             float pitchRange = 1f;
             float basePitch = 0.5f;
             try
             {
-                if (mt.GetField("maxPitchSpeed", flags)?.GetValue(missile) is float m) maxPitch = m;
-                if (mt.GetField("pitchRange", flags)?.GetValue(missile) is float p) pitchRange = p;
-                if (mt.GetField("basePitch", flags)?.GetValue(missile) is float b) basePitch = b;
+                if (bind.MaxPitch?.GetValue(missile) is float m) maxPitch = m;
+                if (bind.PitchRange?.GetValue(missile) is float p) pitchRange = p;
+                if (bind.BasePitch?.GetValue(missile) is float b) basePitch = b;
             }
             catch { }
             float num = Mathf.Clamp01((-50f + spd) / Mathf.Max(maxPitch, 1f));
             object? flight = null;
-            try { flight = mt.GetField("flightSound", flags)?.GetValue(missile); } catch { }
+            try { flight = bind.Flight?.GetValue(missile); } catch { }
             if (flight != null)
             {
-                var ft = flight.GetType();
-                ft.GetProperty("mute")?.SetValue(flight, false);
+                var audio = AudioPropsOf(flight.GetType());
+                audio.Mute?.SetValue(flight, false);
                 float vol = 0f;
-                try { if (ft.GetProperty("volume")?.GetValue(flight) is float v) vol = v; } catch { }
-                ft.GetProperty("volume")?.SetValue(flight, vol < num ? Mathf.Min(num, vol + Time.deltaTime) : num);
-                ft.GetProperty("pitch")?.SetValue(flight, pitchRange * num + basePitch);
+                try { if (audio.Volume?.GetValue(flight) is float v) vol = v; } catch { }
+                audio.Volume?.SetValue(flight, vol < num ? Mathf.Min(num, vol + Time.deltaTime) : num);
+                audio.Pitch?.SetValue(flight, pitchRange * num + basePitch);
                 bool playing = false;
-                try { playing = ft.GetProperty("isPlaying")?.GetValue(flight) is bool on && on; } catch { }
-                if (!playing) ft.GetMethod("Play", Type.EmptyTypes)?.Invoke(flight, null);
+                try { playing = audio.Playing?.GetValue(flight) is bool on && on; } catch { }
+                if (!playing) audio.Play?.Invoke(flight, null);
             }
             try
             {
-                var motors = mt.GetField("motors", flags)?.GetValue(missile) as Array;
+                var motors = bind.Motors?.GetValue(missile) as Array;
                 if (motors == null) return;
                 foreach (var motor in motors)
                 {
                     if (motor == null) continue;
-                    var tt = motor.GetType();
-                    var start = tt.GetField("startupSource", flags)?.GetValue(motor);
+                    var motorFields = MotorAudioOf(motor.GetType());
+                    var start = motorFields.Startup?.GetValue(motor);
                     if (start != null && !_startupPlayed)
                     {
-                        var st = start.GetType();
-                        st.GetProperty("mute")?.SetValue(start, false);
+                        var st = AudioPropsOf(start.GetType());
+                        st.Mute?.SetValue(start, false);
                         bool sp = false;
-                        try { sp = st.GetProperty("isPlaying")?.GetValue(start) is bool b && b; } catch { }
-                        if (!sp) st.GetMethod("Play", Type.EmptyTypes)?.Invoke(start, null);
+                        try { sp = st.Playing?.GetValue(start) is bool b && b; } catch { }
+                        if (!sp) st.Play?.Invoke(start, null);
                         _startupPlayed = true;
                     }
                     if (!_startupPlayed) continue;
-                    var srcs = tt.GetField("audioSources", flags)?.GetValue(motor) as Array;
+                    var srcs = motorFields.Sources?.GetValue(motor) as Array;
                     if (srcs == null) continue;
-                    foreach (var s in srcs)
+                    foreach (var src in srcs)
                     {
-                        if (s == null || ReferenceEquals(s, start)) continue;
-                        var st = s.GetType();
-                        st.GetProperty("mute")?.SetValue(s, false);
+                        if (src == null || ReferenceEquals(src, start)) continue;
+                        var st = AudioPropsOf(src.GetType());
+                        st.Mute?.SetValue(src, false);
                         bool playing = false;
-                        try { playing = st.GetProperty("isPlaying")?.GetValue(s) is bool pb && pb; } catch { }
-                        if (!playing) st.GetMethod("Play", Type.EmptyTypes)?.Invoke(s, null);
+                        try { playing = st.Playing?.GetValue(src) is bool pb && pb; } catch { }
+                        if (!playing) st.Play?.Invoke(src, null);
                     }
                 }
             }

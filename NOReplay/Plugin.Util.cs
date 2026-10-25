@@ -283,6 +283,12 @@ namespace NOReplay
         static bool _listenOk;
         static Component? _followUnit;
         static Component? _camMgr;
+        static FieldInfo? _followField;
+        static bool _followFieldReady;
+        static MethodInfo? _setDoppler;
+        static Type? _dopplerType;
+        static Component? _dopplerTarget;
+        static readonly object[] _dopplerOff = { false };
 
         internal static void CacheListener()
         {
@@ -292,6 +298,8 @@ namespace NOReplay
             if (_camMgr == null || _camMgr.gameObject == null || !_camMgr.gameObject.scene.IsValid())
             {
                 _camMgr = null;
+                _followFieldReady = false;
+                _followField = null;
                 var camType = FindGameType("CameraStateManager");
                 if (camType != null)
                 {
@@ -313,12 +321,25 @@ namespace NOReplay
             {
                 _listenPos = _camMgr.transform.position;
                 _listenOk = true;
-                var fFollow = _camMgr.GetType().GetField("followingUnit", flags);
-                if (fFollow?.GetValue(_camMgr) is Component u)
+                if (!_followFieldReady)
+                {
+                    _followField = _camMgr.GetType().GetField("followingUnit", flags);
+                    _followFieldReady = true;
+                }
+                if (_followField?.GetValue(_camMgr) is Component u)
                 {
                     _followUnit = u;
-                    try { u.GetType().GetMethod("SetDoppler", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.Invoke(u, new object[] { false }); }
-                    catch { }
+                    if (!ReferenceEquals(u, _dopplerTarget))
+                    {
+                        _dopplerTarget = u;
+                        if (_setDoppler == null || _dopplerType != u.GetType())
+                        {
+                            _dopplerType = u.GetType();
+                            _setDoppler = _dopplerType.GetMethod("SetDoppler", flags);
+                        }
+                        try { _setDoppler?.Invoke(u, _dopplerOff); }
+                        catch { }
+                    }
                 }
             }
             else if (Camera.main != null)

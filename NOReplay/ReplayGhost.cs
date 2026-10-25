@@ -759,7 +759,8 @@ namespace NOReplay
         Vector3[] _trailPts = Array.Empty<Vector3>();
         Vector3[] _trailShown = Array.Empty<Vector3>();
         int _trailShownN;
-        const float AirTrailGap = 5f;
+        const float AirTrailGap = 15f;
+        const float OrdnanceTrailGap = 15f;
 
         static void GrowTrail(ref Vector3[] buf, int need)
         {
@@ -851,13 +852,10 @@ namespace NOReplay
                 if (d2 > max2) continue;
                 _trailPts[pn++] = p;
             }
-            if (_air && haveHere)
-                pn = TrimAirTrail(_trailPts, pn, here);
+            if (haveHere)
+                pn = TrimAirTrail(_trailPts, pn, here, _air ? AirTrailGap : OrdnanceTrailGap);
             if (pn < 2)
             {
-                // Ordnance keeps the previous line if this frame has too few points.
-                // Aircraft hide it so a short path does not sit inside the fuselage.
-                if (!_air && _trail.positionCount >= 2) return;
                 HideTrail();
                 return;
             }
@@ -874,11 +872,11 @@ namespace NOReplay
             _trail.enabled = true;
         }
 
-        static int TrimAirTrail(Vector3[] pts, int n, Vector3 here)
+        static int TrimAirTrail(Vector3[] pts, int n, Vector3 here, float gap)
         {
             if (n <= 0) return 0;
-            const float gap = AirTrailGap;
-            const float gap2 = gap * gap;
+            if (gap <= 0f) return n;
+            float gap2 = gap * gap;
             int last = n - 1;
             while (last > 0 && (pts[last] - here).sqrMagnitude < gap2)
                 last--;

@@ -65,29 +65,6 @@ namespace NOReplay
             q.Enqueue(go);
         }
 
-        void WarmOrdnance()
-        {
-            if (_warmLeft.Count == 0) return;
-            int step = _holdClock ? 4 : 2;
-            for (int n = 0; n < step && _warmLeft.Count > 0; n++)
-            {
-                var job = _warmLeft[0];
-                var made = MakePooled(job.prefab);
-                if (made != null)
-                {
-                    if (!_pool.TryGetValue(job.prefab.GetInstanceID(), out var q))
-                    {
-                        q = new Queue<GameObject>();
-                        _pool[job.prefab.GetInstanceID()] = q;
-                    }
-                    q.Enqueue(made);
-                    _poolOwner[made.GetInstanceID()] = job.prefab.GetInstanceID();
-                }
-                job.left--;
-                if (job.left <= 0) _warmLeft.RemoveAt(0);
-                else _warmLeft[0] = job;
-            }
-        }
 
         static readonly HashSet<int> _warmSeen = new HashSet<int>();
 
@@ -418,26 +395,6 @@ namespace NOReplay
             _gameSpawnDead = false;
         }
 
-        static void TickFlareEvents()
-        {
-            if (_flareEvents.Count == 0 || CurrentDoc == null) return;
-            float t = Clock.Time;
-            if (_flareClock >= 0f && t + 0.2f < _flareClock)
-                _flareDone.Clear();
-            _flareClock = t;
-            int n = 0;
-            for (int i = 0; i < _flareEvents.Count && n < 2; i++)
-            {
-                var obj = _flareEvents[i];
-                float born = TrackBorn(obj);
-                if (t + 0.05f < born) continue;
-                if (_flareDone.Contains(obj)) continue;
-                _flareDone.Add(obj);
-                try { PlayAirframeFlare(obj); }
-                catch (Exception ex) { Log.LogWarning("Flare-FX: " + ex.Message); }
-                n++;
-            }
-        }
 
         static bool _aircraftQueued;
 
@@ -536,101 +493,9 @@ namespace NOReplay
 
         static int _flareFxLog;
 
-        static void PlayAirframeFlare(ReplayObject obj)
-        {
-            ReplaySample s;
-            if (!obj.TrySample(Clock.Time, out s))
-            {
-                if (obj.Samples.Count == 0) return;
-                s = obj.Samples[0];
-            }
-            Vector3 pos = GlobalToLocal(s.X, s.Y, s.Z);
-            GameObject? host = null;
-            float best = 250f * 250f;
-            for (int i = 0; i < _ghosts.Count; i++)
-            {
-                var g = _ghosts[i];
-                if (g == null) continue;
-                var rg = g.GetComponent<ReplayGhost>();
-                if (rg == null || rg.Track == null) continue;
-                if (!IsAircraft(rg.Track.Type, rg.Track.Name)) continue;
-                float d = (g.transform.position - pos).sqrMagnitude;
-                if (d < best) { best = d; host = g; }
-            }
-            if (host == null)
-            {
-                if (_flareFxLog < 8)
-                {
-                    _flareFxLog++;
-                    Log.LogWarning("Flare-FX kein Airframe nahe " + pos);
-                }
-                return;
-            }
-            if (!SpawnGameFlare(host, pos)) SpawnFlareOrb(pos);
-            if (_flareFxLog < 8)
-            {
-                _flareFxLog++;
-                Log.LogInfo("Flare-FX " + host.name + " dist=" + Mathf.Sqrt(best).ToString("0.0"));
-            }
-        }
 
         static int _flareSide;
 
-        static bool SpawnGameFlare(GameObject host, Vector3 pos)
-        {
-            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            var ejectType = FindGameType("FlareEjector");
-            if (ejectType == null) return false;
-            var ejectors = host.GetComponentsInChildren(ejectType, true);
-            if (ejectors == null || ejectors.Length == 0) return false;
-            var points = new System.Collections.Generic.List<Transform>();
-            GameObject? prefab = null;
-            float speed = 25f;
-            for (int i = 0; i < ejectors.Length; i++)
-            {
-                var ej = ejectors[i];
-                if (prefab == null)
-                    prefab = ej.GetType().GetField("flarePrefab", flags)?.GetValue(ej) as GameObject;
-                var vel = ej.GetType().GetField("ejectionVelocity", flags)?.GetValue(ej);
-                if (vel is float f && f > 1f) speed = f;
-                var arr = ej.GetType().GetField("ejectionPoints", flags)?.GetValue(ej) as System.Array;
-                if (arr == null) continue;
-                for (int p = 0; p < arr.Length; p++)
-                {
-                    var pt = arr.GetValue(p);
-                    var tr = pt?.GetType().GetField("transform", flags)?.GetValue(pt) as Transform;
-                    if (tr != null) points.Add(tr);
-                }
-            }
-            if (prefab == null) return false;
-            Transform launch = points.Count > 0 ? points[_flareSide++ % points.Count] : host.transform;
-            var go = UnityEngine.Object.Instantiate(prefab, launch.position, launch.rotation);
-            go.name = "NOReplay_Flare";
-            var flare = go.GetComponent(FindGameType("IRFlare") ?? typeof(Component));
-            if (flare != null && flare.GetType().Name == "IRFlare")
-            {
-                var method = flare.GetType().GetMethod("LaunchFlare", flags);
-                if (method != null)
-                {
-                    var ps = method.GetParameters();
-                    var args = new object?[ps.Length];
-                    var aircraft = host.GetComponent(FindGameType("Aircraft") ?? typeof(Component));
-                    var kick = launch.forward * speed + Vector3.down * 3f;
-                    for (int i = 0; i < ps.Length; i++)
-                    {
-                        string n = ps[i].Name.ToLowerInvariant();
-                        if (n.Contains("aircraft")) args[i] = aircraft;
-                        else if (n.Contains("point")) args[i] = launch;
-                        else if (n.Contains("vel")) args[i] = kick;
-                    }
-                    try { method.Invoke(flare, args); } catch { }
-                }
-            }
-            UnityEngine.Object.Destroy(go, 8f);
-            PlayFlareEjectSound(host, launch);
-
-            return true;
-        }
 
         static void PlayFlareEjectSound(GameObject host, Transform launch)
         {
@@ -841,61 +706,6 @@ namespace NOReplay
             }
         }
 
-        static void PrepareOrdnanceVisual(GameObject go, ReplayObject obj, Vector3 pos)
-        {
-            var at = Type.GetType("UnityEngine.AudioSource, UnityEngine.AudioModule")
-                     ?? FindGameType("AudioSource");
-            if (at != null)
-            {
-                var stop = at.GetMethod("Stop", Type.EmptyTypes);
-                var playAwake = at.GetProperty("playOnAwake");
-                foreach (var c in go.GetComponentsInChildren(at, true))
-                {
-                    if (c == null) continue;
-                    try
-                    {
-                        playAwake?.SetValue(c, false);
-                        stop?.Invoke(c, null);
-                        at.GetProperty("spatialBlend")?.SetValue(c, 1f);
-                        at.GetProperty("mute")?.SetValue(c, false);
-                    }
-                    catch { }
-                }
-            }
-            foreach (var l in go.GetComponentsInChildren<Light>(true))
-                if (l != null) l.enabled = false;
-            foreach (var cam in go.GetComponentsInChildren<Camera>(true))
-            {
-                if (cam == null) continue;
-                cam.enabled = false;
-                cam.gameObject.tag = "Untagged";
-            }
-            foreach (var tr in go.GetComponentsInChildren<Transform>(true))
-            {
-                if (tr == null) continue;
-                tr.gameObject.layer = 0;
-                tr.gameObject.SetActive(true);
-            }
-            var lodType = FindGameType("LODGroup");
-            if (lodType != null)
-            {
-                foreach (var c in go.GetComponentsInChildren(lodType, true))
-                {
-                    var beh = c as Behaviour;
-                    if (beh != null) beh.enabled = false;
-                }
-            }
-            var rend = go.GetComponentsInChildren<Renderer>(true);
-            int on = 0;
-            for (int i = 0; i < rend.Length; i++)
-            {
-                if (rend[i] == null) continue;
-                rend[i].enabled = true;
-                on++;
-            }
-            Log.LogInfo("Ordnance " + obj.Name + " rend=" + rend.Length
-                        + " pos=" + pos.x.ToString("0") + "," + pos.y.ToString("0") + "," + pos.z.ToString("0"));
-        }
 
         static GameObject? InstantiatePrefab(ReplayObject obj, UnityEngine.Object? def, Vector3 pos, Quaternion rot)
         {
@@ -1403,54 +1213,6 @@ namespace NOReplay
             return go;
         }
 
-        static void ShowMissile(GameObject go)
-        {
-            int rends = 0;
-            foreach (var tr in go.GetComponentsInChildren<Transform>(true))
-            {
-                if (tr == null) continue;
-                tr.gameObject.layer = 0;
-                if (!tr.gameObject.activeSelf) tr.gameObject.SetActive(true);
-            }
-            var rs = go.GetComponentsInChildren<Renderer>(true);
-            for (int i = 0; i < rs.Length; i++)
-            {
-                if (rs[i] == null) continue;
-                rs[i].enabled = true;
-                rends++;
-            }
-            var mt = FindGameType("Missile");
-            var missile = mt != null ? go.GetComponent(mt) : null;
-            if (missile != null && mt != null)
-            {
-                var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-                try { mt.GetMethod("SetTangible", flags)?.Invoke(missile, new object[] { true }); } catch { }
-                try
-                {
-                    var flight = mt.GetField("flightSound", flags)?.GetValue(missile);
-                    if (flight != null)
-                    {
-                        var ft = flight.GetType();
-                        ft.GetProperty("mute")?.SetValue(flight, false);
-                        ft.GetProperty("loop")?.SetValue(flight, true);
-                        ft.GetProperty("volume")?.SetValue(flight, 0.7f);
-                        ft.GetProperty("spatialBlend")?.SetValue(flight, 1f);
-                        bool playing = ft.GetProperty("isPlaying")?.GetValue(flight) is bool b && b;
-                        if (!playing) ft.GetMethod("Play", Type.EmptyTypes)?.Invoke(flight, null);
-                    }
-                }
-                catch { }
-                var motors = mt.GetField("motors", flags)?.GetValue(missile) as Array;
-                if (motors != null)
-                {
-                    foreach (var motor in motors)
-                    {
-                        if (motor == null) continue;
-                        try { motor.GetType().GetMethod("Activate", flags)?.Invoke(motor, new[] { missile }); } catch { }
-                    }
-                }
-            }
-        }
 
         static object? FindLaunchOwner(ReplayObject obj, Type? unitType)
         {
@@ -1704,47 +1466,7 @@ namespace NOReplay
             return inner.Length == 0 ? null : inner;
         }
 
-        internal static void ApplyReplayIdentity(GameObject go, ReplayObject? obj)
-        {
-            if (go == null) return;
-            TryApplyRecordedLivery(go, obj);
-            TryApplyRecordedLoadout(go, obj);
-            if (obj == null) return;
-            string? player = obj.Pilot;
-            if (string.IsNullOrEmpty(player))
-                player = PlayerNameFromCallSign(obj.CallSign);
-            string label = string.IsNullOrEmpty(player) ? (obj.Name ?? "") : player;
-            if (string.IsNullOrEmpty(label)) return;
-            var unit = FindUnitOn(go);
-            if (unit == null) return;
-            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            var t = unit.GetType();
-            try { t.GetProperty("NetworkunitName", flags)?.SetValue(unit, label); } catch { }
-            try { t.GetField("unitName", flags)?.SetValue(unit, label); } catch { }
-            RefreshSpectatorName(unit, label);
-            ApplyPanel(go, obj, label);
-        }
 
-        internal static void ApplyPanel(GameObject go, ReplayObject? obj, string? label)
-        {
-            if (go == null) return;
-            var unit = FindUnitOn(go);
-            if (unit == null) return;
-            var dbg = FindGameType("UnitDebug");
-            if (dbg == null) return;
-            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            var fFollow = dbg.GetField("followingUnit", flags);
-            if (fFollow == null) return;
-            string load = FormatLoadout(obj?.Loadout);
-            foreach (var o in Resources.FindObjectsOfTypeAll(dbg))
-            {
-                if (o == null) continue;
-                if (!ReferenceEquals(fFollow.GetValue(o), unit)) continue;
-                SetTextField(o, "unitName", label ?? obj?.Name ?? "");
-                if (load.Length > 0) SetTextField(o, "loadout", load);
-                PinStateText(o);
-            }
-        }
 
         static void PinStateText(object host)
         {
@@ -1834,30 +1556,6 @@ namespace NOReplay
         static float _iconCacheAt = -10f;
         static PropertyInfo? _iconUnitProp;
 
-        internal static void SetMapIcon(GameObject go, bool on)
-        {
-            if (go == null) return;
-            var iconType = FindGameType("UnitMapIcon");
-            if (iconType == null) return;
-            if (Time.unscaledTime - _iconCacheAt > 2f)
-            {
-                _iconCache = Resources.FindObjectsOfTypeAll(iconType);
-                _iconCacheAt = Time.unscaledTime;
-                _iconUnitProp = iconType.GetProperty("unit", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            }
-            if (_iconUnitProp == null) return;
-            for (int i = 0; i < _iconCache.Length; i++)
-            {
-                var o = _iconCache[i];
-                if (o == null) continue;
-                var u = _iconUnitProp.GetValue(o) as Component;
-                if (u == null) continue;
-                if (u.gameObject != go && !u.transform.IsChildOf(go.transform) && !go.transform.IsChildOf(u.transform))
-                    continue;
-                if (o is Component c && c.gameObject != null && c.gameObject.activeSelf != on)
-                    c.gameObject.SetActive(on);
-            }
-        }
 
         static void DetachCamerasFrom(GameObject go)
         {
@@ -1875,70 +1573,8 @@ namespace NOReplay
                 main.transform.SetParent(null, true);
         }
 
-        static void TickOrdnanceCamera()
-        {
-            var camType = FindGameType("CameraStateManager");
-            if (camType == null) return;
-            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            var fFollow = camType.GetField("followingUnit", flags);
-            var mSet = camType.GetMethod("SetFollowingUnit", flags);
-            var mSw = camType.GetMethod("SwitchState", flags);
-            if (fFollow == null) return;
-            foreach (var cam in Resources.FindObjectsOfTypeAll(camType))
-            {
-                if (cam == null) continue;
-                var u = fFollow.GetValue(cam) as Component;
-                if (u == null) continue;
-                var rg = u.GetComponentInParent<ReplayGhost>();
-                if (rg == null || !IsOrdnance(rg.Track?.Type, rg.Track?.Name)) continue;
-                DetachCamerasFrom(rg.gameObject);
-                object? free = camType.GetField("freeState", flags)?.GetValue(cam);
-                mSet?.Invoke(cam, new object[] { null });
-                if (free != null) mSw?.Invoke(cam, new[] { free });
-            }
-        }
 
-        internal static void ReleaseCameraIfOn(GameObject go)
-        {
-            if (go == null) return;
-            var camType = FindGameType("CameraStateManager");
-            if (camType == null) return;
-            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            var fFollow = camType.GetField("followingUnit", flags);
-            var mSet = camType.GetMethod("SetFollowingUnit", flags);
-            if (fFollow == null || mSet == null) return;
-            foreach (var cam in Resources.FindObjectsOfTypeAll(camType))
-            {
-                if (cam == null) continue;
-                var u = fFollow.GetValue(cam) as Component;
-                if (u == null) continue;
-                var ut = u.transform;
-                if (u.gameObject == go || ut.IsChildOf(go.transform) || go.transform.IsChildOf(ut))
-                {
-                    mSet.Invoke(cam, new object[] { null });
-                    break;
-                }
-            }
-        }
 
-        static void TryFollowGhost(GameObject go)
-        {
-            var unit = FindUnitOn(go);
-            if (unit == null) return;
-            var camType = FindGameType("CameraStateManager");
-            if (camType == null) return;
-            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            foreach (var cam in Resources.FindObjectsOfTypeAll(camType))
-            {
-                if (cam == null) continue;
-                var sw = camType.GetMethod("SwitchState", flags);
-                var follow = camType.GetMethod("SetFollowingUnit", flags);
-                var tv = camType.GetField("TVState", flags)?.GetValue(cam);
-                follow?.Invoke(cam, new object[] { unit });
-                if (tv != null) sw?.Invoke(cam, new[] { tv });
-                break;
-            }
-        }
 
         static void TryRegisterGhostOnMap(GameObject go, bool followCam = true)
         {

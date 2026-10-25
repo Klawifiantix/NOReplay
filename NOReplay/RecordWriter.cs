@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
-using System.Linq;
+using System.Text;
 using NuclearOption.SavedMission;
 using NuclearOption.SceneLoading;
 using UnityEngine;
@@ -163,10 +163,19 @@ namespace NOReplay
             }
         }
 
+        static readonly StringBuilder propText = new(256);
+
         private string StringifyProps(Dictionary<string, string> props)
         {
-            string[] propStrings = props.Select(x => x.Key + "=" + x.Value/*.Replace(",", "\\,")*/).ToArray();
-            return string.Join(",", propStrings);
+            propText.Clear();
+            bool first = true;
+            foreach (var kv in props)
+            {
+                if (!first) propText.Append(',');
+                first = false;
+                propText.Append(kv.Key).Append('=').Append(kv.Value);
+            }
+            return propText.ToString();
         }
 
         internal void WriteLine(string line)

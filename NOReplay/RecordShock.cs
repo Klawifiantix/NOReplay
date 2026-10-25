@@ -21,6 +21,32 @@ namespace NOReplay
         private float waveSpeed = 0f;
 
         private float shockWaveTimer = 0f;
+        static bool debugOn;
+        static float debugChecked = -999f;
+
+        static bool DebugOn()
+        {
+            float now = Time.unscaledTime;
+            if (now - debugChecked < 1f)
+                return debugOn;
+            debugChecked = now;
+            debugOn = false;
+            try
+            {
+                foreach (var listener in BepInEx.Logging.Logger.Listeners)
+                {
+                    var prop = listener.GetType().GetProperty("DisplayedLogLevel");
+                    if (prop?.GetValue(listener) is BepInEx.Logging.LogLevel lvl
+                        && (lvl & BepInEx.Logging.LogLevel.Debug) != 0)
+                    {
+                        debugOn = true;
+                        break;
+                    }
+                }
+            }
+            catch { }
+            return debugOn;
+        }
 
         public virtual void Init(Shockwave shockwave)
         {
@@ -45,8 +71,8 @@ namespace NOReplay
                 }" },
                 { "Type", "Misc+Explosion" }
             };
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
         }
 
         public override void Update()
@@ -67,11 +93,17 @@ namespace NOReplay
                     DisableShockWave();
                 }
                 props.Add("Radius", radius.ToString("0.##", CultureInfo.InvariantCulture));
-                Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-                props = [];
+                Engine.invokeWriterUpdate(this);
+                props.Clear();
                 timer = 0f;
                 lastRadius = radius;
-                Record.Log?.LogDebug($"Shockwave {SHOCKWAVEID.ToString(CultureInfo.InvariantCulture)}Blast Radius: {blastRadius.ToString(CultureInfo.InvariantCulture)}, Current Radius: {radius.ToString(CultureInfo.InvariantCulture)}, Speed: {waveSpeed.ToString(CultureInfo.InvariantCulture)}");
+                if (DebugOn())
+                {
+                    Record.Log?.LogDebug("Shockwave " + SHOCKWAVEID.ToString(CultureInfo.InvariantCulture)
+                        + " Blast Radius: " + blastRadius.ToString(CultureInfo.InvariantCulture)
+                        + ", Current Radius: " + radius.ToString(CultureInfo.InvariantCulture)
+                        + ", Speed: " + waveSpeed.ToString(CultureInfo.InvariantCulture));
+                }
             } catch
             {
                 DisableShockWave();
@@ -81,11 +113,12 @@ namespace NOReplay
 
         private void DisableShockWave()
         {
-            Record.Host.GetComponent<RecordEngine>().invokeWriterRemove(this);
-            Record.Log?.LogDebug($"DISABLING SHOCKWAVE {unitId.ToString(CultureInfo.InvariantCulture)}");
+            Engine.invokeWriterRemove(this);
+            if (DebugOn())
+                Record.Log?.LogDebug("DISABLING SHOCKWAVE " + unitId.ToString(CultureInfo.InvariantCulture));
             this.enabled = false;
             base.enabled = false;
-            props = [];
+            props.Clear();
             GameObject.Destroy(this);
         }
     }

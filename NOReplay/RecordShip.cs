@@ -37,8 +37,8 @@ namespace NOReplay
             };
 
             UpdatePose();
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
 
             if (unit != null)
             {
@@ -60,8 +60,8 @@ namespace NOReplay
             UpdatePose();
             if (props.Count > 0)
             {
-                Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-                props = [];
+                Engine.invokeWriterUpdate(this);
+                props.Clear();
             }
             timer = 0;
         }
@@ -78,8 +78,8 @@ namespace NOReplay
                 _ => "Green"
             };
             props.Add("Color", color);
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
         }
 
         private void OnMissileRegistered(Missile missile)
@@ -97,10 +97,10 @@ namespace NOReplay
                 { "Visible", "0.0" },
                 { "Type", null }
             };
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
             if (base.destroyedEvent)
-                Record.Host.GetComponent<RecordEngine>().invokeWriterDestroy(this);
+                Engine.invokeWriterDestroy(this);
 
             Unsubscribe();
             this.enabled = false;

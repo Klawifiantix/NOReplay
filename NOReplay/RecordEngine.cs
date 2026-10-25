@@ -1,37 +1,26 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Linq;
-using System.Reflection;
-using NuclearOption.Networking;
 using UnityEngine;
 
 namespace NOReplay
 {
     internal class RecordEngine : MonoBehaviour
     {
-        private static readonly FieldInfo bulletSim = typeof(Gun).GetField("bulletSim", BindingFlags.NonPublic | BindingFlags.Instance);
-        private static readonly FieldInfo bullets = typeof(BulletSim).GetField("bullets", BindingFlags.NonPublic | BindingFlags.Instance);
-
         private Dictionary<Shockwave, GameObject> waves = [];
+        readonly List<Shockwave> deadWaves = new();
         Shockwave[] shockwaves = [];
 
         private DateTime startDate;
         private DateTime curTime;
         public static RecordWriter writer;
         private float unitDiscoveryTimer = 0f;
-        private float bulletSimDiscoveryTimer = 0f;
         private float shockwaveDiscoveryTimer = 0f;
 
         internal Dictionary<long, GameObject> unitObjects = [];
-
-
-        private Dictionary<BulletSim.Bullet, GameObject> tracers = [];
+        internal Dictionary<long, long> tacviewIds = [];
 
         private Unit[] units = [];
-        private BulletSim[] bulletSims = [];
         private bool processUnits = false;
-        private bool processBulletSims = false;
         private bool processShockWaves = false;
 
         public void invokeWriterUpdate(RecordObject obj)
@@ -146,6 +135,8 @@ namespace NOReplay
 
             curTime = startDate;
             writer = new RecordWriter(startDate);
+            if (GetComponent<RecordGunBurst>() == null)
+                gameObject.AddComponent<RecordGunBurst>();
             Record.Log?.LogDebug("STARTED MONO RECORDER");
             Record.Manual = false;
 
@@ -153,12 +144,7 @@ namespace NOReplay
         void Update()
         {
             curTime += TimeSpan.FromSeconds(Time.deltaTime);
-            if (GetComponent<RecordGunBurst>() == null)
-                gameObject.AddComponent<RecordGunBurst>();
-            if (!units.Any())
-            {
-                return;
-            }
+            PilotNameCache.Tick();
             if (processUnits)
             {
                 foreach (var unit in units)
@@ -263,30 +249,24 @@ namespace NOReplay
                 }
                 processUnits = false;
             }
-            if (processBulletSims)
-            {
-                processBulletSims = false;
-            }
             if (processShockWaves)
             {
                 foreach (Shockwave wave in shockwaves)
                 {
-                    if (waves.ContainsKey(wave))
-                    {
+                    if (wave == null || waves.ContainsKey(wave))
                         continue;
-                    }
                     GameObject shockwave = new GameObject();
                     shockwave.AddComponent<RecordShock>();
                     shockwave.GetComponent<RecordShock>().Init(wave);
                     shockwave.GetComponent<RecordShock>().enabled = true;
                     waves.Add(wave, shockwave);
                 }
+                processShockWaves = false;
             }
         }
         void LateUpdate()
         {
             unitDiscoveryTimer += Time.deltaTime;
-            bulletSimDiscoveryTimer += Time.deltaTime;
             shockwaveDiscoveryTimer += Time.deltaTime;
             if (shockwaveDiscoveryTimer >= RecordConfig.shockwaveDiscoveryDelta.Value)
             {
@@ -298,10 +278,6 @@ namespace NOReplay
             // {
             //     processUnits = UnitDiscovery();
             // }
-            if (bulletSimDiscoveryTimer >= RecordConfig.bulletSimDiscoveryDelta.Value)
-            {
-                processBulletSims = BulletSimDiscovery();
-            }
 
         }
         void OnDisable()
@@ -312,8 +288,8 @@ namespace NOReplay
         void OnDestroy()
         {
             unitObjects = [];
+            tacviewIds = [];
             waves = [];
-            tracers = [];
             writer?.Close();
             Record.Log?.LogDebug("DESTROYED MONO RECORDER");
         }
@@ -336,50 +312,17 @@ namespace NOReplay
 
         }
 
-        internal bool BulletSimDiscovery()
-        {
-            try
-            {
-                foreach (BulletSim.Bullet key in tracers.Keys)
-                {
-                    if (null == tracers[key])
-                    {
-                        //Record.Log?.LogDebug($"REMOVING TRACER");
-                        try
-                        {
-                            tracers.Remove(key);
-                        }
-                        catch
-                        {
-                            //wtf
-                        }
-
-                    }
-                }
-            }
-            catch
-            {
-                //wtf2
-            }
-
-            bulletSims = UnityEngine.Object.FindObjectsByType<BulletSim>(FindObjectsSortMode.None);
-            //Record.Log?.LogDebug($"DISCOVERED {bulletSims.Length.ToString(CultureInfo.InvariantCulture)} BULLETSIMS!");
-            bulletSimDiscoveryTimer = 0f;
-            return true;
-        }
-
         public bool ShockWaveDiscovery()
         {
-            foreach (Shockwave key in waves.Keys)
+            deadWaves.Clear();
+            foreach (var kv in waves)
             {
-                if (null == waves[key])
-                {
-                    //Record.Log?.LogDebug($"REMOVING TRACER");
-                    waves.Remove(key);
-                }
+                if (kv.Value == null)
+                    deadWaves.Add(kv.Key);
             }
+            for (int i = 0; i < deadWaves.Count; i++)
+                waves.Remove(deadWaves[i]);
             shockwaves = UnityEngine.Object.FindObjectsByType<Shockwave>(FindObjectsSortMode.None);
-            //Record.Log?.LogDebug($"DISCOVERED {shockwaves.Length.ToString(CultureInfo.InvariantCulture)} SHOCKWAVES!");
             shockwaveDiscoveryTimer = 0f;
             return true;
         }

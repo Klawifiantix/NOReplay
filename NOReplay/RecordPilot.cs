@@ -26,8 +26,8 @@ namespace NOReplay
                 { "Type", "Ground+Light+Human+Air+Parachutist" },
                 { "Debug", lastState.ToString()}
             };
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
             this.enabled = true;
             base.enabled = true;
         }
@@ -48,14 +48,14 @@ namespace NOReplay
                 props.Add("Visible", "0.0");
                 props.Add("Type", null);
                 Record.Log?.LogDebug($"PARACHUTE LANDED {unitId.ToString(CultureInfo.InvariantCulture)}");
-                Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-                Record.Host.GetComponent<RecordEngine>().invokeWriterRemove(this);
+                Engine.invokeWriterUpdate(this);
+                Engine.invokeWriterRemove(this);
                 GameObject.Destroy(this);
             }
             UpdatePose();
             UpdateState();
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
             timer = 0;
         }
     }

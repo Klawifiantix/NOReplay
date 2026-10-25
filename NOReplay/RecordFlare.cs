@@ -27,7 +27,7 @@ namespace NOReplay
             };
             try
             {
-                Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
+                Engine.invokeWriterUpdate(this);
                 Plugin.Log.LogInfo("Flare written: " + base.tacviewId.ToString("X"));
             }
             catch (Exception ex)
@@ -36,7 +36,7 @@ namespace NOReplay
                 Destroy(this);
             }
 
-            props = [];
+            props.Clear();
         }
 
         public override void Update()
@@ -47,8 +47,8 @@ namespace NOReplay
                 return;
             }
             UpdatePose();
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
             timer = 0;
         }
 
@@ -99,9 +99,9 @@ namespace NOReplay
         {
             this.enabled = false;
             base.enabled = false;
-            Record.Host.GetComponent<RecordEngine>().invokeWriterRemove(this);
+            Engine.invokeWriterRemove(this);
             Record.Log?.LogDebug($"DISABLING FLARE {unitId.ToString(CultureInfo.InvariantCulture)}");
-            props = [];
+            props.Clear();
             GameObject.Destroy(this);
         }
     }

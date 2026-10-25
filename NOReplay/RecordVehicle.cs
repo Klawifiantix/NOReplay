@@ -125,8 +125,8 @@ namespace NOReplay
                 { "EngagementRange", winningRange.ToString(CultureInfo.InvariantCulture) },
                 { "Debug", lastState.ToString()}
             };
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
             this.enabled = true;
             base.enabled = true;
         }
@@ -144,8 +144,8 @@ namespace NOReplay
             UpdatePose();
             UpdateTargets();
             UpdateState();
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
             timer = 0;
         }
         internal override void UpdateTargets()

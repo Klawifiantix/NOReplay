@@ -90,6 +90,8 @@ namespace NOReplay
 
         sealed class RecLabel : MonoBehaviour
         {
+            GUIStyle? _style;
+
             void Update()
             {
                 if (Plugin.CurrentDoc != null && Active) Stop();
@@ -98,9 +100,12 @@ namespace NOReplay
             void OnGUI()
             {
                 if (!Active) return;
-                var style = new GUIStyle(GUI.skin.label) { fontSize = 22 };
-                style.normal.textColor = Color.green;
-                GUI.Label(new Rect(Screen.width - 78f, Screen.height - 42f, 60f, 28f), "Rec", style);
+                if (_style == null)
+                {
+                    _style = new GUIStyle(GUI.skin.label) { fontSize = 22 };
+                    _style.normal.textColor = Color.green;
+                }
+                GUI.Label(new Rect(Screen.width - 78f, Screen.height - 42f, 60f, 28f), "Rec", _style);
             }
         }
     }

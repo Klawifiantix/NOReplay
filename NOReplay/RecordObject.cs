@@ -18,6 +18,17 @@ namespace NOReplay
         public event Action<string, long[], string>? OnEvent;
 
         public Dictionary<string, string> props = [];
+        internal RecordEngine? engine;
+
+        internal RecordEngine Engine
+        {
+            get
+            {
+                if (engine == null && Record.Host != null)
+                    engine = Record.Host.GetComponent<RecordEngine>();
+                return engine!;
+            }
+        }
 
         public virtual void Init()
         {

@@ -53,15 +53,15 @@ namespace NOReplay
                     base.disabled = true;
                     props.Add("Visible", "0.0");
                     props.Add("Type", null);
-                    Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-                    props = [];
+                    Engine.invokeWriterUpdate(this);
+                    props.Clear();
                     if (base.destroyedEvent && !purge)
                     {
-                        Record.Host.GetComponent<RecordEngine>().invokeWriterDestroy(this);
+                        Engine.invokeWriterDestroy(this);
                     }
                     if (purge)
                     {
-                        Record.Host.GetComponent<RecordEngine>().invokeWriterRemove(this);
+                        Engine.invokeWriterRemove(this);
                         this.enabled = false;
                         Record.Log?.LogDebug($"DISABLING UNIT {unitId.ToString(CultureInfo.InvariantCulture)}");
                         GameObject.Destroy(this);
@@ -125,17 +125,24 @@ namespace NOReplay
 
         internal long GetTacviewIdOfUnit(long unitId)
         {
-            long id = -1;
             try
             {
-                id = Record.Host.GetComponent<RecordEngine>().unitObjects[unitId].GetComponent<RecordUnit>().tacviewId;
+                var eng = Engine;
+                if (eng.tacviewIds.TryGetValue(unitId, out var known))
+                    return known;
+                if (!eng.unitObjects.TryGetValue(unitId, out var go) || go == null)
+                    return -1;
+                var rec = go.GetComponent<RecordUnit>();
+                if (rec == null)
+                    return -1;
+                eng.tacviewIds[unitId] = rec.tacviewId;
+                return rec.tacviewId;
             }
             catch
             {
                 Record.Log?.LogDebug($"GetTacviewIdofUnit failed to look up UNIT ID {unitId}");
-                id = -1;
+                return -1;
             }
-            return id;
         }
     }
 }

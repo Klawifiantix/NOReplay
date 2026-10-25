@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
@@ -44,11 +46,38 @@ namespace NOReplay
         object? _flightSrc;
         object? _detonateClip;
 
+        GameObject? _spawnedWreck;
+        readonly List<GameObject> _spawnedDamageFx = new();
+
         internal void ResetFx()
         {
             _ordAudioOn = false;
             _ordVoiceHeld = false;
-            if (_ordnance && IsTrackAlive()) { _bornAt = Time.unscaledTime; IgniteMissileFx(); }
+            if (_ordnance && IsTrackAlive())
+            {
+                _bornAt = Time.unscaledTime;
+                IgniteMissileFx();
+            }
+            if (!_ordnance && IsTrackAlive())
+            {
+                _boomed = false;
+                ClearSpawnedWreck();
+            }
+        }
+
+        void ClearSpawnedWreck()
+        {
+            if (_spawnedWreck != null)
+            {
+                UnityEngine.Object.Destroy(_spawnedWreck);
+                _spawnedWreck = null;
+            }
+            for (int i = 0; i < _spawnedDamageFx.Count; i++)
+            {
+                if (_spawnedDamageFx[i] != null)
+                    UnityEngine.Object.Destroy(_spawnedDamageFx[i]);
+            }
+            _spawnedDamageFx.Clear();
         }
 
         void IgniteMissileFx()
@@ -79,104 +108,143 @@ namespace NOReplay
             _ordAudioOn = true;
         }
 
-        void LateOrdnanceAudio()
+        struct MissileAudioFields
+        {
+            public FieldInfo? Speed, MaxPitch, PitchRange, BasePitch, Flight, Motors;
+        }
+        struct MotorAudioFields
+        {
+            public FieldInfo? Startup, Sources;
+        }
+        static readonly Dictionary<Type, MissileAudioFields> _missileAudio = new();
+        static readonly Dictionary<Type, MotorAudioFields> _motorAudio = new();
+        float _ordPrevX, _ordPrevY, _ordPrevZ, _ordPrevT = -1f;
+
+        static MissileAudioFields MissileAudioOf(Type mt)
+        {
+            if (_missileAudio.TryGetValue(mt, out var bind)) return bind;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            bind = new MissileAudioFields
+            {
+                Speed = mt.GetField("speed", flags),
+                MaxPitch = mt.GetField("maxPitchSpeed", flags),
+                PitchRange = mt.GetField("pitchRange", flags),
+                BasePitch = mt.GetField("basePitch", flags),
+                Flight = mt.GetField("flightSound", flags),
+                Motors = mt.GetField("motors", flags),
+            };
+            _missileAudio[mt] = bind;
+            return bind;
+        }
+
+        static MotorAudioFields MotorAudioOf(Type t)
+        {
+            if (_motorAudio.TryGetValue(t, out var bind)) return bind;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            bind = new MotorAudioFields
+            {
+                Startup = t.GetField("startupSource", flags),
+                Sources = t.GetField("audioSources", flags),
+            };
+            _motorAudio[t] = bind;
+            return bind;
+        }
+
+        void LateOrdnanceAudio(ReplaySample s)
         {
             if (!_ordnance || _boomed) return;
-            if (!Plugin.IsFollowed(gameObject) && !NearMe(1400f)) return;
+            if (!NearMe(500f)) return;
             var mt = Plugin.FindGameType("Missile");
             object? missile = mt != null ? (GetComponent(mt) ?? GetComponentInChildren(mt, true)) : null;
             if (missile == null || mt == null) return;
             if (!_ordVoiceHeld)
                 ApplyMissileAudio(missile, mt);
-            DriveMissileAudio(missile, mt);
+            DriveMissileAudio(missile, mt, s);
         }
 
-        void DriveMissileAudio(object missile, Type mt)
+        void DriveMissileAudio(object missile, Type mt, ReplaySample s)
         {
-            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var bind = MissileAudioOf(mt);
             float spd = 0f;
             try
             {
-                object? sv = mt.GetField("speed", flags)?.GetValue(missile);
-                if (sv is float sf) spd = sf;
+                if (bind.Speed?.GetValue(missile) is float sf) spd = sf;
             }
             catch { }
-            if (Track != null && Track.TrySample(Plugin.Clock.Time, out var sample))
+            float fromTrack = 0f;
+            if (s.HasTas && s.Tas > 1f)
+                fromTrack = s.Tas > 40f ? s.Tas / 1.94384f : s.Tas;
+            if (fromTrack < 1f && _ordPrevT >= 0f)
             {
-                float fromTrack = 0f;
-                if (sample.HasTas && sample.Tas > 1f)
-                    fromTrack = sample.Tas > 40f ? sample.Tas / 1.94384f : sample.Tas;
-                if (fromTrack < 1f && Track.Samples.Count > 1)
+                float dt = Plugin.Clock.Time - _ordPrevT;
+                if (dt > 0.01f)
                 {
-                    int i = 0;
-                    var samples = Track.Samples;
-                    while (i < samples.Count - 1 && samples[i + 1].Time < Plugin.Clock.Time) i++;
-                    var a = samples[i];
-                    var b = samples[Math.Min(i + 1, samples.Count - 1)];
-                    float dt = b.Time - a.Time;
-                    if (dt > 0.01f)
-                    {
-                        float dx = b.X - a.X, dy = b.Y - a.Y, dz = b.Z - a.Z;
-                        fromTrack = Mathf.Sqrt(dx * dx + dy * dy + dz * dz) / dt;
-                    }
+                    float dx = s.X - _ordPrevX;
+                    float dy = s.Y - _ordPrevY;
+                    float dz = s.Z - _ordPrevZ;
+                    fromTrack = Mathf.Sqrt(dx * dx + dy * dy + dz * dz) / dt;
                 }
-                if (fromTrack > spd) spd = fromTrack;
             }
-            try { mt.GetField("speed", flags)?.SetValue(missile, spd); } catch { }
+            _ordPrevX = s.X;
+            _ordPrevY = s.Y;
+            _ordPrevZ = s.Z;
+            _ordPrevT = Plugin.Clock.Time;
+            if (fromTrack > spd) spd = fromTrack;
+            try { bind.Speed?.SetValue(missile, spd); } catch { }
             float maxPitch = 340f;
             float pitchRange = 1f;
             float basePitch = 0.5f;
             try
             {
-                if (mt.GetField("maxPitchSpeed", flags)?.GetValue(missile) is float m) maxPitch = m;
-                if (mt.GetField("pitchRange", flags)?.GetValue(missile) is float p) pitchRange = p;
-                if (mt.GetField("basePitch", flags)?.GetValue(missile) is float b) basePitch = b;
+                if (bind.MaxPitch?.GetValue(missile) is float m) maxPitch = m;
+                if (bind.PitchRange?.GetValue(missile) is float p) pitchRange = p;
+                if (bind.BasePitch?.GetValue(missile) is float b) basePitch = b;
             }
             catch { }
             float num = Mathf.Clamp01((-50f + spd) / Mathf.Max(maxPitch, 1f));
             object? flight = null;
-            try { flight = mt.GetField("flightSound", flags)?.GetValue(missile); } catch { }
+            try { flight = bind.Flight?.GetValue(missile); } catch { }
             if (flight != null)
             {
-                var ft = flight.GetType();
-                ft.GetProperty("mute")?.SetValue(flight, false);
+                var audio = PropsFor(flight.GetType());
+                audio.Mute?.SetValue(flight, false);
                 float vol = 0f;
-                try { if (ft.GetProperty("volume")?.GetValue(flight) is float v) vol = v; } catch { }
-                ft.GetProperty("volume")?.SetValue(flight, vol < num ? Mathf.Min(num, vol + Time.deltaTime) : num);
-                ft.GetProperty("pitch")?.SetValue(flight, pitchRange * num + basePitch);
+                try { if (audio.Volume?.GetValue(flight) is float v) vol = v; } catch { }
+                audio.Volume?.SetValue(flight, vol < num ? Mathf.Min(num, vol + Time.deltaTime) : num);
+                audio.Pitch?.SetValue(flight, pitchRange * num + basePitch);
                 bool playing = false;
-                try { playing = ft.GetProperty("isPlaying")?.GetValue(flight) is bool on && on; } catch { }
-                if (!playing) ft.GetMethod("Play", Type.EmptyTypes)?.Invoke(flight, null);
+                try { playing = audio.IsPlaying?.GetValue(flight) is bool on && on; } catch { }
+                if (!playing) audio.Play?.Invoke(flight, null);
             }
             try
             {
-                var motors = mt.GetField("motors", flags)?.GetValue(missile) as Array;
+                var motors = bind.Motors?.GetValue(missile) as Array;
                 if (motors == null) return;
                 foreach (var motor in motors)
                 {
                     if (motor == null) continue;
-                    var tt = motor.GetType();
-                    var start = tt.GetField("startupSource", flags)?.GetValue(motor);
+                    var motorFields = MotorAudioOf(motor.GetType());
+                    var start = motorFields.Startup?.GetValue(motor);
                     if (start != null && !_startupPlayed)
                     {
-                        var st = start.GetType();
-                        st.GetProperty("mute")?.SetValue(start, false);
+                        var st = PropsFor(start.GetType());
+                        st.Mute?.SetValue(start, false);
                         bool sp = false;
-                        try { sp = st.GetProperty("isPlaying")?.GetValue(start) is bool b && b; } catch { }
-                        if (!sp) st.GetMethod("Play", Type.EmptyTypes)?.Invoke(start, null);
+                        try { sp = st.IsPlaying?.GetValue(start) is bool b && b; } catch { }
+                        if (!sp) st.Play?.Invoke(start, null);
                         _startupPlayed = true;
                     }
                     if (!_startupPlayed) continue;
-                    var srcs = tt.GetField("audioSources", flags)?.GetValue(motor) as Array;
+                    var srcs = motorFields.Sources?.GetValue(motor) as Array;
                     if (srcs == null) continue;
-                    foreach (var s in srcs)
+                    foreach (var src in srcs)
                     {
-                        if (s == null || ReferenceEquals(s, start)) continue;
-                        var st = s.GetType();
-                        st.GetProperty("mute")?.SetValue(s, false);
+                        if (src == null || ReferenceEquals(src, start)) continue;
+                        var st = PropsFor(src.GetType());
+                        st.Mute?.SetValue(src, false);
                         bool playing = false;
-                        try { playing = st.GetProperty("isPlaying")?.GetValue(s) is bool pb && pb; } catch { }
-                        if (!playing) st.GetMethod("Play", Type.EmptyTypes)?.Invoke(s, null);
+                        try { playing = st.IsPlaying?.GetValue(src) is bool pb && pb; } catch { }
+                        if (!playing) st.Play?.Invoke(src, null);
                     }
                 }
             }
@@ -320,20 +388,6 @@ namespace NOReplay
                         foreach (var s in srcs)
                         {
                             if (s == null) continue;
-                            bool loop = false;
-                            try
-                            {
-                                var lp = s.GetType().GetProperty("loop")?.GetValue(s);
-                                if (lp is bool b) loop = b;
-                            }
-                            catch { }
-                            string tag = "";
-                            try
-                            {
-                                object? cl = s.GetType().GetProperty("clip")?.GetValue(s);
-                                tag = ((cl != null ? cl.ToString() : "") + " " + (s as Component)?.name).ToLowerInvariant();
-                            }
-                            catch { }
                             // Prefab decides loop/volume/distance. Just ensure it plays.
                             var st = s.GetType();
                             st.GetProperty("mute")?.SetValue(s, false);
@@ -688,10 +742,171 @@ namespace NOReplay
         static MethodInfo? _mPlayPrefab;
         static object? _pem;
 
+        static Type? _tUnitPart;
+        static Type? _tGroundVehicle;
+        static Type? _tDamageParticles;
+        static FieldInfo? _fPartDamageEffects;
+        static FieldInfo? _fPartDisintegrationEffects;
+        static FieldInfo? _fDamageEffectPrefab;
+        static FieldInfo? _fStopWhenCulled;
+
+        void SpawnDetachedFxPrefab(GameObject fxPrefab, Vector3 pos, Quaternion rot)
+        {
+            if (fxPrefab == null) return;
+            try
+            {
+                var fxGo = UnityEngine.Object.Instantiate(fxPrefab, pos, rot);
+                fxGo.name = "NOReplay_VehicleDamageFx";
+                fxGo.transform.SetParent(null, true);
+                fxGo.SetActive(true);
+
+                _tDamageParticles ??= Plugin.FindGameType("DamageParticles");
+                if (_tDamageParticles != null)
+                {
+                    _fStopWhenCulled ??= _tDamageParticles.GetField("stopWhenParentCulled",
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    foreach (var dp in fxGo.GetComponentsInChildren(_tDamageParticles, true))
+                    {
+                        if (dp == null) continue;
+                        try { _fStopWhenCulled?.SetValue(dp, false); } catch { }
+                        UnityEngine.Object.Destroy(dp);
+                    }
+                }
+
+                foreach (var mb in fxGo.GetComponentsInChildren<MonoBehaviour>(true))
+                {
+                    if (mb == null) continue;
+                    if (mb.GetType().Name == "Shockwave") mb.enabled = false;
+                }
+                foreach (var c in fxGo.GetComponentsInChildren<Collider>(true))
+                    if (c != null) c.enabled = false;
+
+                PlayParticles(fxGo);
+                _spawnedDamageFx.Add(fxGo);
+                UnityEngine.Object.Destroy(fxGo, 25f);
+            }
+            catch { }
+        }
+
+        bool TrySpawnVehicleWreckAndFire(Vector3 pos, Quaternion rot)
+        {
+            bool spawnedAny = false;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+            // 1. Echte Explosions-, Feuer- und Rauch-Prefabs aus den UnitParts spawnen
+            try
+            {
+                _tUnitPart ??= Plugin.FindGameType("UnitPart");
+                if (_tUnitPart != null)
+                {
+                    _fPartDamageEffects ??= _tUnitPart.GetField("damageEffects", flags);
+                    _fPartDisintegrationEffects ??= _tUnitPart.GetField("disintegrationEffects", flags);
+
+                    var seenPrefabs = new HashSet<int>();
+                    foreach (var part in GetComponentsInChildren(_tUnitPart, true))
+                    {
+                        if (part == null) continue;
+                        var partComp = part as Component;
+                        Vector3 pPos = partComp != null ? partComp.transform.position : pos;
+                        Quaternion pRot = partComp != null ? partComp.transform.rotation : rot;
+
+                        if (_fPartDamageEffects?.GetValue(part) is IList effects)
+                        {
+                            for (int i = 0; i < effects.Count; i++)
+                            {
+                                var eff = effects[i];
+                                if (eff == null) continue;
+                                _fDamageEffectPrefab ??= eff.GetType().GetField("prefab", flags);
+                                if (_fDamageEffectPrefab?.GetValue(eff) is GameObject fxPrefab && fxPrefab != null)
+                                {
+                                    if (!seenPrefabs.Add(fxPrefab.GetInstanceID())) continue;
+                                    SpawnDetachedFxPrefab(fxPrefab, pPos, pRot);
+                                    spawnedAny = true;
+                                }
+                            }
+                        }
+
+                        if (_fPartDisintegrationEffects?.GetValue(part) is GameObject[] disFx)
+                        {
+                            for (int i = 0; i < disFx.Length; i++)
+                            {
+                                var fxPrefab = disFx[i];
+                                if (fxPrefab == null) continue;
+                                if (!seenPrefabs.Add(fxPrefab.GetInstanceID())) continue;
+                                SpawnDetachedFxPrefab(fxPrefab, pPos, pRot);
+                                spawnedAny = true;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { Plugin.Log?.LogWarning("Vehicle-DamageFX: " + ex.Message); }
+
+            // 2. Bleibendes Wrack-Modell (GroundVehicle.wreckage) auf den Boden stellen
+            try
+            {
+                _tGroundVehicle ??= Plugin.FindGameType("GroundVehicle");
+                Component? gv = null;
+                if (_tGroundVehicle != null)
+                    gv = (GetComponent(_tGroundVehicle) ?? GetComponentInChildren(_tGroundVehicle, true)) as Component;
+
+                GameObject? wreckPrefab = null;
+                if (gv != null)
+                {
+                    var fWreck = gv.GetType().GetField("wreckage", flags);
+                    wreckPrefab = fWreck?.GetValue(gv) as GameObject;
+                }
+                if (wreckPrefab == null)
+                {
+                    foreach (var mb in GetComponentsInChildren<MonoBehaviour>(true))
+                    {
+                        if (mb == null) continue;
+                        var fWreck = mb.GetType().GetField("wreckage", flags);
+                        if (fWreck?.GetValue(mb) is GameObject wp && wp != null)
+                        {
+                            wreckPrefab = wp;
+                            break;
+                        }
+                    }
+                }
+
+                if (wreckPrefab != null)
+                {
+                    var wreckGo = UnityEngine.Object.Instantiate(wreckPrefab, pos, rot);
+                    wreckGo.name = "NOReplay_VehicleWreck";
+                    wreckGo.transform.SetParent(null, true);
+                    wreckGo.SetActive(true);
+
+                    foreach (var mb in wreckGo.GetComponentsInChildren<MonoBehaviour>(true))
+                    {
+                        if (mb == null) continue;
+                        if (mb.GetType().Name == "Wreckage")
+                            UnityEngine.Object.Destroy(mb);
+                    }
+                    foreach (var rb in wreckGo.GetComponentsInChildren<Rigidbody>(true))
+                    {
+                        if (rb == null) continue;
+                        rb.isKinematic = true;
+                        rb.detectCollisions = false;
+                    }
+                    foreach (var c in wreckGo.GetComponentsInChildren<Collider>(true))
+                        if (c != null) c.enabled = false;
+
+                    PlayParticles(wreckGo);
+                    _spawnedWreck = wreckGo;
+                    spawnedAny = true;
+                }
+            }
+            catch (Exception ex) { Plugin.Log?.LogWarning("Vehicle-Wreck: " + ex.Message); }
+
+            return spawnedAny;
+        }
+
         void PlayUnitWreckFx(Vector3 pos, Quaternion rot)
         {
-            // Plugin.Log.LogInfo("Wreck-FX " + (Track != null ? Track.Name : "?")
-            //     + " t=" + Plugin.Clock.Time.ToString("0.0"));
+            ClearSpawnedWreck();
+            TrySpawnVehicleWreckAndFire(pos, rot);
+
             if (!_wreckTried)
             {
                 _wreckTried = true;

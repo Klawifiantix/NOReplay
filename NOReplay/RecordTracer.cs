@@ -27,8 +27,8 @@ namespace NOReplay
                 { "Type", "Misc+Projectile+Shell" }
             };
 
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
         }
 
         public override void Update()
@@ -39,8 +39,8 @@ namespace NOReplay
                 return;
             }
             UpdatePose();
-            Record.Host.GetComponent<RecordEngine>().invokeWriterUpdate(this);
-            props = [];
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
             timer = 0f;
         }
 
@@ -50,9 +50,9 @@ namespace NOReplay
             {
                 this.enabled = false;
                 base.enabled = false;
-                Record.Host.GetComponent<RecordEngine>().invokeWriterRemove(this);
+                Engine.invokeWriterRemove(this);
                 Record.Log?.LogDebug($"DISABLING TRACER {unitId.ToString(CultureInfo.InvariantCulture)}");
-                props = [];
+                props.Clear();
                 GameObject.Destroy(this);
             }
         }

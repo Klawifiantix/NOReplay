@@ -140,6 +140,7 @@ namespace NOReplay
         {
             SceneManager.sceneUnloaded -= OnSceneUnloaded;
             Harmony?.UnpatchSelf();
+            Log.Close();
         }
 
         void OnSceneUnloaded(Scene scene)
@@ -446,13 +447,18 @@ namespace NOReplay
             }
         }
 
+        GUIStyle? _recStyle;
+
         private void OnGUI()
         {
             if (Record.Active)
             {
-                var rec = new GUIStyle(GUI.skin.label) { fontSize = 22 };
-                rec.normal.textColor = Color.green;
-                GUI.Label(new Rect(Screen.width - 78f, Screen.height - 42f, 60f, 28f), "Rec", rec);
+                if (_recStyle == null)
+                {
+                    _recStyle = new GUIStyle(GUI.skin.label) { fontSize = 22 };
+                    _recStyle.normal.textColor = Color.green;
+                }
+                GUI.Label(new Rect(Screen.width - 78f, Screen.height - 42f, 60f, 28f), "Rec", _recStyle);
             }
             if (_pickerOpen) DrawReplayPicker();
             else if (InGameWorld() && _replayLive && CurrentDoc != null && !_timelineHidden) DrawTimeline();
@@ -462,17 +468,35 @@ namespace NOReplay
     internal sealed class ReplayLog
     {
         StreamWriter? _w;
+        float _nextFlush;
         public void Open(string path)
         {
+            try { _w?.Flush(); } catch { }
             try { _w?.Dispose(); } catch { }
-            _w = new StreamWriter(path, false) { AutoFlush = true };
+            _w = new StreamWriter(path, false) { AutoFlush = false };
+            _nextFlush = Time.unscaledTime + 3f;
+        }
+        public void Close()
+        {
+            try { _w?.Flush(); } catch { }
+            try { _w?.Dispose(); } catch { }
+            _w = null;
         }
         public void LogInfo(object d) => Write("Info", d);
         public void LogWarning(object d) => Write("Warning", d);
         public void LogError(object d) => Write("Error", d);
         void Write(string lvl, object d)
         {
-            try { _w?.WriteLine("[" + lvl + "] " + d); }
+            try
+            {
+                if (_w == null) return;
+                _w.WriteLine("[" + lvl + "] " + d);
+                if (Time.unscaledTime >= _nextFlush)
+                {
+                    _w.Flush();
+                    _nextFlush = Time.unscaledTime + 3f;
+                }
+            }
             catch { }
         }
     }

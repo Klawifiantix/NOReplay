@@ -87,6 +87,7 @@ namespace NOReplay
 
         static bool SkipIfGhost(object __instance)
         {
+            if (CurrentDoc == null) return true;
             var c = __instance as Component;
             if (c == null) return true;
             return c.GetComponent<ReplayGhost>() == null
@@ -98,6 +99,7 @@ namespace NOReplay
 
         static bool SkipGearIfGhost(object __instance)
         {
+            if (CurrentDoc == null) return true;
             if (AllowReplayGear) return true;
             return SkipIfGhost(__instance);
         }
@@ -203,6 +205,7 @@ namespace NOReplay
 
         static bool SkipFarExplosion(object __instance)
         {
+            if (CurrentDoc == null) return true;
             var c = __instance as Component;
             if (c == null) return true;
             if (AudioNearWorld(c.transform.position, 700f)) return true;

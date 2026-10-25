@@ -184,6 +184,124 @@ namespace NOReplay
                     _disabledInPrefab.Add(r);
             }
             _rend = all;
+            SyncHardpointRenderers();
+        }
+
+        void SyncHardpointRenderers()
+        {
+            var wmT = Plugin.FindGameType("WeaponManager");
+            if (wmT == null) return;
+            var wm = GetComponent(wmT) ?? GetComponentInChildren(wmT, true);
+            if (wm == null) return;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var sets = wmT.GetField("hardpointSets", flags)?.GetValue(wm) as Array;
+            if (sets == null) return;
+
+            FieldInfo? fSetMount = null;
+            FieldInfo? fHardpoints = null;
+            FieldInfo? fHpMount = null;
+            FieldInfo? fPlug = null;
+            FieldInfo? fPylonOpts = null;
+            MethodInfo? mShowPylon = null;
+            FieldInfo? fPylonRend = null;
+
+            for (int i = 0; i < sets.Length; i++)
+            {
+                var set = sets.GetValue(i);
+                if (set == null) continue;
+                var st = set.GetType();
+                fSetMount ??= st.GetField("weaponMount", flags);
+                fHardpoints ??= st.GetField("hardpoints", flags);
+
+                var setMount = fSetMount?.GetValue(set) as UnityEngine.Object;
+                if (fHardpoints?.GetValue(set) is not System.Collections.IList hps) continue;
+
+                for (int j = 0; j < hps.Count; j++)
+                {
+                    var hp = hps[j];
+                    if (hp == null) continue;
+                    var ht = hp.GetType();
+                    fHpMount ??= ht.GetField("mount", flags);
+                    fPlug ??= ht.GetField("Plug", flags);
+                    fPylonOpts ??= ht.GetField("pylonOptions", flags);
+                    mShowPylon ??= ht.GetMethod("ShowPylon", flags);
+
+                    var hpMount = fHpMount?.GetValue(hp) as UnityEngine.Object;
+                    if (setMount != null && hpMount == null)
+                    {
+                        try { fHpMount?.SetValue(hp, setMount); } catch { }
+                        hpMount = setMount;
+                    }
+
+                    bool loaded = setMount != null || hpMount != null;
+                    try { mShowPylon?.Invoke(hp, new object[] { loaded }); } catch { }
+
+                    if (fPlug?.GetValue(hp) is Renderer plug && plug != null)
+                        ApplyHardpointRendererState(plug, plug.enabled);
+
+                    if (fPylonOpts?.GetValue(hp) is Array opts)
+                    {
+                        for (int k = 0; k < opts.Length; k++)
+                        {
+                            var opt = opts.GetValue(k);
+                            if (opt == null) continue;
+                            fPylonRend ??= opt.GetType().GetField("renderer", flags);
+                            if (fPylonRend?.GetValue(opt) is Renderer pr && pr != null)
+                                ApplyHardpointRendererState(pr, pr.enabled);
+                        }
+                    }
+                }
+            }
+
+            // On UH-90 Ibis (UtilityHelo1), the rear side doorway is split into:
+            //   - windowCover_L / windowCover_R (upper half with two small windows, enabled in raw prefab)
+            //   - slidingDoor_L / slidingDoor_R (sliding door panel including the lower half, disabled in raw prefab)
+            // Ensure slidingDoor_L/R is enabled alongside windowCover_L/R (or when front door_FL/FR is open)
+            // so the lower half of the rear side door is never missing.
+            Renderer? doorFL = null, doorFR = null;
+            Renderer? winL = null, winR = null;
+            Renderer? slideL = null, slideR = null;
+            for (int i = 0; i < _rend.Length; i++)
+            {
+                var r = _rend[i];
+                if (r == null) continue;
+                switch (r.name)
+                {
+                    case "door_FL": doorFL = r; break;
+                    case "door_FR": doorFR = r; break;
+                    case "windowCover_L": winL = r; break;
+                    case "windowCover_R": winR = r; break;
+                    case "slidingDoor_L": slideL = r; break;
+                    case "slidingDoor_R": slideR = r; break;
+                }
+            }
+            if (slideL != null)
+            {
+                bool showL = (winL != null && !_disabledInPrefab.Contains(winL))
+                          || (doorFL != null && _disabledInPrefab.Contains(doorFL));
+                if (showL) ApplyHardpointRendererState(slideL, true);
+            }
+            if (slideR != null)
+            {
+                bool showR = (winR != null && !_disabledInPrefab.Contains(winR))
+                          || (doorFR != null && _disabledInPrefab.Contains(doorFR));
+                if (showR) ApplyHardpointRendererState(slideR, true);
+            }
+        }
+
+        void ApplyHardpointRendererState(Renderer r, bool shouldRender)
+        {
+            _knownRends.Add(r);
+            if (shouldRender)
+            {
+                _disabledInPrefab.Remove(r);
+                r.enabled = _visible;
+            }
+            else
+            {
+                _disabledInPrefab.Add(r);
+                r.enabled = false;
+            }
         }
 
         void CheckCameraReposition(Vector3 vel)

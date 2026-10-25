@@ -28,6 +28,7 @@ namespace NOReplay
             PatchNamed("Spawner", "SpawnScenery", true);
             PatchNamed("Spawner", "SpawnLocal", true);
             PatchSkip("Spawner", "TrySpawnPlayerControlled");
+            PatchReplaySpectatorUI();
             BlockEjectMethods();
             BlockBreakMethods();
             BlockComplexPhysics();
@@ -45,6 +46,147 @@ namespace NOReplay
             BlockSonicMute();
             BlockStateLabel();
             Log.LogInfo("Listen-Patches gesetzt (ohne SOM.Spawn-Spam).");
+        }
+
+        static FieldInfo? _mfdMissionTimeField;
+
+        static void PatchReplaySpectatorUI()
+        {
+            var flags = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+            var uiType = FindGameType("GameplayUI");
+            if (uiType == null)
+            {
+                Log.LogWarning("Spectator-UI: GameplayUI fehlt");
+            }
+            else
+            {
+                var mShowJoin = uiType.GetMethod("ShowJoinMenu", flags);
+                if (mShowJoin != null)
+                {
+                    try
+                    {
+                        Harmony.Patch(mShowJoin, postfix: new HarmonyMethod(typeof(Plugin), nameof(PostfixShowJoinMenu)));
+                        Log.LogInfo("Spectator-UI GameplayUI.ShowJoinMenu gepatcht");
+                    }
+                    catch (Exception ex) { Log.LogWarning("Spectator-UI ShowJoinMenu: " + ex.Message); }
+                }
+
+                var mShouldShow = uiType.GetMethod("ShouldShowSpectatorPanel", flags);
+                if (mShouldShow != null)
+                {
+                    try
+                    {
+                        Harmony.Patch(mShouldShow, prefix: new HarmonyMethod(typeof(Plugin), nameof(PrefixShouldShowSpectatorPanel)));
+                        Log.LogInfo("Spectator-UI GameplayUI.ShouldShowSpectatorPanel gepatcht");
+                    }
+                    catch (Exception ex) { Log.LogWarning("Spectator-UI ShouldShowSpectatorPanel: " + ex.Message); }
+                }
+
+                var mCheckShow = uiType.GetMethod("CheckShowSpectatorPanel", flags);
+                if (mCheckShow != null)
+                {
+                    try
+                    {
+                        Harmony.Patch(mCheckShow, prefix: new HarmonyMethod(typeof(Plugin), nameof(PrefixCheckShowSpectatorPanel)));
+                        Log.LogInfo("Spectator-UI GameplayUI.CheckShowSpectatorPanel gepatcht");
+                    }
+                    catch (Exception ex) { Log.LogWarning("Spectator-UI CheckShowSpectatorPanel: " + ex.Message); }
+                }
+            }
+
+            var mfdType = FindGameType("VirtualMFD");
+            if (mfdType != null)
+            {
+                _mfdMissionTimeField = mfdType.GetField("missionTime", flags);
+                var mUpdate = mfdType.GetMethod("Update", flags);
+                if (mUpdate != null)
+                {
+                    try
+                    {
+                        Harmony.Patch(mUpdate, postfix: new HarmonyMethod(typeof(Plugin), nameof(PostfixVirtualMFDUpdate)));
+                        Log.LogInfo("Spectator-UI VirtualMFD.Update gepatcht");
+                    }
+                    catch (Exception ex) { Log.LogWarning("Spectator-UI VirtualMFD.Update: " + ex.Message); }
+                }
+            }
+        }
+
+        static void PostfixShowJoinMenu(object __instance)
+        {
+            if (CurrentDoc == null || __instance == null) return;
+            try
+            {
+                var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                var uiType = __instance.GetType();
+                var lbField = uiType.GetField("leaderboardMenu", flags);
+                object? lb = lbField?.GetValue(__instance);
+                if (lb != null)
+                {
+                    var lbType = lb.GetType();
+                    var onSpectate = lbType.GetMethod("OnSpectateClicked", flags);
+                    onSpectate?.Invoke(lb, null);
+
+                    if (lb is Component lbComp && lbComp.gameObject.activeSelf)
+                    {
+                        lbType.GetMethod("Close", flags)?.Invoke(lb, null);
+                    }
+                }
+                else
+                {
+                    uiType.GetMethod("CloseJoinMenu", flags)?.Invoke(__instance, null);
+                }
+
+                uiType.GetMethod("HideSpectatorPanel", flags)?.Invoke(__instance, null);
+                uiType.GetMethod("HideSelectAirbase", flags)?.Invoke(__instance, null);
+                Log.LogInfo("Spectator-Modus automatisch aktiviert (JoinMenu übersprungen).");
+            }
+            catch (Exception ex)
+            {
+                Log.LogWarning("PostfixShowJoinMenu: " + ex.Message);
+            }
+        }
+
+        static bool PrefixShouldShowSpectatorPanel(ref bool __result)
+        {
+            if (CurrentDoc == null) return true;
+            __result = false;
+            return false;
+        }
+
+        static bool PrefixCheckShowSpectatorPanel(object __instance)
+        {
+            if (CurrentDoc == null) return true;
+            if (__instance != null)
+            {
+                try
+                {
+                    var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                    var uiType = __instance.GetType();
+                    uiType.GetMethod("HideSpectatorPanel", flags)?.Invoke(__instance, null);
+                    uiType.GetMethod("HideSelectAirbase", flags)?.Invoke(__instance, null);
+                }
+                catch { }
+            }
+            return false;
+        }
+
+        static void PostfixVirtualMFDUpdate(object __instance)
+        {
+            if (CurrentDoc == null || __instance == null) return;
+            try
+            {
+                var f = _mfdMissionTimeField
+                    ?? (__instance.GetType().GetField("missionTime", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic));
+                if (f?.GetValue(__instance) is Component mt && mt != null)
+                {
+                    if (mt.gameObject.activeSelf)
+                        mt.gameObject.SetActive(false);
+                    var parent = mt.transform.parent;
+                    if (parent != null && parent.gameObject.activeSelf)
+                        parent.gameObject.SetActive(false);
+                }
+            }
+            catch { }
         }
 
         static void BlockStateLabel()

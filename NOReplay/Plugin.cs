@@ -89,6 +89,14 @@ namespace NOReplay
 
         internal static GameObject? _ghost;
         static readonly List<GameObject> _ghosts = new List<GameObject>();
+        static readonly List<ReplayGhost> _ghostComps = new List<ReplayGhost>();
+        internal static List<ReplayGhost> GhostComps => _ghostComps;
+
+        static void AddGhost(GameObject go)
+        {
+            _ghosts.Add(go);
+            _ghostComps.Add(go != null ? go.GetComponent<ReplayGhost>() : null);
+        }
         static readonly List<ReplayObject> _pendingAir = new List<ReplayObject>();
         static readonly Dictionary<string, UnityEngine.Object?> _defCache = new Dictionary<string, UnityEngine.Object?>();
         static int _followIndex = -1;
@@ -216,13 +224,10 @@ namespace NOReplay
 
         void TickMissileBooms()
         {
-            if (_ghosts == null) return;
             float t = Clock.Time;
-            for (int i = 0; i < _ghosts.Count; i++)
+            for (int i = 0; i < _ghostComps.Count; i++)
             {
-                var go = _ghosts[i];
-                if (go == null) continue;
-                var rg = go.GetComponent<ReplayGhost>();
+                var rg = _ghostComps[i];
                 if (rg == null || !rg.IsOrdnancePublic) continue;
                 rg.TryBoom(t);
             }
@@ -230,11 +235,9 @@ namespace NOReplay
 
         static void ClearAllTrails()
         {
-            for (int i = 0; i < _ghosts.Count; i++)
+            for (int i = 0; i < _ghostComps.Count; i++)
             {
-                var go = _ghosts[i];
-                if (go == null) continue;
-                var rg = go.GetComponent<ReplayGhost>();
+                var rg = _ghostComps[i];
                 if (rg == null) continue;
                 rg.ForceHideTrail();
             }
@@ -242,14 +245,11 @@ namespace NOReplay
 
         void TickTrails()
         {
-            if (_ghosts == null) return;
             float t = Clock.Time;
             float len = TrailsOn ? TrailSeconds : 0f;
-            for (int i = 0; i < _ghosts.Count; i++)
+            for (int i = 0; i < _ghostComps.Count; i++)
             {
-                var go = _ghosts[i];
-                if (go == null) continue;
-                var rg = go.GetComponent<ReplayGhost>();
+                var rg = _ghostComps[i];
                 if (rg == null) continue;
                 rg.UpdateTrail(t, len);
             }
@@ -284,11 +284,12 @@ namespace NOReplay
                      ?? FindGameType("ParticleSystem");
             var clear = pt?.GetMethod("Clear", new[] { typeof(bool) });
             var stop = pt?.GetMethod("Stop", Type.EmptyTypes);
-            for (int i = 0; i < _ghosts.Count; i++)
+            for (int i = 0; i < _ghostComps.Count; i++)
             {
-                var go = _ghosts[i];
-                if (go == null || pt == null) continue;
-                var rg = go.GetComponent<ReplayGhost>();
+                var rg = _ghostComps[i];
+                if (rg == null || pt == null) continue;
+                var go = rg.gameObject;
+                if (go == null) continue;
                 foreach (var ps in go.GetComponentsInChildren(pt, true))
                 {
                     if (ps == null) continue;
@@ -302,15 +303,15 @@ namespace NOReplay
         static void TickGhostSleep()
         {
             // Only check a quarter of the ghosts each frame.
-            if (_ghosts.Count == 0) return;
+            if (_ghostComps.Count == 0) return;
             int stride = 4;
             int start = Time.frameCount % stride;
-            for (int i = start; i < _ghosts.Count; i += stride)
+            for (int i = start; i < _ghostComps.Count; i += stride)
             {
-                var go = _ghosts[i];
-                if (go == null) continue;
-                var rg = go.GetComponent<ReplayGhost>();
+                var rg = _ghostComps[i];
                 if (rg == null) continue;
+                var go = rg.gameObject;
+                if (go == null) continue;
                 bool on = rg.IsTrackAlive();
                 if (go.activeSelf == on) continue;
                 if (!on)

@@ -755,6 +755,33 @@ namespace NOReplay
             }
         }
 
+        Vector3[] _trailRaw = Array.Empty<Vector3>();
+        Vector3[] _trailPts = Array.Empty<Vector3>();
+        Vector3[] _trailShown = Array.Empty<Vector3>();
+        int _trailShownN;
+        const float AirTrailGap = 5f;
+
+        static void GrowTrail(ref Vector3[] buf, int need)
+        {
+            if (buf.Length >= need) return;
+            int n = buf.Length == 0 ? 64 : buf.Length;
+            while (n < need) n *= 2;
+            buf = new Vector3[n];
+        }
+
+        static int LowerBoundTime(System.Collections.Generic.List<ReplaySample> samples, float from)
+        {
+            int lo = 0;
+            int hi = samples.Count;
+            while (lo < hi)
+            {
+                int mid = (lo + hi) >> 1;
+                if (samples[mid].Time < from) lo = mid + 1;
+                else hi = mid;
+            }
+            return lo;
+        }
+
         internal void UpdateTrail(float t, float lengthSec)
         {
             if (!_air && !_ordnance)
@@ -783,50 +810,116 @@ namespace NOReplay
             EnsureTrail();
             if (_trail == null) return;
             float from = t - lengthSec;
-            var raw = new System.Collections.Generic.List<Vector3>(64);
             var samples = Track.Samples;
-            for (int i = 0; i < samples.Count; i++)
+            GrowTrail(ref _trailRaw, samples.Count + 1);
+            int rawN = 0;
+            for (int i = LowerBoundTime(samples, from); i < samples.Count; i++)
             {
                 var s = samples[i];
-                if (s.Time < from) continue;
                 if (s.Time > t) break;
                 var p = new Vector3(s.X, s.Y, s.Z);
                 if (float.IsNaN(p.x) || float.IsNaN(p.y) || float.IsNaN(p.z)) continue;
-                raw.Add(p);
+                _trailRaw[rawN++] = p;
             }
+            bool haveHere = false;
+            Vector3 here = default;
             if (Track.TrySample(t, out var now))
             {
                 var p = new Vector3(now.X, now.Y, now.Z);
-                if (!float.IsNaN(p.x)) raw.Add(p);
+                if (!float.IsNaN(p.x))
+                {
+                    haveHere = true;
+                    here = p;
+                    _trailRaw[rawN++] = p;
+                }
             }
-            var pts = new System.Collections.Generic.List<Vector3>(raw.Count);
-            const float maxStep = 2500f;
-            for (int i = 0; i < raw.Count; i++)
+            GrowTrail(ref _trailPts, rawN > 0 ? rawN : 1);
+            int pn = 0;
+            const float min2 = 0.25f;
+            const float max2 = 2500f * 2500f;
+            for (int i = 0; i < rawN; i++)
             {
-                if (pts.Count == 0) { pts.Add(raw[i]); continue; }
-                float d = Vector3.Distance(pts[pts.Count - 1], raw[i]);
-                if (d < 0.5f) continue;
-                if (d > maxStep) continue;
-                pts.Add(raw[i]);
+                var p = _trailRaw[i];
+                if (pn == 0)
+                {
+                    _trailPts[pn++] = p;
+                    continue;
+                }
+                var d = _trailPts[pn - 1] - p;
+                float d2 = d.sqrMagnitude;
+                if (d2 < min2) continue;
+                if (d2 > max2) continue;
+                _trailPts[pn++] = p;
             }
-            if (pts.Count < 2)
+            if (_air && haveHere)
+                pn = TrimAirTrail(_trailPts, pn, here);
+            if (pn < 2)
             {
-                if (_trail.positionCount >= 2) return;
+                // Ordnance keeps the previous line if this frame has too few points.
+                // Aircraft hide it so a short path does not sit inside the fuselage.
+                if (!_air && _trail.positionCount >= 2) return;
                 HideTrail();
                 return;
             }
-            _trail.positionCount = 0;
-            _trail.positionCount = pts.Count;
-            for (int i = 0; i < pts.Count; i++)
-                _trail.SetPosition(i, pts[i]);
+            if (!TrailUnchanged(pn))
+            {
+                if (_trail.positionCount != pn)
+                    _trail.positionCount = pn;
+                for (int i = 0; i < pn; i++)
+                    _trail.SetPosition(i, _trailPts[i]);
+                GrowTrail(ref _trailShown, pn);
+                Array.Copy(_trailPts, _trailShown, pn);
+                _trailShownN = pn;
+            }
             _trail.enabled = true;
-            float w = _ordnance ? 2f : 8f;
-            _trail.widthMultiplier = w;
-            _trail.widthCurve = AnimationCurve.Constant(0f, 1f, 1f);
-            var col = FactionTrailColor(Track.Coalition);
-            _trail.startColor = col;
-            _trail.endColor = col;
-            ApplyTrailColor(col);
+        }
+
+        static int TrimAirTrail(Vector3[] pts, int n, Vector3 here)
+        {
+            if (n <= 0) return 0;
+            const float gap = AirTrailGap;
+            const float gap2 = gap * gap;
+            int last = n - 1;
+            while (last > 0 && (pts[last] - here).sqrMagnitude < gap2)
+                last--;
+            if ((pts[last] - here).sqrMagnitude < gap2)
+                return 0;
+            if (last >= n - 1)
+                return n;
+            var cut = CutAtRadius(pts[last], pts[last + 1], here, gap);
+            if ((cut - pts[last]).sqrMagnitude <= 0.0001f)
+                return last + 1;
+            pts[last + 1] = cut;
+            return last + 2;
+        }
+
+        static Vector3 CutAtRadius(Vector3 outside, Vector3 inside, Vector3 center, float radius)
+        {
+            Vector3 d = inside - outside;
+            Vector3 f = outside - center;
+            float a = Vector3.Dot(d, d);
+            float b = 2f * Vector3.Dot(f, d);
+            float c = Vector3.Dot(f, f) - radius * radius;
+            float disc = b * b - 4f * a * c;
+            if (a < 1e-6f || disc < 0f) return outside;
+            float s = Mathf.Sqrt(disc);
+            float t = (-b - s) / (2f * a);
+            if (t < 0f || t > 1f) t = (-b + s) / (2f * a);
+            if (t < 0f) t = 0f;
+            else if (t > 1f) t = 1f;
+            return outside + d * t;
+        }
+
+        bool TrailUnchanged(int n)
+        {
+            if (n != _trailShownN || _trail == null || !_trail.enabled) return false;
+            for (int i = 0; i < n; i++)
+            {
+                var a = _trailPts[i];
+                var b = _trailShown[i];
+                if (a.x != b.x || a.y != b.y || a.z != b.z) return false;
+            }
+            return true;
         }
 
         void EnsureTrail()
@@ -876,6 +969,12 @@ namespace NOReplay
             else Plugin.Log?.LogWarning("Trail: kein Shader");
             _trail.startWidth = 8f;
             _trail.endWidth = 6f;
+            _trail.widthMultiplier = _ordnance ? 2f : 8f;
+            _trail.widthCurve = AnimationCurve.Constant(0f, 1f, 1f);
+            var col = FactionTrailColor(Track?.Coalition);
+            _trail.startColor = col;
+            _trail.endColor = col;
+            ApplyTrailColor(col);
         }
 
         void ApplyTrailColor(Color col)
@@ -891,6 +990,7 @@ namespace NOReplay
 
         internal void ForceHideTrail()
         {
+            _trailShownN = 0;
             if (_trail != null)
             {
                 _trail.positionCount = 0;

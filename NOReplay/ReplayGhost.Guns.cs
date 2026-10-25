@@ -379,9 +379,9 @@ namespace NOReplay
         static bool _shown;
         static bool _missLogged;
 
-        static ReplayGhost[] _ghosts = Array.Empty<ReplayGhost>();
-        static readonly string[] _slotId = new string[36];
-        static int _ghostFrame;
+        static int _shellGen = 1;
+        static readonly int[] _slotShell = new int[36];
+        static readonly int[] _slotShellGen = new int[36];
 
         public static void Tick(ReplayDocument? doc, float time)
         {
@@ -395,13 +395,13 @@ namespace NOReplay
                 Plugin.Log.LogInfo("Shells in ACMI: " + _shells.Length);
             }
             BurstReplay.Tick(doc, time);
-            if (time + 0.05f < _lastTime) { _boomed.Clear(); _burst.Clear(); }
-            _lastTime = time;
-            if ((Time.frameCount - _ghostFrame) > 30)
+            if (time + 0.05f < _lastTime)
             {
-                _ghostFrame = Time.frameCount;
-                _ghosts = UnityEngine.Object.FindObjectsOfType<ReplayGhost>();
+                _boomed.Clear();
+                _burst.Clear();
+                _shellGen++;
             }
+            _lastTime = time;
             int slot = 0;
             Vector3 listen = ListenAt();
             bool haveListen = listen.sqrMagnitude > 100f;
@@ -436,7 +436,7 @@ namespace NOReplay
                 if (haveListen && (pos - listen).sqrMagnitude > 2000f * 2000f) continue;
                 var go = Take(slot);
                 var trail = go.GetComponent<TrailRenderer>();
-                if (trail != null && _slotId[slot] != o.Id)
+                if (trail != null && (_slotShellGen[slot] != _shellGen || _slotShell[slot] != i))
                 {
                     trail.emitting = false;
                     trail.time = 0f;
@@ -447,7 +447,8 @@ namespace NOReplay
                     trail.Clear();
                     trail.time = 0.16f;
                     trail.emitting = true;
-                    _slotId[slot] = o.Id;
+                    _slotShellGen[slot] = _shellGen;
+                    _slotShell[slot] = i;
                 }
                 slot++;
                 go.transform.position = pos;
@@ -458,7 +459,7 @@ namespace NOReplay
                     Plugin.Log.LogInfo("Shell fliegt " + o.Id + " @ " + pos + " v=" + speed.ToString("0"));
                 }
                 if (_boomed.Add(o.Id))
-                    PulseNear(a, _ghosts);
+                    PulseNear(a);
             }
             if (!_shown && time > 7f && !_missLogged)
             {
@@ -479,23 +480,18 @@ namespace NOReplay
                     }
                     dead.SetActive(false);
                 }
-                if (i < _slotId.Length) _slotId[i] = "";
+                if (i < _slotShellGen.Length) _slotShellGen[i] = 0;
             }
         }
 
         static Vector3 ListenAt()
         {
-            var cams = UnityEngine.Object.FindObjectsOfType<Camera>();
-            for (int i = 0; i < cams.Length; i++)
+            if (Plugin.ListenPoint(out var pos) && pos.sqrMagnitude > 500f * 500f)
+                return pos;
+            var ghosts = Plugin.GhostComps;
+            for (int i = 0; i < ghosts.Count; i++)
             {
-                var c = cams[i];
-                if (c == null) continue;
-                if (c.GetComponent("AudioListener") == null) continue;
-                if (c.transform.position.sqrMagnitude > 500f * 500f) return c.transform.position;
-            }
-            for (int i = 0; i < _ghosts.Length; i++)
-            {
-                var rg = _ghosts[i];
+                var rg = ghosts[i];
                 if (rg == null || !rg.gameObject.activeInHierarchy) continue;
                 if (Plugin.IsFollowed(rg.gameObject)) return rg.transform.position;
             }
@@ -504,26 +500,28 @@ namespace NOReplay
 
         static bool NearGhost(Vector3 pos)
         {
-            if (_ghosts.Length == 0) return true;
+            var ghosts = Plugin.GhostComps;
+            if (ghosts.Count == 0) return true;
             float lim = 1800f * 1800f;
-            for (int i = 0; i < _ghosts.Length; i++)
+            for (int i = 0; i < ghosts.Count; i++)
             {
-                var rg = _ghosts[i];
+                var rg = ghosts[i];
                 if (rg == null || !rg.gameObject.activeInHierarchy) continue;
                 if ((rg.transform.position - pos).sqrMagnitude < lim) return true;
             }
             return false;
         }
 
-        static void PulseNear(ReplaySample s, ReplayGhost[] ghosts)
+        static void PulseNear(ReplaySample s)
         {
             var pos = Plugin.GlobalToLocal(s.X, s.Y, s.Z);
+            var ghosts = Plugin.GhostComps;
             ReplayGhost? best = null;
             float bestD = 700f * 700f;
-            for (int i = 0; i < ghosts.Length; i++)
+            for (int i = 0; i < ghosts.Count; i++)
             {
                 var rg = ghosts[i];
-                if (rg == null) continue;
+                if (rg == null || !rg.gameObject.activeInHierarchy) continue;
                 float d = (rg.transform.position - pos).sqrMagnitude;
                 if (d < bestD)
                 {
@@ -614,7 +612,13 @@ namespace NOReplay
         static ReplayObject[] _bursts = Array.Empty<ReplayObject>();
         static ReplayDocument? _doc;
         static readonly List<GameObject> _pool = new List<GameObject>();
-        static readonly string[] _slotId = new string[48];
+        static readonly Dictionary<string, ReplayObject> _byId = new Dictionary<string, ReplayObject>(StringComparer.OrdinalIgnoreCase);
+        static readonly Dictionary<string, ReplayGhost> _ghostById = new Dictionary<string, ReplayGhost>(StringComparer.Ordinal);
+        static int _ghostMapFrame = -1;
+        static int _slotGen = 1;
+        static readonly int[] _slotBurst = new int[48];
+        static readonly int[] _slotShot = new int[48];
+        static readonly int[] _slotGenAt = new int[48];
         static bool _shown;
 
         static readonly HashSet<string> _heard = new HashSet<string>();
@@ -624,43 +628,41 @@ namespace NOReplay
 
         public static void Tick(ReplayDocument doc, float time)
         {
-            // Stop audio on pause
             bool paused = Plugin.Clock.Paused;
-            if (paused && !_wasPaused)
+            bool seeked = _lastTime >= 0f && Mathf.Abs(time - _lastTime) > 0.5f;
+            if ((paused && !_wasPaused) || seeked)
             {
-                Plugin.Log.LogInfo("Pause: stopping burst audio");
-                foreach (var g in UnityEngine.Object.FindObjectsOfType<ReplayGhost>())
-                    g.EndBurstAudio();
+                if (paused && !_wasPaused)
+                    Plugin.Log.LogInfo("Pause: stopping burst audio");
+                EndAllBurstAudio();
                 _heard.Clear();
+                _slotGen++;
             }
             _wasPaused = paused;
-            if (paused) { _lastTime = time; return; }
-
-            // Detect seek (time jump)
-            bool seeked = _lastTime >= 0f && Mathf.Abs(time - _lastTime) > 0.5f;
-            if (seeked)
-            {
-                _heard.Clear();
-                // Stop all burst audio on seek
-                foreach (var g in UnityEngine.Object.FindObjectsOfType<ReplayGhost>())
-                    g.EndBurstAudio();
-            }
             _lastTime = time;
+            if (paused) return;
 
             if (!ReferenceEquals(doc, _doc))
             {
                 _doc = doc;
                 var list = new List<ReplayObject>();
-                foreach (var o in doc.Objects)
-                    if ((o.Type ?? "").IndexOf("GunBurst", StringComparison.OrdinalIgnoreCase) >= 0 && o.Samples.Count > 0)
-                        list.Add(o);
+                var objs = doc.Objects;
+                _byId.Clear();
+                for (int n = 0; n < objs.Count; n++)
+                {
+                    var obj = objs[n];
+                    if (obj == null || string.IsNullOrEmpty(obj.Id)) continue;
+                    if (!_byId.ContainsKey(obj.Id))
+                        _byId[obj.Id] = obj;
+                    if ((obj.Type ?? "").IndexOf("GunBurst", StringComparison.OrdinalIgnoreCase) >= 0 && obj.Samples.Count > 0)
+                        list.Add(obj);
+                }
                 _bursts = list.ToArray();
                 _heard.Clear();
-                // Reset pool for new replay
                 foreach (var go in _pool)
                     if (go != null) UnityEngine.Object.Destroy(go);
                 _pool.Clear();
-                Array.Clear(_slotId, 0, _slotId.Length);
+                _slotGen++;
                 Plugin.Log.LogInfo("Kanonenstöße im Replay: " + _bursts.Length);
             }
             int slot = 0;
@@ -669,23 +671,35 @@ namespace NOReplay
                 var o = _bursts[i];
                 float start = o.SpawnAt >= 0f ? o.SpawnAt : o.Samples[0].Time;
                 float end = o.RemovedAt >= 0f ? o.RemovedAt : o.Samples[o.Samples.Count - 1].Time;
+                bool inWindow = time >= start && time <= end + 1.6f;
+                bool endAudio = time > end && _heard.Contains(o.Id);
+                if (!inWindow && !endAudio) continue;
                 var shooter = FindParent(o);
                 var ghost = GhostFor(shooter);
-                // Dead / wrecked units must not produce gun effects.
-                if (ghost != null && (ghost.IsWrecked || !ghost.IsTrackAlive()))
-                    continue;
-                if (time > end && _heard.Contains(o.Id))
+                if (endAudio)
                 {
                     _heard.Remove(o.Id);
                     ghost?.EndBurstAudio();
                 }
-                if (time < start || time > end + 1.6f) continue;
+                if (!inWindow) continue;
+                // Dead / wrecked units must not produce gun effects.
+                if (ghost != null && (ghost.IsWrecked || !ghost.IsTrackAlive()))
+                    continue;
                 float rpm = o.Rpm > 1f ? o.Rpm : 750f;
                 float speed = o.Muzzle > 50f ? o.Muzzle : 900f;
                 float grav = o.Grav > 0f ? o.Grav : 1f;
                 float step = Mathf.Max(0.04f, 60f / rpm);
+                float fired = start;
+                float window = time - 1.6f;
+                if (window > start)
+                {
+                    // One step early so float rounding cannot skip a round that is still visible.
+                    float steps = Mathf.Floor((window - start) / step);
+                    if (steps > 1f)
+                        fired = start + (steps - 1f) * step;
+                }
                 bool pulsed = false;
-                for (float fired = start; fired <= end && slot < 48; fired += step)
+                for (; fired <= end && slot < 48; fired += step)
                 {
                     float age = time - fired;
                     if (age < 0f || age > 1.6f) continue;
@@ -706,8 +720,8 @@ namespace NOReplay
                     var pos = origin + dir.normalized * (speed * age) + Vector3.down * drop;
                     var go = Take(slot);
                     var trail = go.GetComponent<TrailRenderer>();
-                    string id = o.Id + ":" + fired.ToString("0.00");
-                    if (trail != null && _slotId[slot] != id)
+                    int shot = Mathf.RoundToInt((fired - start) / step);
+                    if (trail != null && (_slotGenAt[slot] != _slotGen || _slotBurst[slot] != i || _slotShot[slot] != shot))
                     {
                         trail.emitting = false;
                         trail.time = 0f;
@@ -718,7 +732,9 @@ namespace NOReplay
                         trail.Clear();
                         trail.time = 0.12f;
                         trail.emitting = true;
-                        _slotId[slot] = id;
+                        _slotGenAt[slot] = _slotGen;
+                        _slotBurst[slot] = i;
+                        _slotShot[slot] = shot;
                     }
                     go.transform.position = pos;
                     go.SetActive(true);
@@ -756,39 +772,46 @@ namespace NOReplay
                     }
                     dead.SetActive(false);
                 }
-                if (i < _slotId.Length) _slotId[i] = "";
+                if (i < _slotGenAt.Length) _slotGenAt[i] = 0;
             }
         }
 
-        static ReplayGhost[] _burstGhosts = Array.Empty<ReplayGhost>();
-        static int _burstGhostFrame = -999;
+        static void EndAllBurstAudio()
+        {
+            var list = Plugin.GhostComps;
+            for (int i = 0; i < list.Count; i++)
+            {
+                var g = list[i];
+                if (g != null) g.EndBurstAudio();
+            }
+        }
 
         static ReplayGhost? GhostFor(ReplayObject? shooter)
         {
-            if (shooter == null) return null;
-            if (Time.frameCount - _burstGhostFrame > 30)
+            if (shooter == null || string.IsNullOrEmpty(shooter.Id)) return null;
+            if (_ghostMapFrame != Time.frameCount)
             {
-                _burstGhostFrame = Time.frameCount;
-                _burstGhosts = UnityEngine.Object.FindObjectsOfType<ReplayGhost>();
+                _ghostMapFrame = Time.frameCount;
+                _ghostById.Clear();
+                var list = Plugin.GhostComps;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var g = list[i];
+                    if (g == null || g.Track == null || !g.gameObject.activeInHierarchy) continue;
+                    string id = g.Track.Id;
+                    if (string.IsNullOrEmpty(id) || _ghostById.ContainsKey(id)) continue;
+                    _ghostById[id] = g;
+                }
             }
-            for (int i = 0; i < _burstGhosts.Length; i++)
-            {
-                var g = _burstGhosts[i];
-                if (g != null && g.Track != null && g.Track.Id == shooter.Id)
-                    return g;
-            }
-            return null;
+            _ghostById.TryGetValue(shooter.Id, out var found);
+            return found;
         }
 
         static ReplayObject? FindParent(ReplayObject burst)
         {
-            if (_doc == null || string.IsNullOrEmpty(burst.ParentId)) return null;
-            for (int i = 0; i < _doc.Objects.Count; i++)
-            {
-                var o = _doc.Objects[i];
-                if (o.Id.Equals(burst.ParentId, StringComparison.OrdinalIgnoreCase)) return o;
-            }
-            return null;
+            if (string.IsNullOrEmpty(burst.ParentId)) return null;
+            _byId.TryGetValue(burst.ParentId, out var o);
+            return o;
         }
 
         static GameObject Take(int slot)

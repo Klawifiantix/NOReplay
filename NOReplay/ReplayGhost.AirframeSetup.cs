@@ -71,7 +71,7 @@ namespace NOReplay
             }
             foreach (var r in GetComponentsInChildren<Renderer>(true))
             {
-                if (r == null) continue;
+                if (r == null || _disabledInPrefab.Contains(r)) continue;
                 var mats = r.materials;
                 for (int i = 0; i < mats.Length; i++)
                 {
@@ -256,82 +256,94 @@ namespace NOReplay
 
         internal void PaintMissingLivery()
         {
-            if (name.IndexOf("Vagrant", StringComparison.OrdinalIgnoreCase) >= 0
-                || name.IndexOf("VT-7", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                var rs = GetComponentsInChildren<Renderer>(true);
-                for (int i = 0; i < rs.Length; i++)
-                {
-                    var r = rs[i];
-                    if (r == null) continue;
-                    var ms = r.sharedMaterials;
-                    if (ms == null) continue;
-                    for (int m = 0; m < ms.Length; m++)
-                    {
-                        var mat = ms[m];
-                        if (mat == null) continue;
-                        string sh = mat.shader != null ? mat.shader.name : "null";
-                        bool hasL = mat.HasProperty("_Livery") && mat.GetTexture("_Livery") != null;
-                        bool hasB = mat.HasProperty("_BaseMap") && mat.GetTexture("_BaseMap") != null;
-                        // Plugin.Log.LogInfo("Vagrant-Mat " + r.name + " sh=" + sh + " L=" + hasL + " B=" + hasB);
-                    }
-                }
-            }
             Texture? tex = null;
+            float gloss = 0.2f;
+            bool haveGloss = false;
             var rends = GetComponentsInChildren<Renderer>(true);
             for (int i = 0; i < rends.Length; i++)
             {
                 var r = rends[i];
-                if (r == null) continue;
+                if (r == null || _disabledInPrefab.Contains(r)) continue;
                 var mats = r.sharedMaterials;
                 if (mats == null) continue;
                 for (int m = 0; m < mats.Length; m++)
                 {
                     var mat = mats[m];
                     if (mat == null) continue;
+                    string sh = mat.shader != null ? mat.shader.name : "";
+                    if (sh.IndexOf("AircraftSkin", StringComparison.OrdinalIgnoreCase) < 0) continue;
                     if (mat.HasProperty("_Livery"))
                     {
                         var t = mat.GetTexture("_Livery");
-                        if (t != null) { tex = t; break; }
+                        if (t != null)
+                        {
+                            tex = t;
+                            if (mat.HasProperty("_Glossiness"))
+                            {
+                                gloss = mat.GetFloat("_Glossiness");
+                                haveGloss = true;
+                            }
+                            break;
+                        }
                     }
-                    if (tex == null && mat.HasProperty("_BaseMap"))
-                        tex = mat.GetTexture("_BaseMap");
-                    if (tex == null && mat.HasProperty("_MainTex"))
-                        tex = mat.GetTexture("_MainTex");
                 }
                 if (tex != null) break;
             }
             if (tex == null) return;
+            _liveryPainted = true;
             var err = Shader.Find("Hidden/InternalErrorShader");
             var fix = Shader.Find("Shader Graphs/AircraftSkin")
                      ?? Shader.Find("Universal Render Pipeline/Lit");
-            if (err != null && fix != null && tex != null)
+            if (err != null && fix != null)
             {
                 for (int i = 0; i < rends.Length; i++)
                 {
                     var r = rends[i];
-                    if (r == null) continue;
-                    var ms = r.materials;
+                    if (r == null || _disabledInPrefab.Contains(r)) continue;
+                    var ms = r.sharedMaterials;
                     if (ms == null) continue;
-                    bool dirty = false;
+                    bool hasErr = false;
                     for (int m = 0; m < ms.Length; m++)
                     {
-                        var mat = ms[m];
+                        if (ms[m] != null && ms[m].shader == err) { hasErr = true; break; }
+                    }
+                    if (!hasErr) continue;
+                    var mats = r.materials;
+                    bool dirty = false;
+                    for (int m = 0; m < mats.Length; m++)
+                    {
+                        var mat = mats[m];
                         if (mat == null || mat.shader != err) continue;
-                        // Replace error shader with a working one and assign the found texture.
                         mat.shader = fix;
                         if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", tex);
                         if (mat.HasProperty("_MainTex")) mat.SetTexture("_MainTex", tex);
                         if (mat.HasProperty("_Livery")) mat.SetTexture("_Livery", tex);
+                        if (haveGloss && mat.HasProperty("_Glossiness")) mat.SetFloat("_Glossiness", gloss);
                         dirty = true;
                     }
-                    if (dirty) r.materials = ms;
+                    if (dirty) r.materials = mats;
                 }
             }
             for (int i = 0; i < rends.Length; i++)
             {
                 var r = rends[i];
-                if (r == null) continue;
+                if (r == null || _disabledInPrefab.Contains(r)) continue;
+                var sm = r.sharedMaterials;
+                if (sm == null) continue;
+                bool needFix = false;
+                for (int m = 0; m < sm.Length; m++)
+                {
+                    var mat = sm[m];
+                    if (mat == null) continue;
+                    string sh = mat.shader != null ? mat.shader.name : "";
+                    if (sh.IndexOf("AircraftSkin", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    if (mat.HasProperty("_Livery") && mat.GetTexture("_Livery") != tex)
+                    {
+                        needFix = true;
+                        break;
+                    }
+                }
+                if (!needFix) continue;
                 var mats = r.materials;
                 if (mats == null) continue;
                 bool dirty = false;
@@ -339,19 +351,13 @@ namespace NOReplay
                 {
                     var mat = mats[m];
                     if (mat == null) continue;
-                    if (mat.HasProperty("_Livery") && mat.GetTexture("_Livery") == null && tex != null)
+                    string sh = mat.shader != null ? mat.shader.name : "";
+                    if (sh.IndexOf("AircraftSkin", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    if (mat.HasProperty("_Livery") && mat.GetTexture("_Livery") != tex)
                     {
                         mat.SetTexture("_Livery", tex);
-                        dirty = true;
-                    }
-                    if (mat.HasProperty("_BaseMap") && mat.GetTexture("_BaseMap") == null && tex != null)
-                    {
-                        mat.SetTexture("_BaseMap", tex);
-                        dirty = true;
-                    }
-                    if (mat.HasProperty("_MainTex") && mat.GetTexture("_MainTex") == null && tex != null)
-                    {
-                        mat.SetTexture("_MainTex", tex);
+                        if (haveGloss && mat.HasProperty("_Glossiness"))
+                            mat.SetFloat("_Glossiness", gloss);
                         dirty = true;
                     }
                 }

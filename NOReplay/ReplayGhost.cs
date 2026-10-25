@@ -82,6 +82,9 @@ namespace NOReplay
         static bool _dumpedKids;
 
         Renderer[] _rend = Array.Empty<Renderer>();
+        readonly HashSet<Renderer> _knownRends = new();
+        readonly HashSet<Renderer> _disabledInPrefab = new();
+        bool _liveryPainted;
         Component[] _shafts = Array.Empty<Component>();
         Component[] _props = Array.Empty<Component>();
         Component[] _engs = Array.Empty<Component>();
@@ -169,6 +172,19 @@ namespace NOReplay
         public static readonly System.Collections.Generic.Dictionary<int, Vector3> Velocities = new System.Collections.Generic.Dictionary<int, Vector3>();
         float _camTimer;
         Vector3 _lastCamPos;
+
+        void RefreshRenderers()
+        {
+            var all = GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < all.Length; i++)
+            {
+                var r = all[i];
+                if (r == null) continue;
+                if (_knownRends.Add(r) && !r.enabled)
+                    _disabledInPrefab.Add(r);
+            }
+            _rend = all;
+        }
 
         void CheckCameraReposition(Vector3 vel)
         {
@@ -272,9 +288,9 @@ namespace NOReplay
                 enabled = true;
                 transform.SetParent(null, true);
                 if (_rend == null || _rend.Length == 0)
-                    _rend = GetComponentsInChildren<Renderer>(true);
+                    RefreshRenderers();
                 for (int i = 0; i < _rend.Length; i++)
-                    if (_rend[i] != null) _rend[i].enabled = true;
+                    if (_rend[i] != null && !_disabledInPrefab.Contains(_rend[i])) _rend[i].enabled = true;
                 _visible = true;
             }
         }
@@ -284,7 +300,7 @@ namespace NOReplay
             string n = gameObject.name ?? "";
             _ordnance = Plugin.IsOrdnancePublic(Track?.Type, Track?.Name)
                 || Plugin.IsOrdnancePublic(null, n.Replace("NOReplay_", ""));
-            _rend = GetComponentsInChildren<Renderer>(true);
+            RefreshRenderers();
             if (!_ordnance)
             {
                 for (int i = 0; i < _rend.Length; i++)
@@ -296,7 +312,7 @@ namespace NOReplay
             else
             {
                 for (int i = 0; i < _rend.Length; i++)
-                    if (_rend[i] != null) _rend[i].enabled = true;
+                    if (_rend[i] != null && !_disabledInPrefab.Contains(_rend[i])) _rend[i].enabled = true;
                 _visible = true;
             }
             var cols = GetComponentsInChildren<Collider>(true);
@@ -409,6 +425,7 @@ namespace NOReplay
             if (_ordnance) IgniteMissileFx();
             SpatializeSources();
             if (!_neutral) Invoke(nameof(SpatializeSources), 1.5f);
+            RefreshRenderers();
             if (!_ordnance)
                 SetGhostVisible(false);
             else
@@ -475,6 +492,7 @@ namespace NOReplay
         void Recache()
         {
             if (!_air) return;
+            RefreshRenderers();
             ForceSimplePhysics();
             FreezePhysics();
             SilenceAirframe();
@@ -483,6 +501,7 @@ namespace NOReplay
             CacheFx();
             AdoptOrphanFx();
             CacheLocals();
+            PaintMissingLivery();
             // Plugin.Log.LogInfo("Ghost-Recache " + gameObject.name
             // + " drive=" + Drive.name
             // + " kids=" + Drive.childCount
@@ -556,6 +575,8 @@ namespace NOReplay
             // + extra + " t=" + Plugin.Clock.Time.ToString("0.0"));
             _lastKids = n;
             if (ch != null && IsIgnored(ch)) return;
+            RefreshRenderers();
+            _liveryPainted = false;
             FreezePhysics();
             HideLoadoutBits();
             CacheLocals();
@@ -726,20 +747,28 @@ namespace NOReplay
         internal void SetGhostVisible(bool on)
         {
             if (_rend == null || _rend.Length == 0)
-                _rend = GetComponentsInChildren<Renderer>(true);
+                RefreshRenderers();
             for (int i = 0; i < _rend.Length; i++)
             {
-                if (_rend[i] != null) _rend[i].enabled = on;
+                var r = _rend[i];
+                if (r == null) continue;
+                if (on && _disabledInPrefab.Contains(r)) continue;
+                r.enabled = on;
             }
             if (_ordnance)
             {
                 for (int i = 0; i < _rend.Length; i++)
-                    if (_rend[i] != null) _rend[i].enabled = on;
+                {
+                    var r = _rend[i];
+                    if (r == null) continue;
+                    if (on && _disabledInPrefab.Contains(r)) continue;
+                    r.enabled = on;
+                }
                 if (on)
                 {
                     foreach (var r in GetComponentsInChildren<Renderer>(true))
                     {
-                        if (r == null) continue;
+                        if (r == null || _disabledInPrefab.Contains(r)) continue;
                         r.enabled = true;
                         r.gameObject.layer = 0;
                         if (!r.gameObject.activeSelf) r.gameObject.SetActive(true);
@@ -863,6 +892,9 @@ namespace NOReplay
             if (_air && Drive.childCount != _lastKids)
             {
                 _lastKids = Drive.childCount;
+                RefreshRenderers();
+                if (_visible) SetGhostVisible(true);
+                _liveryPainted = false;
                 CacheLocals();
                 FreezePhysics();
                 InvalidatePlaybackCaches();
@@ -873,6 +905,8 @@ namespace NOReplay
             if (_air)
             {
                 if (!_surfBound) CaptureSurfaceRest();
+                if (!_liveryPainted && ((Time.frameCount + gameObject.GetInstanceID()) & 15) == 0)
+                    PaintMissingLivery();
                 HoldLocals();
                 HoldAirbrakes();
             }
@@ -970,8 +1004,10 @@ namespace NOReplay
             _visible = on;
             for (int i = 0; i < _rend.Length; i++)
             {
-                if (_rend[i] != null)
-                    _rend[i].enabled = on;
+                var r = _rend[i];
+                if (r == null) continue;
+                if (on && _disabledInPrefab.Contains(r)) continue;
+                r.enabled = on;
             }
         }
 

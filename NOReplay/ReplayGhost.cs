@@ -106,6 +106,9 @@ namespace NOReplay
             public FieldInfo Field;
         }
         SpeedWrite[] _speeds = Array.Empty<SpeedWrite>();
+        Component[] _unitComps = Array.Empty<Component>();
+        Component? _aircraftComp;
+        float _nextRadarAltAt;
         Rigidbody[] _motionRbs = Array.Empty<Rigidbody>();
         bool _motionBound;
         bool _surfDone;
@@ -366,9 +369,51 @@ namespace NOReplay
 
         static int _camFrame;
 
+        bool CheckIsShip(string t, string nm, string gn)
+        {
+            if (t.IndexOf("Ship", StringComparison.OrdinalIgnoreCase) >= 0
+                || t.IndexOf("Boat", StringComparison.OrdinalIgnoreCase) >= 0
+                || t.IndexOf("Watercraft", StringComparison.OrdinalIgnoreCase) >= 0
+                || t.IndexOf("Sea", StringComparison.OrdinalIgnoreCase) >= 0
+                || t.IndexOf("Corvette", StringComparison.OrdinalIgnoreCase) >= 0
+                || t.IndexOf("Carrier", StringComparison.OrdinalIgnoreCase) >= 0
+                || t.IndexOf("Destroyer", StringComparison.OrdinalIgnoreCase) >= 0
+                || t.IndexOf("Frigate", StringComparison.OrdinalIgnoreCase) >= 0
+                || t.IndexOf("Cruiser", StringComparison.OrdinalIgnoreCase) >= 0
+                || t.IndexOf("Patrol", StringComparison.OrdinalIgnoreCase) >= 0
+                || t.IndexOf("Landing", StringComparison.OrdinalIgnoreCase) >= 0
+                || t.IndexOf("Barge", StringComparison.OrdinalIgnoreCase) >= 0
+                || nm.IndexOf("Ship", StringComparison.OrdinalIgnoreCase) >= 0
+                || nm.IndexOf("Boat", StringComparison.OrdinalIgnoreCase) >= 0
+                || nm.IndexOf("Corvette", StringComparison.OrdinalIgnoreCase) >= 0
+                || nm.IndexOf("Carrier", StringComparison.OrdinalIgnoreCase) >= 0
+                || nm.IndexOf("Destroyer", StringComparison.OrdinalIgnoreCase) >= 0
+                || nm.IndexOf("Frigate", StringComparison.OrdinalIgnoreCase) >= 0
+                || nm.IndexOf("Cruiser", StringComparison.OrdinalIgnoreCase) >= 0
+                || nm.IndexOf("Patrol", StringComparison.OrdinalIgnoreCase) >= 0
+                || nm.IndexOf("Landing Craft", StringComparison.OrdinalIgnoreCase) >= 0
+                || nm.IndexOf("Barge", StringComparison.OrdinalIgnoreCase) >= 0
+                || gn.IndexOf("Boat", StringComparison.OrdinalIgnoreCase) >= 0
+                || gn.IndexOf("Carrier", StringComparison.OrdinalIgnoreCase) >= 0
+                || gn.IndexOf("Corvette", StringComparison.OrdinalIgnoreCase) >= 0
+                || gn.IndexOf("Destroyer", StringComparison.OrdinalIgnoreCase) >= 0
+                || gn.IndexOf("Frigate", StringComparison.OrdinalIgnoreCase) >= 0
+                || gn.IndexOf("Cruiser", StringComparison.OrdinalIgnoreCase) >= 0
+                || gn.IndexOf("Patrol", StringComparison.OrdinalIgnoreCase) >= 0
+                || gn.IndexOf("LandingCraft", StringComparison.OrdinalIgnoreCase) >= 0
+                || gn.IndexOf("Barge", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+
+            var tShip = Plugin.FindGameType("Ship");
+            if (tShip != null && (GetComponent(tShip) != null || GetComponentInChildren(tShip, true) != null))
+                return true;
+            return false;
+        }
+
         void DetectKind()
         {
             string t = Track?.Type ?? "";
+            string nm = Track?.Name ?? "";
             string gn = gameObject.name ?? "";
             _air = gn.IndexOf("COIN", StringComparison.OrdinalIgnoreCase) >= 0
                 || gn.IndexOf("Helo", StringComparison.OrdinalIgnoreCase) >= 0
@@ -387,6 +432,8 @@ namespace NOReplay
                 || t.IndexOf("+Air+", StringComparison.OrdinalIgnoreCase) >= 0
                 || Plugin.IsAircraftPublic(t, Track?.Name)
                 || Plugin.IsAircraftPublic(gn, Track?.Name ?? gn);
+            if (!_air)
+                _ship = CheckIsShip(t, nm, gn);
             string coal = Track?.Coalition ?? "";
             _neutral = coal.IndexOf("Neutral", StringComparison.OrdinalIgnoreCase) >= 0
                        || coal.IndexOf("Green", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -397,6 +444,7 @@ namespace NOReplay
             Track = track;
             DetectKind();
             _ordnance = Plugin.IsOrdnancePublic(track.Type, track.Name);
+            if (_ordnance) _ship = false;
             _drive = _ordnance ? transform : FindDrive();
             if (_drive == null) _drive = transform;
             _asleep = false;
@@ -450,15 +498,31 @@ namespace NOReplay
 
         void Update()
         {
-            // Non-neutral aircraft get their one WriteUnitMotion from ApplyFx.
-            if (_air && !_neutral) return;
+            // Runs at DefaultExecutionOrder(-200), after FixedUpdate() and before SlowUpdateRunner / Downwash / DownwashEffect Update().
+            if (_air && !_neutral)
+            {
+                WriteUnitMotion(_spdMs, _velMs);
+                DriveDownwashThrust(_visible && !_neutral, _haveThr ? _thr : 0.75f);
+                return;
+            }
+            if (_ship && !_neutral)
+            {
+                WriteUnitMotion(_spdMs, _velMs);
+                return;
+            }
             if (!_air && !_ship && !_ordnance) return;
-            if (!Plugin.AudioNear(gameObject, 800f) && !_air) return;
+            if (!Plugin.AudioNear(gameObject, 800f) && !_air && !_ship) return;
             WriteUnitMotion(_spdMs, _velMs);
+        }
+
+        void OnDisable()
+        {
+            StopSurfaceFx(false);
         }
 
         void OnDestroy()
         {
+            DestroyDownwashTransforms();
             if (_trail != null)
             {
                 UnityEngine.Object.Destroy(_trail.gameObject);
@@ -476,18 +540,10 @@ namespace NOReplay
         {
             DetectKind();
             string t = Track?.Type ?? "";
+            string nm = Track?.Name ?? "";
             string gn = gameObject.name ?? "";
-            bool ship = t.IndexOf("Ship", StringComparison.OrdinalIgnoreCase) >= 0
-                || t.IndexOf("Boat", StringComparison.OrdinalIgnoreCase) >= 0
-                || t.IndexOf("Corvette", StringComparison.OrdinalIgnoreCase) >= 0
-                || t.IndexOf("Carrier", StringComparison.OrdinalIgnoreCase) >= 0
-                || t.IndexOf("Patrol", StringComparison.OrdinalIgnoreCase) >= 0
-                || gn.IndexOf("Boat", StringComparison.OrdinalIgnoreCase) >= 0
-                || gn.IndexOf("Carrier", StringComparison.OrdinalIgnoreCase) >= 0
-                || gn.IndexOf("Corvette", StringComparison.OrdinalIgnoreCase) >= 0
-                || gn.IndexOf("Patrol", StringComparison.OrdinalIgnoreCase) >= 0;
-            _ship = ship;
             _ordnance = Plugin.IsOrdnancePublic(t, Track?.Name);
+            _ship = !_ordnance && !_air && CheckIsShip(t, nm, gn);
             _drive = _ordnance ? transform : FindDrive();
             if (_drive == null) _drive = transform;
             if (_ordnance)
@@ -533,6 +589,7 @@ namespace NOReplay
             {
                 Bind();
                 CacheShipFx();
+                BindMotion();
             }
             Plugin.ApplyReplayIdentity(gameObject, Track);
             if (!_air && !_ship && !_ordnance)
@@ -614,6 +671,7 @@ namespace NOReplay
             ForceSimplePhysics();
             FreezePhysics();
             SilenceAirframe();
+            _killPsBound = false;
             SuppressDamageFx();
             DisableFlightAssist();
             CacheFx();
@@ -782,6 +840,20 @@ namespace NOReplay
             }
         }
 
+        static bool HasSurfaceFxComponent(Transform tr)
+        {
+            var behs = tr.GetComponents<MonoBehaviour>();
+            for (int i = 0; i < behs.Length; i++)
+            {
+                var b = behs[i];
+                if (b == null) continue;
+                string tn = b.GetType().Name;
+                if (tn == "DownwashEffect" || tn == "Downwash")
+                    return true;
+            }
+            return false;
+        }
+
         void CacheLocals()
         {
             var root = Drive;
@@ -809,6 +881,7 @@ namespace NOReplay
                     || nm.IndexOf("Blade", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Hub", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Prop", StringComparison.OrdinalIgnoreCase) >= 0
+                    || nm.IndexOf("Fan", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Swash", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Gear", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Strut", StringComparison.OrdinalIgnoreCase) >= 0
@@ -821,7 +894,11 @@ namespace NOReplay
                     || nm.IndexOf("Airbrake", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Brake", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Turret", StringComparison.OrdinalIgnoreCase) >= 0
-                    || nm.IndexOf("Gun", StringComparison.OrdinalIgnoreCase) >= 0;
+                    || nm.IndexOf("Gun", StringComparison.OrdinalIgnoreCase) >= 0
+                    || nm.IndexOf("Downwash", StringComparison.OrdinalIgnoreCase) >= 0
+                    || nm.IndexOf("WaterWash", StringComparison.OrdinalIgnoreCase) >= 0
+                    || nm.IndexOf("LandWash", StringComparison.OrdinalIgnoreCase) >= 0
+                    || HasSurfaceFxComponent(tr);
                 _parts[k] = tr;
                 _partPar[k] = tr.parent;
                 _partPos[k] = tr.localPosition;
@@ -895,6 +972,8 @@ namespace NOReplay
                 }
                 ToggleOrdnanceFx(on);
             }
+            if (!on)
+                StopSurfaceFx(false);
             if (_visible != on)
             {
                 _visible = on;
@@ -931,6 +1010,21 @@ namespace NOReplay
             // (No static/moving distinction — all units get the same treatment.)
             float end = Plugin.CurrentDoc != null ? Plugin.CurrentDoc.Duration : 0f;
             if (end > 0f && t >= end + 0.05f) return false;
+            return true;
+        }
+
+        bool TryComputeTrackVelocity(float t, out Vector3 vel)
+        {
+            vel = Vector3.zero;
+            if (Track == null || Track.Samples == null || Track.Samples.Count < 2) return false;
+            float t0 = Track.Samples[0].Time;
+            float tEnd = Track.Samples[Track.Samples.Count - 1].Time;
+            float ta = Mathf.Max(t0, t - 0.1f);
+            float tb = Mathf.Min(tEnd, t + 0.1f);
+            if (tb - ta < 0.01f) return false;
+            if (!Track.TrySample(ta, out var sa) || !Track.TrySample(tb, out var sb)) return false;
+            float dt = tb - ta;
+            vel = new Vector3(sb.X - sa.X, sb.Y - sa.Y, sb.Z - sa.Z) / dt;
             return true;
         }
 
@@ -1029,51 +1123,103 @@ namespace NOReplay
                 HoldAirbrakes();
             }
             if (!_ordnance && !_neutral) AimGuns();
-            if (_ordnance && _prevT >= 0f && Plugin.Clock.Time + 0.05f < _prevT)
+
+            float nowT = Plugin.Clock.Time;
+            bool rewound = _prevT >= 0f && nowT + 0.02f < _prevT;
+            if (rewound)
             {
-                StopOrdnanceAudio();
-                _startupPlayed = false;
-                _nextVoiceTry = 0f;
-                _ordPrevT = -1f;
+                if (_ordnance)
+                {
+                    StopOrdnanceAudio();
+                    _startupPlayed = false;
+                    _nextVoiceTry = 0f;
+                    _ordPrevT = -1f;
+                }
+                else
+                {
+                    StopSurfaceFx(true);
+                }
+                if (TryComputeTrackVelocity(nowT, out var rVel))
+                {
+                    _velMs = rVel;
+                    _spdMs = rVel.magnitude;
+                }
+                else
+                {
+                    _velMs = Vector3.zero;
+                    _spdMs = 0f;
+                }
+                _prevX = s.X;
+                _prevY = s.Y;
+                _prevZ = s.Z;
+                _prevLocalPos = p;
+                _prevT = nowT;
             }
+            else if (_prevT < 0f)
+            {
+                if (TryComputeTrackVelocity(nowT, out var initVel))
+                {
+                    _velMs = initVel;
+                    _spdMs = initVel.magnitude;
+                }
+                _prevX = s.X;
+                _prevY = s.Y;
+                _prevZ = s.Z;
+                _prevLocalPos = p;
+                _prevT = nowT;
+            }
+            else if (nowT > _prevT)
+            {
+                float dtS = nowT - _prevT;
+                if (dtS < 1.0f && (_prevX != 0f || _prevY != 0f || _prevZ != 0f))
+                {
+                    float dx = s.X - _prevX;
+                    float dy = s.Y - _prevY;
+                    float dz = s.Z - _prevZ;
+                    _velMs = new Vector3(dx, dy, dz) / Mathf.Max(dtS, 0.001f);
+                    _spdMs = _velMs.magnitude;
+                }
+                else if (TryComputeTrackVelocity(nowT, out var seekVel))
+                {
+                    _velMs = seekVel;
+                    _spdMs = seekVel.magnitude;
+                }
+                _prevX = s.X;
+                _prevY = s.Y;
+                _prevZ = s.Z;
+                _prevLocalPos = p;
+                _prevT = nowT;
+            }
+
             if (_ordnance && _visible && !_ordAudioOn) IgniteMissileFx();
             if (_ordnance) LateOrdnanceAudio(s);
+
+            Velocities[GetInstanceID()] = _velMs;
+            if (_air && gameObject == Plugin._ghost)
+                CheckCameraReposition(_velMs);
             for (int i = 0; i < _rbs.Length; i++)
             {
                 var rb = _rbs[i];
                 if (rb == null || IsIgnored(rb.transform)) continue;
                 rb.isKinematic = true;
                 rb.detectCollisions = false;
-                // Set velocity from position delta for TV camera
-                var vel = (_prevT >= 0f) ? (p - _prevLocalPos) / Mathf.Max(Plugin.Clock.Time - _prevT, 0.02f) : Vector3.zero;
-                Velocities[GetInstanceID()] = vel;
-                rb.velocity = vel;
-                _prevLocalPos = p;
-                if (_air && gameObject == Plugin._ghost)
-                    CheckCameraReposition(vel);
+                rb.velocity = _velMs;
                 rb.angularVelocity = Vector3.zero;
             }
-            _prevX = s.X;
-            _prevZ = s.Z;
-            _prevT = Plugin.Clock.Time;
+
             if (_air && !_neutral)
+            {
                 ApplyFx(s);
+            }
             else
             {
-                float spd = 0f;
-                if (_prevT >= 0f && Plugin.Clock.Time > _prevT)
-                {
-                    float dx = s.X - _prevX;
-                    float dz = s.Z - _prevZ;
-                    spd = Mathf.Sqrt(dx * dx + dz * dz) / Mathf.Max(Plugin.Clock.Time - _prevT, 0.001f);
-                }
-                _prevX = s.X;
-                _prevZ = s.Z;
-                _prevT = Plugin.Clock.Time;
+                WriteUnitMotion(_spdMs, _velMs);
+                if (_ship && !_neutral)
+                    DriveShipFx(_spdMs, _velMs);
                 if (NearMe(90f))
                 {
-                    if (_ship) DriveShipAudio(spd);
-                    else DriveVehicleAudio(spd);
+                    if (_ship) DriveShipAudio(_spdMs);
+                    else if (!_ordnance) DriveVehicleAudio(_spdMs);
                 }
             }
         }
@@ -1120,6 +1266,8 @@ namespace NOReplay
         {
             if (_visible == on) return;
             _visible = on;
+            if (!on)
+                StopSurfaceFx(false);
             for (int i = 0; i < _rend.Length; i++)
             {
                 var r = _rend[i];
@@ -1131,17 +1279,27 @@ namespace NOReplay
 
         void BindMotion()
         {
+            Bind();
             var list = new List<SpeedWrite>();
+            var units = new List<Component>();
             var behs = GetComponentsInChildren<MonoBehaviour>(true);
             for (int i = 0; i < behs.Length; i++)
             {
                 var c = behs[i];
                 if (c == null) continue;
-                var f = FindInstField(c.GetType(), "speed");
-                if (f == null || f.FieldType != typeof(float)) continue;
-                list.Add(new SpeedWrite { Target = c, Field = f });
+                var ct = c.GetType();
+                var f = FindInstField(ct, "speed");
+                if (f != null && f.FieldType == typeof(float))
+                    list.Add(new SpeedWrite { Target = c, Field = f });
+                if (_unitType != null && _unitType.IsAssignableFrom(ct))
+                    units.Add(c);
+                else if (ct.Name == "Aircraft" || ct.Name == "Ship" || ct.Name == "GroundVehicle")
+                    units.Add(c);
+                if (_aircraftComp == null && ct.Name == "Aircraft")
+                    _aircraftComp = c;
             }
             _speeds = list.ToArray();
+            _unitComps = units.ToArray();
             _motionRbs = GetComponentsInChildren<Rigidbody>(true);
             _motionBound = true;
         }
@@ -1172,6 +1330,77 @@ namespace NOReplay
                     rb.angularVelocity = Vector3.zero;
                 }
                 catch { }
+            }
+
+            if (_unitComps.Length > 0)
+            {
+                bool active = _visible && !_neutral && IsTrackAlive();
+                float detail = 0f;
+                if (active)
+                {
+                    var cam = Camera.main;
+                    if (cam != null)
+                    {
+                        float dist = Vector3.Distance(transform.position, cam.transform.position);
+                        detail = Mathf.Max(2f, 2500f / Mathf.Max(dist, 1f));
+                    }
+                    else
+                    {
+                        detail = 100f;
+                    }
+                }
+
+                for (int i = 0; i < _unitComps.Length; i++)
+                {
+                    var u = _unitComps[i];
+                    if (u == null) continue;
+                    try { _fUnitDisplayDetail?.SetValue(u, detail); } catch { }
+                    try { _fUnitAirDensity?.SetValue(u, 1f); } catch { }
+                }
+
+                if (_air && active && Time.unscaledTime >= _nextRadarAltAt)
+                {
+                    _nextRadarAltAt = Time.unscaledTime + 0.05f;
+                    bool updatedAlt = false;
+                    if (_aircraftComp != null && _mCheckRadarAlt != null)
+                    {
+                        try
+                        {
+                            _mCheckRadarAlt.Invoke(_aircraftComp, null);
+                            updatedAlt = true;
+                        }
+                        catch { }
+                    }
+                    if (_fUnitRadarAlt != null)
+                    {
+                        const int surfaceMask = (1 << 6) | (1 << 13); // StaticsMask | ShipsMask
+                        if (Physics.Raycast(transform.position, Vector3.down, out var hit, 5000f, surfaceMask, QueryTriggerInteraction.Ignore))
+                        {
+                            for (int i = 0; i < _unitComps.Length; i++)
+                            {
+                                var u = _unitComps[i];
+                                if (u == null) continue;
+                                try
+                                {
+                                    float cur = updatedAlt && _fUnitRadarAlt.GetValue(u) is float ca ? ca : float.MaxValue;
+                                    if (hit.distance < cur || !updatedAlt)
+                                        _fUnitRadarAlt.SetValue(u, hit.distance);
+                                }
+                                catch { }
+                            }
+                        }
+                        else if (!updatedAlt)
+                        {
+                            float fallbackAlt = ReadAgl();
+                            for (int i = 0; i < _unitComps.Length; i++)
+                            {
+                                var u = _unitComps[i];
+                                if (u == null) continue;
+                                try { _fUnitRadarAlt.SetValue(u, fallbackAlt); } catch { }
+                            }
+                        }
+                    }
+                }
             }
         }
 

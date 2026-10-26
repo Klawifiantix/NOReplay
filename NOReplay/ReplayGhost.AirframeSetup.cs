@@ -7,6 +7,155 @@ namespace NOReplay
 {
     public partial class ReplayGhost
     {
+        static Type? _downwashType;
+        static Type? _downwashEffectType;
+        static Type? _unitType;
+        static FieldInfo? _fUnitRadarAlt;
+        static FieldInfo? _fUnitDisplayDetail;
+        static FieldInfo? _fUnitAirDensity;
+        static MethodInfo? _mCheckRadarAlt;
+        static FieldInfo? _fDwSources;
+        static FieldInfo? _fDwDustTr;
+        static FieldInfo? _fDwWaterTr;
+        static FieldInfo? _fDwDustSys;
+        static FieldInfo? _fDwWaterSys;
+        static MethodInfo? _mDwUpdateSystems;
+        static MethodInfo? _mDwCheckSurface;
+        static FieldInfo? _fDwSrcObj;
+        static FieldInfo? _fDwSrcThrust;
+        static FieldInfo? _fDwSrcMaxThrust;
+        static MethodInfo? _mDwSrcInit;
+        static FieldInfo? _fDweLand;
+        static FieldInfo? _fDweWater;
+        static MethodInfo? _mDweStop;
+        static MethodInfo? _mDweSlow;
+        static FieldInfo? _fShaftThrust;
+        static FieldInfo? _fFanThrust;
+        static FieldInfo? _fFanMaxRpm;
+        static FieldInfo? _fTfanThrust;
+        static FieldInfo? _fTjetThrust;
+        static FieldInfo? _fCspThrust;
+        static FieldInfo? _fPropThrust;
+
+        static MethodInfo? _mPsPlay;
+        static MethodInfo? _mPsStop;
+        static MethodInfo? _mPsPause;
+        static MethodInfo? _mPsClearBool;
+        static MethodInfo? _mPsClear;
+        static PropertyInfo? _pPsIsPlaying;
+        static PropertyInfo? _pPsIsPaused;
+        static PropertyInfo? _pPsEnableEmission;
+        static PropertyInfo? _pPsEmission;
+        static PropertyInfo? _pEmEnabled;
+        static bool _psReflBound;
+
+        struct DownwashThrustTarget
+        {
+            public object? SourceObj;
+            public Component ThrustComp;
+            public FieldInfo ThrustField;
+            public float MaxThrust;
+        }
+
+        Component[] _downwashes = Array.Empty<Component>();
+        Component[] _downwashEffects = Array.Empty<Component>();
+        DownwashThrustTarget[] _dwTargets = Array.Empty<DownwashThrustTarget>();
+        Component[] _dwParticleSystems = Array.Empty<Component>();
+        readonly List<Transform> _spawnedDownwashTransforms = new();
+        bool _dwPaused;
+
+        static void BindParticleRefl()
+        {
+            if (_psReflBound) return;
+            _psReflBound = true;
+            var pt = ParticleType();
+            if (pt == null) return;
+            _mPsPlay = pt.GetMethod("Play", Type.EmptyTypes) ?? pt.GetMethod("Play", new[] { typeof(bool) });
+            _mPsStop = pt.GetMethod("Stop", Type.EmptyTypes);
+            _mPsPause = pt.GetMethod("Pause", Type.EmptyTypes);
+            _mPsClearBool = pt.GetMethod("Clear", new[] { typeof(bool) });
+            _mPsClear = pt.GetMethod("Clear", Type.EmptyTypes);
+            _pPsIsPlaying = pt.GetProperty("isPlaying");
+            _pPsIsPaused = pt.GetProperty("isPaused");
+            _pPsEnableEmission = pt.GetProperty("enableEmission");
+            _pPsEmission = pt.GetProperty("emission");
+            if (_pPsEmission != null)
+                _pEmEnabled = _pPsEmission.PropertyType.GetProperty("enabled");
+        }
+
+        internal static void EnableParticleEmission(Component? ps)
+        {
+            if (ps == null) return;
+            BindParticleRefl();
+            try
+            {
+                _pPsEnableEmission?.SetValue(ps, true);
+                if (_pPsEmission != null && _pEmEnabled != null)
+                {
+                    var em = _pPsEmission.GetValue(ps);
+                    if (em != null) _pEmEnabled.SetValue(em, true);
+                }
+            }
+            catch { }
+        }
+
+        internal static void PlayParticleSystem(Component? ps)
+        {
+            if (ps == null) return;
+            BindParticleRefl();
+            try
+            {
+                if (_pPsIsPlaying?.GetValue(ps) is bool playing && playing) return;
+                if (_mPsPlay != null)
+                {
+                    if (_mPsPlay.GetParameters().Length == 1)
+                        _mPsPlay.Invoke(ps, new object[] { true });
+                    else
+                        _mPsPlay.Invoke(ps, null);
+                }
+            }
+            catch { }
+        }
+
+        internal static void StopParticleSystem(Component? ps, bool clear)
+        {
+            if (ps == null) return;
+            BindParticleRefl();
+            try
+            {
+                if (clear || (_pPsIsPlaying?.GetValue(ps) is bool playing && playing)
+                          || (_pPsIsPaused?.GetValue(ps) is bool paused && paused))
+                {
+                    _mPsStop?.Invoke(ps, null);
+                }
+                if (clear)
+                {
+                    if (_mPsClearBool != null)
+                        _mPsClearBool.Invoke(ps, new object[] { true });
+                    else
+                        _mPsClear?.Invoke(ps, null);
+                }
+            }
+            catch { }
+        }
+
+        internal static void PauseParticleSystems(Component[] systems)
+        {
+            if (systems == null || systems.Length == 0) return;
+            BindParticleRefl();
+            for (int i = 0; i < systems.Length; i++)
+            {
+                var ps = systems[i];
+                if (ps == null) continue;
+                try
+                {
+                    if (_pPsIsPlaying?.GetValue(ps) is bool playing && playing)
+                        _mPsPause?.Invoke(ps, null);
+                }
+                catch { }
+            }
+        }
+
         void SilenceAirframe()
         {
             if (_ordnance) return;
@@ -22,7 +171,8 @@ namespace NOReplay
                     || n == "SoftBodyRotor" || n == "SwashRotor" || n == "PropFan"
                     || n == "DuctedFan" || n == "Turbofan" || n == "Turbojet"
                     || n == "ConstantSpeedProp" || n == "Aircraft"
-                    || n == "JetNozzle") continue;
+                    || n == "JetNozzle" || n == "Downwash" || n == "DownwashEffect"
+                    || n == "VaporEffect" || n == "VaporEmitter") continue;
                 if (n.IndexOf("Particle", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                 if (n.IndexOf("Trail", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                 if (n.IndexOf("Flare", StringComparison.OrdinalIgnoreCase) >= 0) continue;
@@ -37,7 +187,6 @@ namespace NOReplay
 
         void HealParts()
         {
-            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             foreach (var c in GetComponentsInChildren<MonoBehaviour>(true))
             {
                 if (c == null) continue;
@@ -82,39 +231,144 @@ namespace NOReplay
             }
         }
 
+        static void AddPsFromObject(object? obj, Type pt, HashSet<Component> keep)
+        {
+            if (obj == null) return;
+            if (obj is Component c)
+            {
+                if (pt.IsInstanceOfType(c))
+                {
+                    keep.Add(c);
+                    return;
+                }
+                foreach (var child in c.GetComponentsInChildren(pt, true))
+                    if (child != null) keep.Add(child);
+                return;
+            }
+            if (obj is GameObject go)
+            {
+                foreach (var child in go.GetComponentsInChildren(pt, true))
+                    if (child != null) keep.Add(child);
+                return;
+            }
+            if (obj is Array arr)
+            {
+                for (int i = 0; i < arr.Length; i++)
+                    AddPsFromObject(arr.GetValue(i), pt, keep);
+            }
+        }
+
+        void CollectProtectedParticles(Type pt, HashSet<Component> keep)
+        {
+            Bind();
+            BindShipRefl();
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            foreach (var beh in GetComponentsInChildren<MonoBehaviour>(true))
+            {
+                if (beh == null) continue;
+                var bt = beh.GetType();
+                string tn = bt.Name;
+                if (tn == "Ship")
+                {
+                    if (_fShipWakeParticles?.GetValue(beh) is Array wArr && _fWakeSystem != null)
+                    {
+                        for (int i = 0; i < wArr.Length; i++)
+                        {
+                            var elem = wArr.GetValue(i);
+                            if (elem != null && _fWakeSystem.GetValue(elem) is Component ps && ps != null)
+                                keep.Add(ps);
+                        }
+                    }
+                }
+                else if (tn == "ShipPropulsion")
+                {
+                    AddPsFromObject(_fShipPropParticles?.GetValue(beh), pt, keep);
+                }
+                else if (tn == "Downwash")
+                {
+                    AddPsFromObject(_fDwDustSys?.GetValue(beh), pt, keep);
+                    AddPsFromObject(_fDwWaterSys?.GetValue(beh), pt, keep);
+                    AddPsFromObject(_fDwDustTr?.GetValue(beh), pt, keep);
+                    AddPsFromObject(_fDwWaterTr?.GetValue(beh), pt, keep);
+                }
+                else if (tn == "DownwashEffect")
+                {
+                    AddPsFromObject(_fDweLand?.GetValue(beh), pt, keep);
+                    AddPsFromObject(_fDweWater?.GetValue(beh), pt, keep);
+                    AddPsFromObject(beh, pt, keep);
+                }
+                else if (tn == "JetNozzle")
+                {
+                    var haze = bt.GetField("heatHaze", flags)?.GetValue(beh);
+                    if (haze != null)
+                        AddPsFromObject(haze.GetType().GetField("system", flags)?.GetValue(haze), pt, keep);
+                    AddPsFromObject(beh, pt, keep);
+                }
+                else if (tn == "TurbineEngine")
+                {
+                    AddPsFromObject(bt.GetField("heatHazeParticles", flags)?.GetValue(beh), pt, keep);
+                }
+                else if (tn == "VaporEffect" || tn == "VaporEmitter" || tn == "TrailEmitter")
+                {
+                    AddPsFromObject(bt.GetField("particles", flags)?.GetValue(beh), pt, keep);
+                    AddPsFromObject(beh, pt, keep);
+                }
+                else if (tn == "LandingGear")
+                {
+                    AddPsFromObject(bt.GetField("tireSmokeParticles", flags)?.GetValue(beh), pt, keep);
+                }
+                else if (tn == "NavLights")
+                {
+                    AddPsFromObject(beh, pt, keep);
+                }
+            }
+        }
+
         void SuppressDamageFx()
         {
             if (_ordnance) return;
             HealParts();
             var pt = ParticleType();
             if (pt == null) return;
+            BindParticleRefl();
             if (!_killPsBound)
             {
                 _killPsBound = true;
-                var list = new System.Collections.Generic.List<Component>();
+                var protectedPs = new HashSet<Component>();
+                CollectProtectedParticles(pt, protectedPs);
+                foreach (var keepPs in protectedPs)
+                    EnableParticleEmission(keepPs);
+
+                var list = new List<Component>();
                 foreach (var c in GetComponentsInChildren(pt, true))
                 {
                     if (c == null) continue;
-                    var tr = (c as Component)?.transform;
+                    if (protectedPs.Contains(c))
+                    {
+                        EnableParticleEmission(c);
+                        continue;
+                    }
+                    var tr = c.transform;
                     string path = tr != null ? tr.name : "";
                     if (tr != null && tr.parent != null) path = tr.parent.name + "/" + path;
-                    if (KeepFxName(path.ToLowerInvariant())) continue;
+                    if (KeepFxName(path.ToLowerInvariant()))
+                    {
+                        EnableParticleEmission(c);
+                        continue;
+                    }
                     list.Add(c);
                 }
                 _killPs = list.ToArray();
             }
-            var stop = pt.GetMethod("Stop", Type.EmptyTypes);
-            var clear = pt.GetMethod("Clear", Type.EmptyTypes);
-            var emBool = pt.GetProperty("enableEmission");
             for (int i = 0; i < _killPs.Length; i++)
             {
                 var c = _killPs[i];
                 if (c == null) continue;
                 try
                 {
-                    emBool?.SetValue(c, false);
-                    stop?.Invoke(c, null);
-                    clear?.Invoke(c, null);
+                    _pPsEnableEmission?.SetValue(c, false);
+                    _mPsStop?.Invoke(c, null);
+                    _mPsClear?.Invoke(c, null);
                 }
                 catch { }
             }
@@ -134,8 +388,135 @@ namespace NOReplay
             _engs = CollectFx(_engType);
             _tfans = CollectFx(_tfanType);
             _gears = CollectFx(_gearType);
+            _downwashes = CollectFx(_downwashType);
+            _downwashEffects = CollectFx(_downwashEffectType);
+            BindDownwashSources();
             BindNozzles();
             BindMotion();
+        }
+
+        void BindDownwashSources()
+        {
+            var targets = new List<DownwashThrustTarget>(8);
+            var psList = new List<Component>(16);
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+            for (int i = 0; i < _downwashes.Length; i++)
+            {
+                var dw = _downwashes[i];
+                if (dw == null) continue;
+                if (_fDwDustTr?.GetValue(dw) is Transform dTr && dTr != null && !_spawnedDownwashTransforms.Contains(dTr))
+                    _spawnedDownwashTransforms.Add(dTr);
+                if (_fDwWaterTr?.GetValue(dw) is Transform wTr && wTr != null && !_spawnedDownwashTransforms.Contains(wTr))
+                    _spawnedDownwashTransforms.Add(wTr);
+
+                if (_fDwDustSys?.GetValue(dw) is Array dSys)
+                {
+                    for (int k = 0; k < dSys.Length; k++)
+                    {
+                        if (dSys.GetValue(k) is Component ps && ps != null)
+                        {
+                            EnableParticleEmission(ps);
+                            psList.Add(ps);
+                        }
+                    }
+                }
+                if (_fDwWaterSys?.GetValue(dw) is Array wSys)
+                {
+                    for (int k = 0; k < wSys.Length; k++)
+                    {
+                        if (wSys.GetValue(k) is Component ps && ps != null)
+                        {
+                            EnableParticleEmission(ps);
+                            psList.Add(ps);
+                        }
+                    }
+                }
+
+                if (_fDwSources?.GetValue(dw) is Array srcArr)
+                {
+                    for (int s = 0; s < srcArr.Length; s++)
+                    {
+                        var src = srcArr.GetValue(s);
+                        if (src == null) continue;
+                        try { _mDwSrcInit?.Invoke(src, null); } catch { }
+
+                        Component? thrustComp = _fDwSrcThrust?.GetValue(src) as Component;
+                        if (thrustComp == null && _fDwSrcObj?.GetValue(src) is GameObject tGo && tGo != null)
+                        {
+                            foreach (var mb in tGo.GetComponents<MonoBehaviour>())
+                            {
+                                if (mb == null) continue;
+                                if (FindInstField(mb.GetType(), "currentThrust") != null
+                                    || FindInstField(mb.GetType(), "thrust") != null)
+                                {
+                                    thrustComp = mb;
+                                    break;
+                                }
+                            }
+                        }
+                        if (thrustComp == null) continue;
+
+                        var tf = FindInstField(thrustComp.GetType(), "currentThrust")
+                              ?? FindInstField(thrustComp.GetType(), "thrust");
+                        if (tf == null || tf.FieldType != typeof(float)) continue;
+
+                        float maxT = 0f;
+                        if (_fDwSrcMaxThrust?.GetValue(src) is float mf) maxT = mf;
+                        if (maxT <= 0.01f)
+                        {
+                            try
+                            {
+                                var mGetMax = thrustComp.GetType().GetMethod("GetMaxThrust", flags);
+                                if (mGetMax?.Invoke(thrustComp, null) is float gm && gm > 0.01f)
+                                    maxT = gm;
+                            }
+                            catch { }
+                            if (maxT <= 0.01f) maxT = 20000f;
+                            try { _fDwSrcMaxThrust?.SetValue(src, maxT); } catch { }
+                        }
+
+                        targets.Add(new DownwashThrustTarget
+                        {
+                            SourceObj = src,
+                            ThrustComp = thrustComp,
+                            ThrustField = tf,
+                            MaxThrust = maxT
+                        });
+                    }
+                }
+            }
+
+            for (int i = 0; i < _downwashEffects.Length; i++)
+            {
+                var dwe = _downwashEffects[i];
+                if (dwe == null) continue;
+                if (_fDweLand?.GetValue(dwe) is Array lArr)
+                {
+                    for (int k = 0; k < lArr.Length; k++)
+                    {
+                        if (lArr.GetValue(k) is Component ps && ps != null)
+                        {
+                            EnableParticleEmission(ps);
+                            psList.Add(ps);
+                        }
+                    }
+                }
+                if (_fDweWater?.GetValue(dwe) is Array wArr)
+                {
+                    for (int k = 0; k < wArr.Length; k++)
+                    {
+                        if (wArr.GetValue(k) is Component ps && ps != null)
+                        {
+                            EnableParticleEmission(ps);
+                            psList.Add(ps);
+                        }
+                    }
+                }
+            }
+
+            _dwTargets = targets.ToArray();
+            _dwParticleSystems = psList.ToArray();
         }
 
         void CaptureSurfaceRest()
@@ -410,15 +791,56 @@ namespace NOReplay
             _tfanType = Plugin.FindGameType("Turbofan");
             _tjetType = Plugin.FindGameType("Turbojet");
             _acType = Plugin.FindGameType("Aircraft");
+            _unitType = Plugin.FindGameType("Unit");
             _engType = Plugin.FindGameType("TurbineEngine");
+            _downwashType = Plugin.FindGameType("Downwash");
+            _downwashEffectType = Plugin.FindGameType("DownwashEffect");
+            if (_acType != null)
+            {
+                _fAcEngines = _acType.GetField("engines", flags);
+                _mCheckRadarAlt = _acType.GetMethod("CheckRadarAlt", flags);
+                _fUnitRadarAlt = FindInstField(_acType, "radarAlt");
+                _fUnitDisplayDetail = FindInstField(_acType, "displayDetail");
+                _fUnitAirDensity = FindInstField(_acType, "airDensity");
+            }
+            else if (_unitType != null)
+            {
+                _fUnitRadarAlt = FindInstField(_unitType, "radarAlt");
+                _fUnitDisplayDetail = FindInstField(_unitType, "displayDetail");
+                _fUnitAirDensity = FindInstField(_unitType, "airDensity");
+            }
+            if (_downwashType != null)
+            {
+                _fDwSources = _downwashType.GetField("downwashSources", flags);
+                _fDwDustTr = _downwashType.GetField("dustTransform", flags);
+                _fDwWaterTr = _downwashType.GetField("waterSprayTransform", flags);
+                _fDwDustSys = _downwashType.GetField("dustSystems", flags);
+                _fDwWaterSys = _downwashType.GetField("waterSystems", flags);
+                _mDwUpdateSystems = _downwashType.GetMethod("UpdateSystems", flags);
+                _mDwCheckSurface = _downwashType.GetMethod("CheckSurface", flags);
+                var dwSrcType = _downwashType.GetNestedType("DownwashSource", flags);
+                if (dwSrcType != null)
+                {
+                    _fDwSrcObj = dwSrcType.GetField("thrustSourceObject", flags);
+                    _fDwSrcThrust = dwSrcType.GetField("thrustSource", flags);
+                    _fDwSrcMaxThrust = dwSrcType.GetField("maxThrust", flags);
+                    _mDwSrcInit = dwSrcType.GetMethod("Initialize", flags);
+                }
+            }
+            if (_downwashEffectType != null)
+            {
+                _fDweLand = _downwashEffectType.GetField("landEffects", flags);
+                _fDweWater = _downwashEffectType.GetField("waterEffects", flags);
+                _mDweStop = _downwashEffectType.GetMethod("StopEffects", flags);
+                _mDweSlow = _downwashEffectType.GetMethod("SlowUpdate", flags);
+            }
             if (_tjetType != null)
             {
                 _fTjetSrc = _tjetType.GetField("turbineAudio", flags);
                 _fTjetRpm = _tjetType.GetField("rpm", flags);
                 _fTjetMax = _tjetType.GetField("maxRPM", flags);
+                _fTjetThrust = _tjetType.GetField("thrust", flags);
             }
-            if (_acType != null)
-                _fAcEngines = _acType.GetField("engines", flags);
             _gearType = Plugin.FindGameType("LandingGear");
             if (_shaftType != null)
             {
@@ -431,6 +853,7 @@ namespace NOReplay
                 _fRotorHub = _shaftType.GetField("hubRotator", flags);
                 _fRotorDir = _shaftType.GetField("directionMult", flags);
                 _fRotorUnfold = _shaftType.GetField("unfolded", flags);
+                _fShaftThrust = _shaftType.GetField("currentThrust", flags);
                 _mAnimate = _shaftType.GetMethod("AnimateRotor", flags);
             }
             if (_tfanType != null)
@@ -438,12 +861,15 @@ namespace NOReplay
                 _fTfanSrc = _tfanType.GetField("turbineAudio", flags);
                 _fTfanRpm = _tfanType.GetField("currentRPM", flags);
                 _fTfanMax = _tfanType.GetField("maxRPM", flags);
+                _fTfanThrust = _tfanType.GetField("currentThrust", flags);
             }
             if (_propType != null)
             {
                 _fPropRpm = _propType.GetField("currentRPM", flags);
                 _fPropRatio = _propType.GetField("rpmRatio", flags);
                 _fPropNom = _propType.GetField("nominalRPM", flags);
+                _fPropThrust = _propType.GetField("thrust", flags);
+                _fPfanSrc = _propType.GetField("source", flags);
             }
             if (_cspType != null)
             {
@@ -454,14 +880,15 @@ namespace NOReplay
                 _fCspExt = _cspType.GetField("exteriorSound", flags);
                 _fCspVol = _cspType.GetField("volumeBase", flags);
                 _fCspPitch = _cspType.GetField("pitchBase", flags);
+                _fCspThrust = _cspType.GetField("currentThrust", flags);
             }
             if (_fanType != null)
             {
                 _fFanRpm = _fanType.GetField("rpm", flags);
+                _fFanMaxRpm = _fanType.GetField("maxRPM", flags);
                 _fFanSrc = _fanType.GetField("fanSource", flags);
+                _fFanThrust = _fanType.GetField("currentThrust", flags);
             }
-            if (_propType != null)
-                _fPfanSrc = _propType.GetField("source", flags);
             if (_engType != null)
             {
                 _fThrottle = _engType.GetField("throttle", flags);

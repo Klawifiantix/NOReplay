@@ -23,11 +23,23 @@ namespace NOReplay
                 || p.IndexOf("muzzle", StringComparison.Ordinal) >= 0
                 || p.IndexOf("tracer", StringComparison.Ordinal) >= 0
                 || p.IndexOf("rotor", StringComparison.Ordinal) >= 0
-                || p.IndexOf("prop", StringComparison.Ordinal) >= 0;
+                || p.IndexOf("prop", StringComparison.Ordinal) >= 0
+                || p.IndexOf("wake", StringComparison.Ordinal) >= 0
+                || p.IndexOf("water", StringComparison.Ordinal) >= 0
+                || p.IndexOf("foam", StringComparison.Ordinal) >= 0
+                || p.IndexOf("spray", StringComparison.Ordinal) >= 0
+                || p.IndexOf("bow", StringComparison.Ordinal) >= 0
+                || p.IndexOf("stern", StringComparison.Ordinal) >= 0
+                || p.IndexOf("wave", StringComparison.Ordinal) >= 0
+                || p.IndexOf("splash", StringComparison.Ordinal) >= 0
+                || p.IndexOf("wash", StringComparison.Ordinal) >= 0
+                || p.IndexOf("dust", StringComparison.Ordinal) >= 0
+                || p.IndexOf("haze", StringComparison.Ordinal) >= 0
+                || p.IndexOf("exhaust", StringComparison.Ordinal) >= 0
+                || p.IndexOf("afterburn", StringComparison.Ordinal) >= 0
+                || p.IndexOf("vapor", StringComparison.Ordinal) >= 0
+                || p.IndexOf("vortex", StringComparison.Ordinal) >= 0;
         }
-
-
-
 
         void AdoptOrphanFx()
         {
@@ -37,6 +49,9 @@ namespace NOReplay
             AdoptType(_fanType, ref _props);
             AdoptType(_tfanType, ref _tfans);
             AdoptType(_gearType, ref _gears);
+            AdoptType(_downwashType, ref _downwashes);
+            AdoptType(_downwashEffectType, ref _downwashEffects);
+            BindDownwashSources();
         }
 
         void AdoptType(Type? t, ref Component[] dst)
@@ -58,7 +73,128 @@ namespace NOReplay
             dst = extra.ToArray();
         }
 
+        internal void DriveDownwashThrust(bool active, float throttle)
+        {
+            if (!_air) return;
+            if (!active || _neutral || !_visible || !IsTrackAlive())
+            {
+                for (int i = 0; i < _dwTargets.Length; i++)
+                {
+                    var t = _dwTargets[i];
+                    if (t.ThrustComp == null) continue;
+                    try { t.ThrustField.SetValue(t.ThrustComp, 0f); } catch { }
+                }
+                StopSurfaceFx(false);
+                return;
+            }
 
+            if (Plugin.Clock.Paused)
+            {
+                if (!_dwPaused)
+                {
+                    _dwPaused = true;
+                    PauseParticleSystems(_dwParticleSystems);
+                }
+                return;
+            }
+
+            bool justResumed = false;
+            if (_dwPaused)
+            {
+                _dwPaused = false;
+                justResumed = true;
+            }
+
+            float thrustRatio = Mathf.Clamp(throttle, 0.75f, 1f);
+            for (int i = 0; i < _dwTargets.Length; i++)
+            {
+                var t = _dwTargets[i];
+                if (t.ThrustComp == null) continue;
+                try { t.ThrustField.SetValue(t.ThrustComp, t.MaxThrust * thrustRatio); } catch { }
+            }
+
+            for (int i = 0; i < _dwParticleSystems.Length; i++)
+                EnableParticleEmission(_dwParticleSystems[i]);
+
+            for (int i = 0; i < _props.Length; i++)
+            {
+                var c = _props[i];
+                if (c == null) continue;
+                string tn = c.GetType().Name;
+                if (tn == "DuctedFan")
+                {
+                    float maxRpm = 2200f;
+                    if (_fFanMaxRpm?.GetValue(c) is float mr && mr > 10f) maxRpm = mr;
+                    _fFanRpm?.SetValue(c, maxRpm * Mathf.Clamp(thrustRatio, 0.6f, 0.95f));
+                }
+                else if (tn == "PropFan")
+                {
+                    float nom = 2200f;
+                    if (_fPropNom?.GetValue(c) is float n && n > 10f) nom = n;
+                    float ratio = Mathf.Clamp(thrustRatio, 0.6f, 0.95f);
+                    _fPropRpm?.SetValue(c, nom * ratio);
+                    _fPropRatio?.SetValue(c, ratio);
+                }
+            }
+
+            if (justResumed)
+            {
+                for (int i = 0; i < _downwashes.Length; i++)
+                {
+                    var dw = _downwashes[i];
+                    if (dw == null) continue;
+                    try { _mDwCheckSurface?.Invoke(dw, null); } catch { }
+                }
+            }
+        }
+
+        internal void StopSurfaceFx(bool clear)
+        {
+            _dwPaused = false;
+            for (int i = 0; i < _dwTargets.Length; i++)
+            {
+                var t = _dwTargets[i];
+                if (t.ThrustComp == null) continue;
+                try { t.ThrustField.SetValue(t.ThrustComp, 0f); } catch { }
+            }
+            if (_mDwUpdateSystems != null)
+            {
+                object[] offArgs = { false, false };
+                for (int i = 0; i < _downwashes.Length; i++)
+                {
+                    var dw = _downwashes[i];
+                    if (dw == null) continue;
+                    try { _mDwUpdateSystems.Invoke(dw, offArgs); } catch { }
+                    if (dw is Behaviour b) b.enabled = false;
+                }
+            }
+            if (_mDweStop != null)
+            {
+                for (int i = 0; i < _downwashEffects.Length; i++)
+                {
+                    var dwe = _downwashEffects[i];
+                    if (dwe == null) continue;
+                    try { _mDweStop.Invoke(dwe, null); } catch { }
+                }
+            }
+            for (int i = 0; i < _dwParticleSystems.Length; i++)
+                StopParticleSystem(_dwParticleSystems[i], clear);
+            if (_ship)
+                StopShipFx(clear);
+        }
+
+        internal void DestroyDownwashTransforms()
+        {
+            for (int i = 0; i < _spawnedDownwashTransforms.Count; i++)
+            {
+                var tr = _spawnedDownwashTransforms[i];
+                if (tr != null && tr.gameObject != null)
+                {
+                    try { UnityEngine.Object.Destroy(tr.gameObject); } catch { }
+                }
+            }
+            _spawnedDownwashTransforms.Clear();
+        }
 
         void DriveCspAudio(Component c, float rpm)
         {
@@ -218,6 +354,7 @@ namespace NOReplay
                 NeutralizeSurfaces();
                 CloseAirbrakes();
                 DriveJetExhaust(false, 0f);
+                DriveDownwashThrust(false, 0f);
                 return;
             }
             Bind();
@@ -225,17 +362,6 @@ namespace NOReplay
             if (float.IsNaN(_spawnY)) _spawnY = s.Y;
             float agl = ReadAgl();
             float spd = _spdMs;
-            if (_prevT >= 0f && Plugin.Clock.Time > _prevT)
-            {
-                float dtS = Mathf.Max(Plugin.Clock.Time - _prevT, 0.001f);
-                float dx = s.X - _prevX;
-                float dy = s.Y - _prevY;
-                float dz = s.Z - _prevZ;
-                _velMs = new Vector3(dx, dy, dz) / dtS;
-                spd = _velMs.magnitude;
-                _spdMs = spd;
-            }
-            _prevX = s.X; _prevY = s.Y; _prevZ = s.Z; _prevT = Plugin.Clock.Time;
             if (s.HasTas && s.Tas > 0.05f)
             {
                 float tas = s.Tas;
@@ -244,7 +370,7 @@ namespace NOReplay
                 spd = tas;
                 _spdMs = tas;
             }
-            if (spd > 0.5f)
+            if (spd > 0.5f && _velMs.sqrMagnitude < 0.01f)
                 _velMs = transform.forward * spd;
             WriteUnitMotion(spd, _velMs);
             CloseAirbrakes();
@@ -385,8 +511,11 @@ namespace NOReplay
                             hubGo.transform.Rotate(0f, 0f, rpm * -6f * dir * dt, Space.Self);
                         DriveCspAudio(c, rpm);
                     }
-                    else if (tn == "DuctedFan" || tn == "Turbofan" || tn == "PropFan")
+                    else if (tn == "DuctedFan" || tn == "Turbofan")
                     {
+                        float maxRpm = 2200f;
+                        if (_fFanMaxRpm != null && _fFanMaxRpm.GetValue(c) is float mr && mr > 10f) maxRpm = mr;
+                        rpm = maxRpm * (airborne ? 0.9f : 0.55f);
                         _fFanRpm?.SetValue(c, rpm);
                         _fPropRpm?.SetValue(c, rpm);
                         DriveFanAudio(c, airborne ? 0.9f : 0.45f);
@@ -394,10 +523,11 @@ namespace NOReplay
                     else
                     {
                         float nom = 2200f;
-                        if (_fPropNom != null && _fPropNom.GetValue(c) is float n) nom = n;
-                        rpm = nom * (airborne ? 0.95f : 0.45f);
+                        if (_fPropNom != null && _fPropNom.GetValue(c) is float n && n > 10f) nom = n;
+                        float ratio = airborne ? 0.95f : 0.55f;
+                        rpm = nom * ratio;
                         _fPropRpm?.SetValue(c, rpm);
-                        _fPropRatio?.SetValue(c, rpm / Mathf.Max(nom, 1f));
+                        _fPropRatio?.SetValue(c, ratio);
                         DriveFanAudio(c, airborne ? 0.9f : 0.45f);
                     }
                 }
@@ -443,10 +573,11 @@ namespace NOReplay
                 _haveThr = true;
                 _thr = s.Throttle;
             }
-            float thr = _haveThr ? _thr : 0.45f;
+            float thr = _haveThr ? _thr : (airborne ? 0.8f : 0.55f);
             WriteThrottle(thr);
             CloseAirbrakes();
             DriveJetExhaust(true, thr);
+            DriveDownwashThrust(_visible && !_neutral, thr);
             if (_gears.Length > 0)
             {
                 // Gear animation driven by game's MoveGear via Extending/Retracting states
@@ -767,6 +898,7 @@ namespace NOReplay
             NeutralizeSurfaces();
             HideJetVisuals();
             KillJetFlames();
+            DriveDownwashThrust(false, 0f);
             Invoke(nameof(KillJetFlames), 0.5f);
             Invoke(nameof(KillJetFlames), 2f);
             MuteAllSources();
@@ -775,6 +907,9 @@ namespace NOReplay
             _engs = Array.Empty<Component>();
             _tfans = Array.Empty<Component>();
             _gears = Array.Empty<Component>();
+            _downwashes = Array.Empty<Component>();
+            _downwashEffects = Array.Empty<Component>();
+            _dwTargets = Array.Empty<DownwashThrustTarget>();
         }
 
         void KillJetFlames()
@@ -1231,11 +1366,5 @@ namespace NOReplay
 
         static int _fxDumpLeft = 4;
         int _ibisDump;
-
-
-
-
-
-
     }
 }

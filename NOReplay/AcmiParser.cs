@@ -442,18 +442,21 @@ namespace NOReplay
             {
                 int start = g;
                 int end = start;
-                while (end + 1 < n && raw[end + 1] - raw[end] <= 0.12f)
+                while (end + 1 < n && Math.Abs(raw[end + 1] - raw[end]) <= 0.001f)
                     end++;
-                float t0 = raw[start];
-                float t1 = (end + 1 < n) ? raw[end + 1] : raw[end];
-                if (t1 <= t0) t1 = t0 + Math.Max(0.05f, (end - start) * 0.05f);
-                int count = end - start + 1;
-                for (int k = 0; k < count; k++)
+                if (end > start)
                 {
-                    float u = count <= 1 ? 0f : (float)k / count;
-                    var s = obj.Samples[start + k];
-                    s.Time = t0 + (t1 - t0) * u;
-                    obj.Samples[start + k] = s;
+                    float t0 = raw[start];
+                    float t1 = (end + 1 < n) ? raw[end + 1] : raw[end];
+                    if (t1 <= t0) t1 = t0 + Math.Max(0.05f, (end - start) * 0.05f);
+                    int count = end - start + 1;
+                    for (int k = 0; k < count; k++)
+                    {
+                        float u = count <= 1 ? 0f : (float)k / count;
+                        var s = obj.Samples[start + k];
+                        s.Time = t0 + (t1 - t0) * u;
+                        obj.Samples[start + k] = s;
+                    }
                 }
                 g = end + 1;
             }

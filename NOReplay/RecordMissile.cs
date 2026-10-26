@@ -77,6 +77,7 @@ namespace NOReplay
                 if (ownerRec != null)
                     props["Parent"] = ownerRec.tacviewId.ToString("X", CultureInfo.InvariantCulture);
             }
+            UpdatePose();
             recorder.invokeWriterUpdate(this);
             props.Clear();
             this.enabled = true;
@@ -90,8 +91,13 @@ namespace NOReplay
             _deathWritten = true;
             try
             {
-                props.Add("Visible", "0.0");
-                props.Add("Type", null);
+                if (unit != null)
+                {
+                    UpdatePose();
+                    UpdateState();
+                }
+                props["Visible"] = "0.0";
+                props["Type"] = null;
                 Engine.invokeWriterUpdate(this);
                 props.Clear();
                 Engine.invokeWriterRemove(this);
@@ -124,6 +130,11 @@ namespace NOReplay
             {
                 return;
             }
+            if (IsWarheadDetonated())
+            {
+                WriteDeath();
+                return;
+            }
             timer += Time.deltaTime;
             if (timer < RecordConfig.munitionUpdateDelta.Value)
             {
@@ -137,7 +148,7 @@ namespace NOReplay
             timer = 0;
         }
 
-        void UpdateMissile()
+        bool IsWarheadDetonated()
         {
             try
             {
@@ -151,13 +162,20 @@ namespace NOReplay
                         detonatedByType[wt] = detField;
                     }
                     if (detField?.GetValue(wh) is bool d && d)
-                    {
-                        WriteDeath();
-                        return;
-                    }
+                        return true;
                 }
             }
             catch { }
+            return false;
+        }
+
+        void UpdateMissile()
+        {
+            if (IsWarheadDetonated())
+            {
+                WriteDeath();
+                return;
+            }
 
             if (unit.speed != lastTAS && RecordConfig.RecordSpeed.Value == true)
             {

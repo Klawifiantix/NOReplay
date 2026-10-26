@@ -129,6 +129,7 @@ namespace NOReplay
             props.Clear();
             this.enabled = true;
             base.enabled = true;
+            RecordTurrets.Attach(this, vehicle);
         }
         public override void Update()
         {

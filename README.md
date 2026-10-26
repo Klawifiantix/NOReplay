@@ -57,7 +57,7 @@ What you see
 * Rotors, propellers and the engine sound of the unit you are near.
 * Flares from the left and right ejectors of the airframe, with sound.
 * Missiles and bombs in the world and on the map, in the faction of the shooter, with launch and flight effect. Explosion at track end.
-* Gun bursts as tracers from the firing unit, with the weapon's loop sound while the burst is active.
+* Gun bursts from the recorded gun, every barrel, with the game's tracers, muzzle flash, barrel spin, recoil, shell casings and the weapon's own fire sound. Turrets on aircraft, ships, vehicles and buildings keep the aim they had in the match.
 * Trails behind airframes and ordnance. Airframe trails are thicker, ordnance trails thinner. Faction color. Dead units lose their trail.
 * Weather from the recording: time of day, cloud height, weather intensity. Applied when the world loads.
 
@@ -82,7 +82,7 @@ Playback
 Weapons
 * Missiles are spawned through the game's missile spawner when their sample begins, then moved by a ghost. The faction is the parent's faction. At the end of the track the explosion effect is played and the object is removed. Sound comes from the prefab's AudioSources.
 * Flares instantiate the airframe's own flare prefab and call the game's launch on the next ejector point, left then right. Sound is played.
-* Gun bursts spawn a short-lived tracer from the shooter toward the recorded aim, at the weapon's rate, for the length of the burst. One loop sound starts with the burst and stops at the end. Only sounds near the listener play.
+* Gun bursts call the game's bullet simulation in visual-only mode, from every muzzle of the gun that fired. Tracers, impacts, muzzle flash, barrel spin and recoil come from the weapon. The shot does not damage anything. Sound uses the gun's own fire clips and stops when the burst ends, the replay pauses, or the time jumps. Older ACMI files without per-turret angles still aim every turret along the recorded burst direction.
 * Lasers on tanks and ships are disabled. The beam child of the LFD is deactivated.
 
 ---
@@ -96,5 +96,5 @@ Files
 
 Limits
 * The ACMI time step is about a fifth of a second. Several missiles fired inside that window share one timestamp, so a salvo appears as a short burst of spawns rather than millisecond gaps.
-* Shells are rebuilt from the burst, not from every projectile in the file. The first tracer leaves the shooter. The line is a stand-in for the round, not the game's bullet.
+* Shells are rebuilt from the burst, not stored one by one. Playback fires the recorded gun through the game's own tracer, so a twin-barrel mount shoots from both muzzles. Rounds already in the air are not rewound; a pause or a scrub clears them.
 * Old ACMI files from before this recorder have no loadout, livery, gun-burst or weather lines. Playback still moves units. Those extras stay empty.

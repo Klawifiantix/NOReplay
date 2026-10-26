@@ -85,6 +85,9 @@ namespace NOReplay
             var flares = UnityEngine.Object.FindObjectsOfType<RecordFlare>();
             for (int i = 0; i < flares.Length; i++)
                 if (flares[i] != null) UnityEngine.Object.Destroy(flares[i]);
+            var turrets = UnityEngine.Object.FindObjectsOfType<RecordTurrets>();
+            for (int i = 0; i < turrets.Length; i++)
+                if (turrets[i] != null) UnityEngine.Object.Destroy(turrets[i]);
             Plugin.Log.LogInfo("Aufnahme gestoppt (F8).");
         }
 

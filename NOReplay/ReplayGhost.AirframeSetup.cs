@@ -321,6 +321,10 @@ namespace NOReplay
                 {
                     AddPsFromObject(beh, pt, keep);
                 }
+                else if (tn == "Gun")
+                {
+                    AddPsFromObject(bt.GetField("muzzleParticles", flags)?.GetValue(beh), pt, keep);
+                }
             }
         }
 
@@ -334,6 +338,7 @@ namespace NOReplay
             if (!_killPsBound)
             {
                 _killPsBound = true;
+                BindGuns();
                 var protectedPs = new HashSet<Component>();
                 CollectProtectedParticles(pt, protectedPs);
                 foreach (var keepPs in protectedPs)
@@ -343,7 +348,7 @@ namespace NOReplay
                 foreach (var c in GetComponentsInChildren(pt, true))
                 {
                     if (c == null) continue;
-                    if (protectedPs.Contains(c))
+                    if (protectedPs.Contains(c) || IsMuzzleParticle(c))
                     {
                         EnableParticleEmission(c);
                         continue;
@@ -363,7 +368,7 @@ namespace NOReplay
             for (int i = 0; i < _killPs.Length; i++)
             {
                 var c = _killPs[i];
-                if (c == null) continue;
+                if (c == null || IsMuzzleParticle(c)) continue;
                 try
                 {
                     _pPsEnableEmission?.SetValue(c, false);

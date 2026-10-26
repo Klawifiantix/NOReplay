@@ -31,11 +31,13 @@ namespace NOReplay
         public string? Livery;
         public string? ParentId;
         public string? Weapon;
+        public int GunIndex = -1;
         public float Rpm;
         public float Muzzle;
         public float Drag;
         public float Grav = 1f;
         public float Spread;
+        public bool HasTurrets { get; private set; }
         public float SpawnAt = -1f;
         public float RemovedAt = -1f;
         public float NudgeX;
@@ -95,6 +97,73 @@ namespace NOReplay
                 Qw = a.HasQuat ? Mathf.Lerp(a.Qw, b.Qw, u) : b.Qw
             };
             return true;
+        }
+
+        Dictionary<string, TurretChannel>? _turrets;
+
+        public void AddTurretKey(float time, string key, float traverse, float elevation)
+        {
+            if (string.IsNullOrEmpty(key)) return;
+            _turrets ??= new Dictionary<string, TurretChannel>(System.StringComparer.Ordinal);
+            if (!_turrets.TryGetValue(key, out var ch))
+            {
+                ch = new TurretChannel();
+                _turrets[key] = ch;
+            }
+            int n = ch.Times.Count;
+            if (n > 0 && Mathf.Abs(ch.Times[n - 1] - time) < 0.0001f)
+            {
+                ch.Traverse[n - 1] = traverse;
+                ch.Elevation[n - 1] = elevation;
+            }
+            else
+            {
+                ch.Times.Add(time);
+                ch.Traverse.Add(traverse);
+                ch.Elevation.Add(elevation);
+            }
+            HasTurrets = true;
+        }
+
+        public bool TryTurret(string key, float time, out float traverse, out float elevation)
+        {
+            traverse = 0f;
+            elevation = 0f;
+            if (_turrets == null || string.IsNullOrEmpty(key)) return false;
+            if (!_turrets.TryGetValue(key, out var ch)) return false;
+            int n = ch.Times.Count;
+            if (n == 0) return false;
+            if (n == 1 || time <= ch.Times[0])
+            {
+                traverse = ch.Traverse[0];
+                elevation = ch.Elevation[0];
+                return true;
+            }
+            if (time >= ch.Times[n - 1])
+            {
+                traverse = ch.Traverse[n - 1];
+                elevation = ch.Elevation[n - 1];
+                return true;
+            }
+            int lo = 0, hi = n - 1;
+            while (hi - lo > 1)
+            {
+                int mid = (lo + hi) >> 1;
+                if (ch.Times[mid] <= time) lo = mid;
+                else hi = mid;
+            }
+            float span = ch.Times[hi] - ch.Times[lo];
+            float u = span > 0.0001f ? (time - ch.Times[lo]) / span : 0f;
+            traverse = Mathf.LerpAngle(ch.Traverse[lo], ch.Traverse[hi], u);
+            elevation = Mathf.LerpAngle(ch.Elevation[lo], ch.Elevation[hi], u);
+            return true;
+        }
+
+        sealed class TurretChannel
+        {
+            public readonly List<float> Times = new List<float>();
+            public readonly List<float> Traverse = new List<float>();
+            public readonly List<float> Elevation = new List<float>();
         }
 
         public bool IsParkedStatic()

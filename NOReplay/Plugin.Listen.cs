@@ -1031,7 +1031,9 @@ namespace NOReplay
             try
             {
                 var gun = __instance as Gun;
-                if (gun != null) RecordGunBurst.Instance?.NotifyFire(gun);
+                if (gun == null || !Record.Active || Plugin.CurrentDoc != null) return;
+                if (gun.GetComponentInParent<ReplayGhost>() != null) return;
+                RecordGunBurst.Instance?.NotifyFire(gun);
             }
             catch { }
         }

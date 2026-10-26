@@ -37,6 +37,8 @@ namespace NOReplay
             UpdateState();
             Engine.invokeWriterUpdate(this);
             props.Clear();
+            if (!unit.disabled)
+                RecordTurrets.Attach(this, building);
 
             // Events statt Polling
             if (!subscribed && unit != null)

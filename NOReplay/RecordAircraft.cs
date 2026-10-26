@@ -73,6 +73,7 @@ namespace NOReplay
             props.Clear();
             this.enabled = true;
             base.enabled = true;
+            RecordTurrets.Attach(this, aircraft);
         }
 
         public override void Update()

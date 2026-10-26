@@ -24,7 +24,8 @@ namespace NOReplay
 
         public void NotifyFire(Gun gun)
         {
-            if (gun == null) return;
+            if (gun == null || !Record.Active || Plugin.CurrentDoc != null) return;
+            if (gun.GetComponentInParent<ReplayGhost>() != null) return;
             int id = gun.GetInstanceID();
             if (!_open.ContainsKey(id))
             {
@@ -137,7 +138,8 @@ namespace NOReplay
                 { "Drag", drag.ToString("0.####", CultureInfo.InvariantCulture) },
                 { "Grav", grav.ToString("0.##", CultureInfo.InvariantCulture) },
                 { "Spread", spread.ToString("0.###", CultureInfo.InvariantCulture) },
-                { "Weapon", GunPath(unit.transform, gun.transform) }
+                { "Weapon", TurretKeys.Sanitize(GunPath(unit.transform, gun.transform)) },
+                { "Gun", GunIndex(unit, gun).ToString(CultureInfo.InvariantCulture) }
             };
             recorder.invokeWriterUpdate(burst.Host);
             burst.Host.props.Clear();
@@ -187,6 +189,14 @@ namespace NOReplay
             recorder.invokeWriterUpdate(burst.Host);
             recorder.invokeWriterRemove(burst.Host);
             UnityEngine.Object.Destroy(burst.Host);
+        }
+
+        static int GunIndex(Unit unit, Gun gun)
+        {
+            var guns = unit.GetComponentsInChildren<Gun>(true);
+            for (int i = 0; i < guns.Length; i++)
+                if (guns[i] == gun) return i;
+            return -1;
         }
 
         static string GunPath(Transform unit, Transform gun)

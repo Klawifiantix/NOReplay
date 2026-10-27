@@ -61,8 +61,10 @@ namespace NOReplay
                 host.hideFlags = HideFlags.HideAndDontSave;
                 Host = host;
                 var engine = host.AddComponent<RecordEngine>();
-                engine.CaptureExistingUnits();
+                // Capture writes the t=0 turret baseline. Flush drops that sample
+                // while Active is still false, so arm recording first.
                 Active = true;
+                engine.CaptureExistingUnits();
                 Plugin.Log.LogInfo("Aufnahme gestartet (F8).");
             }
             catch (Exception ex)

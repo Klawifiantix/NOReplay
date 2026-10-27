@@ -938,6 +938,12 @@ namespace NOReplay
         static void TryApplyRecordedLoadout(GameObject go, ReplayObject? obj)
         {
             if (obj == null || string.IsNullOrEmpty(obj.Loadout)) return;
+            var rg = go.GetComponent<ReplayGhost>() ?? go.GetComponentInChildren<ReplayGhost>(true);
+            if (rg != null && rg.LoadoutAlreadyApplied(obj.Loadout))
+            {
+                SilenceGhostWeapons(go);
+                return;
+            }
             var act = FindGameType("Aircraft");
             var wmT = FindGameType("WeaponManager");
             var loadT = FindGameType("Loadout");
@@ -974,7 +980,32 @@ namespace NOReplay
             }
             try { act.GetProperty("Networkloadout", flags)?.SetValue(ac, loadout); } catch { }
             try { wmT.GetMethod("SpawnWeapons", flags)?.Invoke(wm, null); } catch { }
+            // SpawnWeapons -> SetStationActive -> Turret.SetManual turns Turret back on.
+            SilenceGhostWeapons(go);
+            if (rg == null)
+                rg = go.GetComponent<ReplayGhost>() ?? go.GetComponentInChildren<ReplayGhost>(true);
+            if (rg != null)
+            {
+                rg.MarkLoadoutApplied(obj.Loadout);
+                rg.InvalidateGuns();
+                rg.EnsureGunsCurrent(true);
+            }
             Log.LogInfo("Loadout " + obj.Loadout + " stations=" + sets.Length + " gesetzt=" + filled + " -> " + go.name);
+        }
+
+        static void SilenceGhostWeapons(GameObject go)
+        {
+            if (go == null) return;
+            var turrets = go.GetComponentsInChildren<Turret>(true);
+            for (int i = 0; i < turrets.Length; i++)
+            {
+                if (turrets[i] != null) turrets[i].enabled = false;
+            }
+            var guns = go.GetComponentsInChildren<Gun>(true);
+            for (int i = 0; i < guns.Length; i++)
+            {
+                if (guns[i] is Behaviour b) b.enabled = false;
+            }
         }
 
         static object? FindWeaponMount(string key)

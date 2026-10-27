@@ -57,7 +57,8 @@ What you see
 * Rotors, propellers and the engine sound of the unit you are near.
 * Flares from the left and right ejectors of the airframe, with sound.
 * Missiles and bombs in the world and on the map, in the faction of the shooter, with launch and flight effect. Explosion at track end.
-* Gun bursts from the recorded gun, every barrel, with the game's tracers, muzzle flash, barrel spin, recoil, shell casings and the weapon's own fire sound. Turrets on aircraft, ships, vehicles and buildings keep the aim they had in the match.
+* Gun bursts from the recorded gun, every barrel, with the game's tracers, muzzle flash, barrel spin, recoil, shell casings and the weapon's own fire sound. Turrets on aircraft, ships, vehicles and buildings keep the aim they had in the match, including hardpoint mounts such as the Chicane chin turret and gunpods.
+* Radar dishes keep turning on ships, radar trucks, radar buildings and AWACS. A radar truck folds the dish in while it is moving and unfolds it when it stops. Pause freezes the motion. Scrubbing sets the fold to the pose for that moment.
 * Trails behind airframes and ordnance. Airframe trails are thicker, ordnance trails thinner. Faction color. Dead units lose their trail.
 * Weather from the recording: time of day, cloud height, weather intensity. Applied when the world loads.
 
@@ -68,6 +69,7 @@ How it works
 Record
 * F8 toggles a recorder in the live match. It writes Tacview-style ACMI: unit id, parent, coalition, position samples, loadout, livery, gun-burst windows, and weather (time of day, conditions, cloud height, wind). Shells are not stored one by one. A burst is enough to rebuild the stream on playback.
 * The recorder does not run during a replay. Replay patches that mute AI do not run in a normal match, so leaving the aircraft and normal firing stay intact.
+* Aircraft are registered before hardpoint weapons spawn. Turret recording stays attached and picks up the chin turret or gunpod once it exists. Loadout is written again if it arrives just after spawn.
 
 Load
 * Choosing a file parses the ACMI into a document: one track per object, samples in time, spawn time, death time. Units that exist at the start go into NOReplay.json. Units that appear later stay in a queue. The JSON is a normal Nuclear Option mission, so the game loads the map, buildings and units through its own spawner. Heartland and Igus Archipelago come from the map id in the ACMI.
@@ -77,6 +79,7 @@ Playback
 * The clock is the timeline. Each frame the ghost reads the sample at the current time and writes position and rotation. Physics, joints and AI flight are held off, otherwise the airframe tears itself apart or taxis away on its own.
 * A unit whose spawn time is still ahead is hidden. At that time it is shown, already at the recorded pose. At its death time the ghost releases the camera if needed, hides the map icon, and disables the object. Scrubbing backward enables it again.
 * Neutral units are drawn and not driven. No rotor, no sound, no exhaust.
+* Radar dishes are turned by the replay clock. The unit's own radar scan stays off, so a ghost does not search for targets. The dish freezes while the timeline is paused and follows the playback speed. Radar trucks use the same deploy threshold as the game: stopped unfolds the dish, moving stows it.
 * Trails are LineRenderers rebuilt each frame from the samples within the length window. Dead airframes are excluded. Scrubbing rebuilds the trail for the new time.
 
 Weapons

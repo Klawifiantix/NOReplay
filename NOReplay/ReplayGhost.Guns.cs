@@ -25,6 +25,10 @@ namespace NOReplay
         readonly List<PendingEject> _ejects = new List<PendingEject>();
         string[] _turretKeys = Array.Empty<string>();
         bool _gunsBound;
+        bool _gunStampValid;
+        int _gunStamp;
+        float _nextGunScan;
+        float _gunWatchStart = -1f;
         float _gunAimUntil;
         static bool _simLogged;
         static bool _simFailLogged;
@@ -34,7 +38,7 @@ namespace NOReplay
         void AimGuns()
         {
             if (_ordnance) return;
-            BindGuns();
+            EnsureGunsCurrent(false);
             if (HasTurretTrack)
             {
                 ApplyTurretAngles(Plugin.Clock.Time);
@@ -51,7 +55,7 @@ namespace NOReplay
 
         internal void ApplyTurretAngles(float time)
         {
-            BindGuns();
+            EnsureGunsCurrent(false);
             if (Track == null) return;
             for (int i = 0; i < _turrets.Length; i++)
             {
@@ -69,7 +73,7 @@ namespace NOReplay
         internal void AimGun(Vector3 worldDir)
         {
             if (HasTurretTrack) return;
-            BindGuns();
+            EnsureGunsCurrent(false);
             if (worldDir.sqrMagnitude < 0.01f || Drive == null) return;
             _gunAimUntil = Time.unscaledTime + 0.15f;
             var localDir = Drive.InverseTransformDirection(worldDir.normalized);
@@ -179,6 +183,8 @@ namespace NOReplay
             _turrets = Array.Empty<Transform>();
             _elev = Array.Empty<Transform>();
             _turretKeys = Array.Empty<string>();
+            _gunStampValid = false;
+            _nextGunScan = 0f;
             _killPsBound = false;
         }
 
@@ -203,6 +209,52 @@ namespace NOReplay
                 if (tr != null && _gunFree.Contains(tr))
                     _partSkip[i] = true;
             }
+        }
+
+        float NextGunInterval()
+        {
+            if (_gunWatchStart < 0f) _gunWatchStart = Time.unscaledTime;
+            bool waiting = _air && _turrets.Length == 0 && Time.unscaledTime - _gunWatchStart < 20f;
+            return waiting ? 0.2f : 1.25f;
+        }
+
+        int ComputeGunStamp()
+        {
+            int h = 17;
+            var turrets = GetComponentsInChildren<Turret>(true);
+            h = h * 31 + turrets.Length;
+            for (int i = 0; i < turrets.Length; i++)
+            {
+                if (turrets[i] != null) h = h * 31 + turrets[i].GetInstanceID();
+            }
+            var guns = GetComponentsInChildren<Gun>(true);
+            h = h * 31 + guns.Length;
+            for (int i = 0; i < guns.Length; i++)
+            {
+                if (guns[i] != null) h = h * 31 + guns[i].GetInstanceID();
+            }
+            return h;
+        }
+
+        /// <summary>
+        /// Hardpoint turrets (Chicane chin gun, gunpods) spawn after the first bind.
+        /// Rebind when the turret or gun set changes so aim, muzzle flash and
+        /// HoldLocals exclusion follow the new mounts.
+        /// </summary>
+        void EnsureGunsCurrent(bool force)
+        {
+            if (_ordnance) return;
+            if (!force && _gunsBound && Time.unscaledTime < _nextGunScan) return;
+            int stamp = ComputeGunStamp();
+            if (_gunsBound && _gunStampValid && stamp == _gunStamp)
+            {
+                _nextGunScan = Time.unscaledTime + NextGunInterval();
+                return;
+            }
+            if (_gunsBound) InvalidateGuns();
+            BindGuns();
+            _nextGunScan = Time.unscaledTime + NextGunInterval();
+            ProtectGunParts();
         }
 
         void BindGuns()
@@ -246,6 +298,8 @@ namespace NOReplay
                 _gunFree.Add(t.transform);
                 if (_elev[i] != null) _gunFree.Add(_elev[i]);
             }
+            _gunStamp = ComputeGunStamp();
+            _gunStampValid = true;
         }
 
         GunRuntime ReadGun(Gun gun, int index)
@@ -302,7 +356,7 @@ namespace NOReplay
 
         GunRuntime? ResolveGun(ReplayObject burst)
         {
-            BindGuns();
+            EnsureGunsCurrent(false);
             if (_gunRt.Length == 0) return null;
             if (burst.GunIndex >= 0 && burst.GunIndex < _gunRt.Length)
             {
@@ -671,7 +725,7 @@ namespace NOReplay
 
         internal void PulseAt(Vector3 pos)
         {
-            BindGuns();
+            EnsureGunsCurrent(false);
             if (_gunRt.Length == 0) return;
             GunRuntime? best = null;
             float bestD = 80f * 80f;
@@ -711,7 +765,7 @@ namespace NOReplay
 
         internal Vector3 MuzzlePos()
         {
-            BindGuns();
+            EnsureGunsCurrent(false);
             for (int i = 0; i < _gunRt.Length; i++)
             {
                 var rt = _gunRt[i];

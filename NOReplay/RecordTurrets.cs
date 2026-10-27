@@ -10,6 +10,8 @@ namespace NOReplay
     /// Samples every Turret on a recorded unit. Angles are the game's own
     /// traverseAngle / elevationAngle. Idle turrets are written once, then only
     /// when an angle moves more than half a degree.
+    /// Aircraft stay attached even when no turret exists yet: the Chicane chin
+    /// gun and gunpods are hardpoint mounts spawned after RegisterUnit.
     /// </summary>
     internal class RecordTurrets : MonoBehaviour
     {
@@ -30,8 +32,9 @@ namespace NOReplay
         {
             if (host == null || unit == null) return;
             if (host.GetComponent<RecordTurrets>() != null) return;
-            var turrets = unit.GetComponentsInChildren<Turret>(true);
-            if (turrets == null || turrets.Length == 0) return;
+            var turrets = unit.GetComponentsInChildren<Turret>(true) ?? System.Array.Empty<Turret>();
+            // Aircraft weapon mounts spawn in OnStartClient, after this registration.
+            if (turrets.Length == 0 && unit is not Aircraft) return;
             var rec = host.gameObject.AddComponent<RecordTurrets>();
             rec.Init(host, unit, turrets);
         }
@@ -42,6 +45,7 @@ namespace NOReplay
             _unit = unit;
             BindFields();
             Rebuild(turrets);
+            if (_slots.Length == 0) return;
             Capture(forceAll: true);
             _baseline = true;
         }
@@ -71,12 +75,15 @@ namespace NOReplay
 
             _timer += Time.deltaTime;
             _scan += Time.deltaTime;
-            if (_scan >= 1f)
+            // Empty aircraft keep looking until SpawnWeapons instantiates the mounts.
+            float scanEvery = _slots.Length == 0 && _unit is Aircraft ? 0.2f : 1f;
+            if (_scan >= scanEvery)
             {
                 _scan = 0f;
-                Rescan();
+                if (Rescan() && _slots.Length > 0 && _baseline)
+                    Capture(forceAll: false);
             }
-            if (!_baseline)
+            if (_slots.Length > 0 && !_baseline)
             {
                 Capture(forceAll: true);
                 _baseline = true;
@@ -88,11 +95,11 @@ namespace NOReplay
             Capture(forceAll: false);
         }
 
-        void Rescan()
+        bool Rescan()
         {
-            if (_unit == null) return;
+            if (_unit == null) return false;
             var found = _unit.GetComponentsInChildren<Turret>(true);
-            if (found == null) return;
+            if (found == null) return false;
             if (found.Length == _slots.Length)
             {
                 bool same = true;
@@ -100,9 +107,10 @@ namespace NOReplay
                 {
                     if (found[i] != _slots[i].Turret) { same = false; break; }
                 }
-                if (same) return;
+                if (same) return false;
             }
             Rebuild(found);
+            return true;
         }
 
         void Rebuild(Turret[] turrets)

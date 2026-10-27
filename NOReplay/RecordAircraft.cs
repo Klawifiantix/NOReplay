@@ -27,6 +27,10 @@ namespace NOReplay
 
         private string? steamId;
         private string? lastEmittedPilot;
+        string? _loadoutSent;
+        float _loadoutAge;
+        float _loadoutWait;
+        bool _loadoutDone;
         readonly List<Unit> _targetScratch = new();
         int _lastTargetCount;
         long[] _lastTargetIds = Array.Empty<long>();
@@ -81,6 +85,8 @@ namespace NOReplay
             base.destroyedEvent = !aircraft.IsLanded();
             if (!this.enabled || unit.disabled)
                 return;
+
+            PublishLoadout();
 
             timer += Time.deltaTime;
             if (timer < RecordConfig.aircraftUpdateDelta.Value)
@@ -250,23 +256,11 @@ namespace NOReplay
         {
             try
             {
-                var loadout = aircraft.loadout;
-                if (loadout?.weapons != null && loadout.weapons.Count > 0)
+                var line = FormatLoadout();
+                if (!string.IsNullOrEmpty(line))
                 {
-                    var parts = new List<string>();
-                    for (int i = 0; i < loadout.weapons.Count; i++)
-                    {
-                        var mount = loadout.weapons[i];
-                        if (mount == null) continue;
-                        string key = mount.jsonKey;
-                        if (string.IsNullOrEmpty(key)) key = mount.mountName;
-                        if (string.IsNullOrEmpty(key)) key = mount.name;
-                        if (string.IsNullOrEmpty(key)) continue;
-                        key = key.Replace(",", " ").Replace("|", " ").Replace("=", " ");
-                        parts.Add(i + ":" + key + ":" + mount.ammo);
-                    }
-                    if (parts.Count > 0)
-                        props["Loadout"] = string.Join("|", parts);
+                    props["Loadout"] = line;
+                    _loadoutSent = line;
                 }
             }
             catch { }
@@ -289,6 +283,50 @@ namespace NOReplay
                 }
             }
             catch (Exception ex) { Record.Log.LogWarning("Livery fail: " + ex.Message); }
+        }
+
+        /// <summary>
+        /// OnStartServer records before OnStartClient fills a default loadout.
+        /// Keep checking until that loadout shows up.
+        /// </summary>
+        void PublishLoadout()
+        {
+            if (_loadoutDone || aircraft == null) return;
+            _loadoutAge += Time.deltaTime;
+            _loadoutWait += Time.deltaTime;
+            if (_loadoutWait < 0.25f) return;
+            _loadoutWait = 0f;
+            if (_loadoutAge > 15f)
+                _loadoutDone = true;
+            string? line = null;
+            try { line = FormatLoadout(); }
+            catch { return; }
+            if (string.IsNullOrEmpty(line) || line == _loadoutSent) return;
+            _loadoutSent = line;
+            props["Loadout"] = line;
+            if (props.Count != 1 || Engine == null || !Record.Active) return;
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
+        }
+
+        string? FormatLoadout()
+        {
+            var loadout = aircraft.loadout;
+            if (loadout?.weapons == null || loadout.weapons.Count == 0) return null;
+            var parts = new List<string>();
+            for (int i = 0; i < loadout.weapons.Count; i++)
+            {
+                var mount = loadout.weapons[i];
+                if (mount == null) continue;
+                string key = mount.jsonKey;
+                if (string.IsNullOrEmpty(key)) key = mount.mountName;
+                if (string.IsNullOrEmpty(key)) key = mount.name;
+                if (string.IsNullOrEmpty(key)) continue;
+                key = key.Replace(",", " ").Replace("|", " ").Replace("=", " ");
+                parts.Add(i + ":" + key + ":" + mount.ammo);
+            }
+            if (parts.Count == 0) return null;
+            return string.Join("|", parts);
         }
 
         private void ApplyPilotProps(bool force)

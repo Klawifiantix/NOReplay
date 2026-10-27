@@ -564,6 +564,8 @@ namespace NOReplay
             }
             FreezePhysics();
             SilenceAirframe();
+            if (!_ordnance)
+                EnsureRadarsCurrent(true);
             SuppressDamageFx();
             DisableFlightAssist();
             SnapSurfacesNow();
@@ -677,6 +679,8 @@ namespace NOReplay
             DisableFlightAssist();
             CacheFx();
             AdoptOrphanFx();
+            EnsureGunsCurrent(true);
+            EnsureRadarsCurrent(true);
             CacheLocals();
             PaintMissingLivery();
             // Plugin.Log.LogInfo("Ghost-Recache " + gameObject.name
@@ -756,6 +760,8 @@ namespace NOReplay
             _liveryPainted = false;
             FreezePhysics();
             HideLoadoutBits();
+            EnsureGunsCurrent(true);
+            EnsureRadarsCurrent(true);
             CacheLocals();
         }
 
@@ -862,6 +868,7 @@ namespace NOReplay
             if (_parts.Length > 0 && all.Length <= _parts.Length + 1)
             {
                 ProtectGunParts();
+                ProtectRadarParts();
                 return;
             }
             int n = 0;
@@ -912,6 +919,7 @@ namespace NOReplay
                 k++;
             }
             ProtectGunParts();
+            ProtectRadarParts();
         }
 
         void HoldLocals()
@@ -1119,8 +1127,15 @@ namespace NOReplay
                 InvalidatePlaybackCaches();
                 BindNozzles();
                 BindMotion();
+                _nextGunScan = 0f;
+                _nextRadarScan = 0f;
             }
             drive.SetPositionAndRotation(p, q);
+            if (!_ordnance)
+            {
+                EnsureGunsCurrent(false);
+                EnsureRadarsCurrent(false);
+            }
             if (_air)
             {
                 if (!_surfBound) CaptureSurfaceRest();
@@ -1230,6 +1245,8 @@ namespace NOReplay
                     else if (!_ordnance) DriveVehicleAudio(_spdMs);
                 }
             }
+            if (!_ordnance && _visible)
+                TickRadars();
         }
 
         bool IsFar()

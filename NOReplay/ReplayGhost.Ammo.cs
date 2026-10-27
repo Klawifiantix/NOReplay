@@ -296,14 +296,6 @@ namespace NOReplay
             return -1;
         }
 
-        static bool PathEquals(string have, string want)
-        {
-            if (string.IsNullOrEmpty(have) || string.IsNullOrEmpty(want)) return false;
-            if (have.Equals(want, StringComparison.OrdinalIgnoreCase)) return true;
-            return have.EndsWith("/" + want, StringComparison.OrdinalIgnoreCase)
-                || want.EndsWith("/" + have, StringComparison.OrdinalIgnoreCase);
-        }
-
         void AssignLaunches(AmmoStation[] stations, ReplayObject[]? launches)
         {
             if (launches == null || launches.Length == 0) return;

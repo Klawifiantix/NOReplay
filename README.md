@@ -44,7 +44,7 @@ Timeline
 * Trails button toggles flight paths. The slider next to it sets trail length from 0 to 10 minutes. Dead airframes lose their trail.
 
 Camera
-* The normal spectator path is unchanged. Pick a faction screen, then spectator, or click a unit.
+* The normal spectator path is unchanged.
 * Orbit around a unit works. Free camera and fly-by work.
 * If the unit you are watching is destroyed, the camera is released before the unit is removed.
 * Clicking a missile follows that missile. The camera does not jump to a missile on its own.

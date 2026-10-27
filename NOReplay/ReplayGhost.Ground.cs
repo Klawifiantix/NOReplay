@@ -443,43 +443,101 @@ namespace NOReplay
         void DriveShipAudio(float spd)
         {
             BindGroundAudio();
+            if (!_shipFxBound)
+                CacheShipFx();
             bool paused = Plugin.Clock.Paused;
             float throttle = paused ? 0f : Mathf.Clamp01(spd / 12f);
-            float pitch = _shipPitch > 0.01f ? _shipPitch : 1f;
-            float vol = paused ? 0f : _shipMaxVol * throttle;
-            bool flat = WantsFlatAudio();
-            if (vol <= 0.01f) StopLoop(_shipAudio);
-            else PlayLoop(_shipAudio, vol, pitch, flat);
+            float engPitch = Mathf.Min(0.5f + spd * 0.005f + throttle * 0.35f, 1.5f);
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            string[] propFields = { "engineSound", "thrustSound", "propSound", "turbineSound" };
+            bool droveShip = false;
             for (int i = 0; i < _shipProps.Length; i++)
             {
                 var c = _shipProps[i];
                 if (c == null) continue;
                 var t = c.GetType();
-                for (int k = 0; k < propFields.Length; k++)
-                {
-                    var src = t.GetField(propFields[k], flags)?.GetValue(c);
-                    if (src == null || ReferenceEquals(src, _shipAudio)) continue;
-                    float srcPitch = SourcePitch(src, pitch);
-                    if (vol <= 0.01f) StopLoop(src);
-                    else PlayLoop(src, vol, srcPitch, flat);
-                }
+                var engine = t.GetField("engineSound", flags)?.GetValue(c);
+                var thrust = t.GetField("thrustSound", flags)?.GetValue(c);
+                if (ReferenceEquals(engine, _shipAudio) || ReferenceEquals(thrust, _shipAudio))
+                    droveShip = true;
+                DriveShipEngine(engine, paused, engPitch);
+                DriveShipThrust(thrust, paused, throttle);
+                StopLoop(t.GetField("propSound", flags)?.GetValue(c));
+                StopLoop(t.GetField("turbineSound", flags)?.GetValue(c));
             }
+            if (_shipAudio != null && !droveShip)
+                DriveShipEngine(_shipAudio, paused, engPitch);
             if (_shipUnit == null) return;
-            float waterVol = paused ? 0f : Mathf.Clamp01(spd * spd * 0.005f);
-            float hullVol = paused ? 0f : (0.25f + Mathf.Clamp01(spd * 0.05f));
-            string[] arrNames = { "waterSounds", "hullSounds", "engineSounds", "wakeSounds" };
+            float waterVol = paused ? 0f : Mathf.Clamp01(spd * spd * 0.005f) * 0.5f;
             var st = _shipUnit.GetType();
-            for (int i = 0; i < arrNames.Length; i++)
+            SetArrayVol(st.GetField("waterSounds", flags)?.GetValue(_shipUnit), waterVol, false);
+            DriveHullSounds(st.GetField("hullSounds", flags)?.GetValue(_shipUnit), spd, paused);
+            SetArrayVol(st.GetField("wakeSounds", flags)?.GetValue(_shipUnit), waterVol, false);
+            var engines = st.GetField("engineSounds", flags)?.GetValue(_shipUnit);
+            if (engines is Array engArr)
             {
-                float use = i == 0 ? waterVol : i == 1 ? hullVol : vol;
-                SetArrayVol(st.GetField(arrNames[i], flags)?.GetValue(_shipUnit), use, flat);
+                for (int i = 0; i < engArr.Length; i++)
+                    DriveShipEngine(engArr.GetValue(i), paused, engPitch);
             }
+        }
+
+        static void DriveShipEngine(object? src, bool paused, float engPitch)
+        {
+            if (src == null || paused || IsInteriorSource(src))
+            {
+                StopLoop(src);
+                return;
+            }
+            float vol = engPitch * 0.45f * PrefabVolScale(src);
+            PlayLoop(src, vol, engPitch, false);
+        }
+
+        static void DriveShipThrust(object? src, bool paused, float throttle)
+        {
+            if (src == null || paused || throttle <= 0.1f || IsInteriorSource(src))
+            {
+                StopLoop(src);
+                return;
+            }
+            PlayLoop(src, throttle * 0.45f * PrefabVolScale(src), SourcePitch(src, 1f), false);
+        }
+
+        static void DriveHullSounds(object? arr, float spd, bool paused)
+        {
+            if (arr is not Array a) return;
+            float hull = 0.15f + Mathf.Clamp01(spd * 0.03f);
+            for (int i = 0; i < a.Length; i++)
+            {
+                var src = a.GetValue(i);
+                if (src == null) continue;
+                if (paused || IsInteriorSource(src))
+                {
+                    StopLoop(src);
+                    continue;
+                }
+                float vol = hull * OrigVolume(src, 1f);
+                if (vol > 0.35f) vol = 0.35f;
+                PlayLoop(src, vol, SourcePitch(src, 1f), false);
+            }
+        }
+
+        static float PrefabVolScale(object? src)
+        {
+            float orig = OrigVolume(src, 1f);
+            return orig < 1f ? orig : 1f;
+        }
+
+        static bool IsInteriorSource(object? src)
+        {
+            if (src is not Component c || c.gameObject == null) return false;
+            string n = c.gameObject.name ?? "";
+            return n.IndexOf("interior", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         void StopGroundAudio()
         {
+            BindGroundAudio();
+            if (_ship && !_shipFxBound)
+                CacheShipFx();
             StopLoop(_vehIdle);
             StopLoop(_vehDrive);
             StopLoop(_shipAudio);

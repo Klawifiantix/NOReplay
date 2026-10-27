@@ -189,6 +189,7 @@ namespace NOReplay
             _rend = all;
             SyncHardpointRenderers();
             ReapplyReplayHides();
+            ProtectPropulsionParts();
         }
 
         void SyncHardpointRenderers()
@@ -607,6 +608,8 @@ namespace NOReplay
                 Plugin.KillLaserBeams(gameObject);
             }
             if (_ordnance) IgniteMissileFx();
+            if (!_ordnance)
+                MuteAllSources();
             SpatializeSources();
             if (!_neutral) Invoke(nameof(SpatializeSources), 1.5f);
             RefreshRenderers();
@@ -876,6 +879,7 @@ namespace NOReplay
             {
                 ProtectGunParts();
                 ProtectRadarParts();
+                ProtectPropulsionParts();
                 return;
             }
             int n = 0;
@@ -901,6 +905,10 @@ namespace NOReplay
                     || nm.IndexOf("Hub", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Prop", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Fan", StringComparison.OrdinalIgnoreCase) >= 0
+                    || nm.IndexOf("Rotat", StringComparison.OrdinalIgnoreCase) >= 0
+                    || nm.IndexOf("Spinner", StringComparison.OrdinalIgnoreCase) >= 0
+                    || nm.IndexOf("Disc", StringComparison.OrdinalIgnoreCase) >= 0
+                    || nm.IndexOf("Disk", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Swash", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Gear", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Strut", StringComparison.OrdinalIgnoreCase) >= 0
@@ -927,6 +935,7 @@ namespace NOReplay
             }
             ProtectGunParts();
             ProtectRadarParts();
+            ProtectPropulsionParts();
         }
 
         void HoldLocals()

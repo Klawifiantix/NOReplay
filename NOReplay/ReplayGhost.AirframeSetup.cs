@@ -36,6 +36,20 @@ namespace NOReplay
         static FieldInfo? _fTjetThrust;
         static FieldInfo? _fCspThrust;
         static FieldInfo? _fPropThrust;
+        static FieldInfo? _fCspLimit;
+        static FieldInfo? _fCspBlades;
+        static FieldInfo? _fCspDisc;
+        static FieldInfo? _fCspDiscRend;
+        static FieldInfo? _fCspDiscMeshes;
+        static FieldInfo? _fPropProps;
+        static FieldInfo? _fFanRotator;
+        static FieldInfo? _fFanMeshFilter;
+        static FieldInfo? _fFanMeshRend;
+        static FieldInfo? _fFanSlowMesh;
+        static FieldInfo? _fFanFastMesh;
+        static FieldInfo? _fFanSlowMat;
+        static FieldInfo? _fFanFastMat;
+        static FieldInfo? _fFanRpmThreshold;
 
         static MethodInfo? _mPsPlay;
         static MethodInfo? _mPsStop;
@@ -168,9 +182,8 @@ namespace NOReplay
                 if (n.IndexOf("Camera", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                 if (n.IndexOf("Orbit", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                 if (n == "RotorShaft" || n == "TurbineEngine" || n == "LandingGear"
-                    || n == "SoftBodyRotor" || n == "SwashRotor" || n == "PropFan"
-                    || n == "DuctedFan" || n == "Turbofan" || n == "Turbojet"
-                    || n == "ConstantSpeedProp" || n == "Aircraft"
+                    || n == "SoftBodyRotor" || n == "SwashRotor" || n == "Turbofan"
+                    || n == "Turbojet" || n == "Aircraft"
                     || n == "JetNozzle" || n == "Downwash" || n == "DownwashEffect"
                     || n == "VaporEffect" || n == "VaporEmitter") continue;
                 if (n.IndexOf("Particle", StringComparison.OrdinalIgnoreCase) >= 0) continue;
@@ -390,6 +403,12 @@ namespace NOReplay
             p1.CopyTo(_props, 0);
             p2.CopyTo(_props, p1.Length);
             p3.CopyTo(_props, p1.Length + p2.Length);
+            for (int i = 0; i < _props.Length; i++)
+            {
+                if (_props[i] is Behaviour propBeh)
+                    propBeh.enabled = false;
+            }
+            ProtectPropulsionParts();
             _engs = CollectFx(_engType);
             _tfans = CollectFx(_tfanType);
             _gears = CollectFx(_gearType);
@@ -875,6 +894,7 @@ namespace NOReplay
                 _fPropNom = _propType.GetField("nominalRPM", flags);
                 _fPropThrust = _propType.GetField("thrust", flags);
                 _fPfanSrc = _propType.GetField("source", flags);
+                _fPropProps = _propType.GetField("props", flags);
             }
             if (_cspType != null)
             {
@@ -886,6 +906,11 @@ namespace NOReplay
                 _fCspVol = _cspType.GetField("volumeBase", flags);
                 _fCspPitch = _cspType.GetField("pitchBase", flags);
                 _fCspThrust = _cspType.GetField("currentThrust", flags);
+                _fCspLimit = _cspType.GetField("rpmLimit", flags);
+                _fCspBlades = _cspType.GetField("blades", flags);
+                _fCspDisc = _cspType.GetField("propDisc", flags);
+                _fCspDiscRend = _cspType.GetField("propDiscRenderer", flags);
+                _fCspDiscMeshes = _cspType.GetField("propDiscMeshes", flags);
             }
             if (_fanType != null)
             {
@@ -893,6 +918,14 @@ namespace NOReplay
                 _fFanMaxRpm = _fanType.GetField("maxRPM", flags);
                 _fFanSrc = _fanType.GetField("fanSource", flags);
                 _fFanThrust = _fanType.GetField("currentThrust", flags);
+                _fFanRotator = _fanType.GetField("rotator", flags);
+                _fFanMeshFilter = _fanType.GetField("meshFilter", flags);
+                _fFanMeshRend = _fanType.GetField("meshRenderer", flags);
+                _fFanSlowMesh = _fanType.GetField("slowMesh", flags);
+                _fFanFastMesh = _fanType.GetField("fastMesh", flags);
+                _fFanSlowMat = _fanType.GetField("slowMaterial", flags);
+                _fFanFastMat = _fanType.GetField("fastMaterial", flags);
+                _fFanRpmThreshold = _fanType.GetField("rpmThreshold", flags);
             }
             if (_engType != null)
             {
@@ -918,6 +951,77 @@ namespace NOReplay
                 _mMoveGear = _gearType.GetMethod("MoveGear", flags);
                 _mUpdateParts = _gearType.GetMethod("UpdateMovingParts", flags);
             }
+        }
+
+        void ProtectPropulsionParts()
+        {
+            Bind();
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            if (_cspType != null)
+            {
+                foreach (var raw in GetComponentsInChildren(_cspType, true))
+                {
+                    if (raw == null) continue;
+                    if (ReadFit(_fCspHub, raw) is GameObject hub)
+                        SkipPropulsionTree(hub.transform);
+                    AllowPropulsionRenderer(ReadFit(_fCspDiscRend, raw) as Renderer);
+                    if (ReadFit(_fCspDisc, raw) is Component disc)
+                        AllowPropulsionRenderer(disc.GetComponent<Renderer>());
+                }
+            }
+            if (_fanType != null)
+            {
+                foreach (var raw in GetComponentsInChildren(_fanType, true))
+                {
+                    if (raw == null) continue;
+                    if (ReadFit(_fFanRotator, raw) is Transform rotator)
+                        SkipPropulsionTree(rotator);
+                }
+            }
+            if (_propType != null)
+            {
+                foreach (var raw in GetComponentsInChildren(_propType, true))
+                {
+                    if (raw == null) continue;
+                    if (ReadFit(_fPropProps, raw) is not Array props) continue;
+                    for (int i = 0; i < props.Length; i++)
+                    {
+                        var prop = props.GetValue(i);
+                        if (prop == null) continue;
+                        var pt = prop.GetType();
+                        if (pt.GetField("transform", flags)?.GetValue(prop) is Transform xf)
+                            SkipPropulsionTree(xf);
+                        AllowPropulsionRenderer(pt.GetField("diskRenderer", flags)?.GetValue(prop) as Renderer);
+                    }
+                }
+            }
+            if (_shaftType != null)
+            {
+                foreach (var raw in GetComponentsInChildren(_shaftType, true))
+                {
+                    if (raw == null) continue;
+                    if (ReadFit(_fRotorHub, raw) is Transform hub)
+                        SkipPropulsionTree(hub);
+                }
+            }
+        }
+
+        void SkipPropulsionTree(Transform root)
+        {
+            if (root == null) return;
+            for (int i = 0; i < _parts.Length; i++)
+            {
+                var tr = _parts[i];
+                if (tr == null) continue;
+                if (tr == root || tr.IsChildOf(root))
+                    _partSkip[i] = true;
+            }
+        }
+
+        void AllowPropulsionRenderer(Renderer? rend)
+        {
+            if (rend != null)
+                _disabledInPrefab.Remove(rend);
         }
     }
 }

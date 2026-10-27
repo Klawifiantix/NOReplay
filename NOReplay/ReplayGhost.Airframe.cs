@@ -471,6 +471,152 @@ namespace NOReplay
             return 0f;
         }
 
+        struct PropFanVis
+        {
+            public FieldInfo? Transform;
+            public FieldInfo? AntiClockwise;
+            public FieldInfo? PropRenderer;
+            public FieldInfo? DiskRenderer;
+            public FieldInfo? DiskMeshFilter;
+            public FieldInfo? DiskMeshes;
+        }
+
+        static readonly Dictionary<Type, PropFanVis> _propFanVis = new Dictionary<Type, PropFanVis>();
+        static FieldInfo? _bladeRenderer;
+        static Type? _bladeRendererType;
+
+        static PropFanVis PropVisOf(Type t)
+        {
+            if (_propFanVis.TryGetValue(t, out var vis)) return vis;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            vis = new PropFanVis
+            {
+                Transform = t.GetField("transform", flags),
+                AntiClockwise = t.GetField("antiClockwise", flags),
+                PropRenderer = t.GetField("propRenderer", flags),
+                DiskRenderer = t.GetField("diskRenderer", flags),
+                DiskMeshFilter = t.GetField("diskMeshFilter", flags),
+                DiskMeshes = t.GetField("diskMeshes", flags),
+            };
+            _propFanVis[t] = vis;
+            return vis;
+        }
+
+        void AnimateConstantSpeedProp(Component c, float spin, float dt)
+        {
+            float rpmLimit = 2000f;
+            if (ReadFit(_fCspLimit, c) is float lim && lim > 10f) rpmLimit = lim;
+            else
+            {
+                float fallback = CompNum(c, "rpmLimit", 2000f);
+                if (fallback > 10f) rpmLimit = fallback;
+            }
+            float rpm = rpmLimit * spin;
+            WriteFit(_fCspRpm, c, rpm);
+            float dir = 1f;
+            object? dv = ReadFit(_fCspDir, c);
+            if (dv != null)
+            {
+                try { dir = Convert.ToSingle(dv); }
+                catch { dir = 1f; }
+            }
+            if (!Plugin.Clock.Paused && dt > 0f && ReadFit(_fCspHub, c) is GameObject hub && hub != null)
+                hub.transform.Rotate(0f, 0f, rpm * -6f * dir * dt, Space.Self);
+
+            float rpmRatio = rpmLimit > 1f ? rpm / rpmLimit : spin;
+            float effectiveScale = Plugin.Clock.Paused ? 0f : Mathf.Abs(Plugin.Clock.Speed);
+            int blurIdx = 0;
+            if (ReadFit(_fCspDiscMeshes, c) is System.Collections.IList meshes && meshes.Count > 0)
+            {
+                float sample = rpmRatio * 0.55f * effectiveScale + (rpmRatio > 0.05f ? 0.25f : 0f);
+                blurIdx = Mathf.FloorToInt(Mathf.Clamp(meshes.Count * sample, 0f, meshes.Count - 1));
+                if (ReadFit(_fCspDisc, c) is MeshFilter disc && meshes[blurIdx] is Mesh mesh)
+                    disc.sharedMesh = mesh;
+            }
+            var discRend = ReadFit(_fCspDiscRend, c) as Renderer;
+            if (discRend == null && ReadFit(_fCspDisc, c) is Component discHost)
+                discRend = discHost.GetComponent<Renderer>();
+            if (discRend != null)
+            {
+                _disabledInPrefab.Remove(discRend);
+                discRend.enabled = _visible;
+            }
+            if (ReadFit(_fCspBlades, c) is System.Collections.IList blades)
+            {
+                bool showBlade = _visible && blurIdx == 0;
+                var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                for (int i = 0; i < blades.Count; i++)
+                {
+                    var blade = blades[i];
+                    if (blade == null) continue;
+                    var bt = blade.GetType();
+                    if (_bladeRendererType != bt)
+                    {
+                        _bladeRendererType = bt;
+                        _bladeRenderer = bt.GetField("renderer", flags);
+                    }
+                    if (_bladeRenderer?.GetValue(blade) is Renderer bladeRend)
+                        bladeRend.enabled = showBlade;
+                }
+            }
+        }
+
+        void AnimatePropFan(Component c, float spin, float dt)
+        {
+            float nom = 2000f;
+            if (ReadFit(_fPropNom, c) is float nr && nr > 10f) nom = nr;
+            float rpm = nom * spin;
+            WriteFit(_fPropRpm, c, rpm);
+            WriteFit(_fPropRatio, c, spin);
+            if (ReadFit(_fPropProps, c) is not Array props) return;
+            bool showDisk = _visible && !Plugin.Clock.Paused && spin > 0.1f;
+            for (int i = 0; i < props.Length; i++)
+            {
+                var prop = props.GetValue(i);
+                if (prop == null) continue;
+                var vis = PropVisOf(prop.GetType());
+                var xf = vis.Transform?.GetValue(prop) as Transform;
+                bool anti = vis.AntiClockwise?.GetValue(prop) is bool cw && cw;
+                if (xf != null && !Plugin.Clock.Paused && dt > 0f)
+                    xf.Rotate(0f, 0f, rpm * 6f * (anti ? 1f : -1f) * dt, Space.Self);
+                if (vis.PropRenderer?.GetValue(prop) is Renderer propRend)
+                    propRend.enabled = _visible && !showDisk;
+                if (vis.DiskRenderer?.GetValue(prop) is Renderer diskRend)
+                {
+                    _disabledInPrefab.Remove(diskRend);
+                    diskRend.enabled = showDisk;
+                }
+                if (showDisk && vis.DiskMeshFilter?.GetValue(prop) is MeshFilter filter
+                    && vis.DiskMeshes?.GetValue(prop) is Mesh[] meshes && meshes.Length > 0)
+                {
+                    int idx = spin > 0.55f && meshes.Length > 1 ? 1 : 0;
+                    if (meshes[idx] != null) filter.sharedMesh = meshes[idx];
+                }
+            }
+        }
+
+        void AnimateDuctedFan(Component c, float spin, float dt)
+        {
+            float maxRpm = 2200f;
+            if (ReadFit(_fFanMaxRpm, c) is float mr && mr > 10f) maxRpm = mr;
+            float rpm = maxRpm * spin;
+            WriteFit(_fFanRpm, c, rpm);
+            if (!Plugin.Clock.Paused && dt > 0f && ReadFit(_fFanRotator, c) is Transform rotator && rotator != null)
+                rotator.localEulerAngles += Vector3.forward * (rpm * 6f * dt);
+            float thresh = 500f;
+            if (ReadFit(_fFanRpmThreshold, c) is float rt && rt > 0f) thresh = rt;
+            bool fast = !Plugin.Clock.Paused && rpm >= thresh;
+            var mesh = (fast ? ReadFit(_fFanFastMesh, c) : ReadFit(_fFanSlowMesh, c)) as Mesh;
+            if (mesh != null && ReadFit(_fFanMeshFilter, c) is MeshFilter filter)
+                filter.sharedMesh = mesh;
+            var mat = (fast ? ReadFit(_fFanFastMat, c) : ReadFit(_fFanSlowMat, c)) as Material;
+            if (mat != null && ReadFit(_fFanMeshRend, c) is Renderer rend)
+            {
+                if (rend is MeshRenderer mrend) mrend.sharedMaterial = mat;
+                else rend.sharedMaterial = mat;
+            }
+        }
+
         void ApplyFx(ReplaySample s)
         {
             if (_neutral)
@@ -614,46 +760,29 @@ namespace NOReplay
                     }
                 }
             }
-            if (_props.Length > 0 && !Plugin.Clock.Paused)
+            if (_props.Length > 0)
             {
+                float cruise = Mathf.Lerp(0.4f, 1f, thr);
+                float spin = airborne ? Mathf.Lerp(0.65f, 1f, thr) : Mathf.Lerp(0.35f, 0.85f, thr);
                 for (int i = 0; i < _props.Length; i++)
                 {
                     var c = _props[i];
                     if (c == null) continue;
+                    if (c is Behaviour propBeh && propBeh.enabled)
+                        propBeh.enabled = false;
                     string tn = c.GetType().Name;
-                    float spin = Mathf.Lerp(0.4f, 1f, thr);
                     if (tn == "ConstantSpeedProp")
-                    {
-                        float limit = CompNum(c, "rpmLimit", 2000f);
-                        if (limit < 10f) limit = 2000f;
-                        float rpm = limit * spin;
-                        WriteFit(_fCspRpm, c, rpm);
-                        var hubGo = ReadFit(_fCspHub, c) as GameObject;
-                        float dir = 1f;
-                        object? dv = ReadFit(_fCspDir, c);
-                        if (dv != null) dir = Convert.ToSingle(dv);
-                        if (hubGo != null)
-                            hubGo.transform.Rotate(0f, 0f, rpm * -6f * dir * dt, Space.Self);
-                    }
+                        AnimateConstantSpeedProp(c, spin, dt);
                     else if (tn == "DuctedFan")
-                    {
-                        float maxRpm = 2200f;
-                        if (ReadFit(_fFanMaxRpm, c) is float mr && mr > 10f) maxRpm = mr;
-                        WriteFit(_fFanRpm, c, maxRpm * spin);
-                    }
+                        AnimateDuctedFan(c, spin, dt);
                     else if (tn == "Turbofan")
                     {
                         float max = 10000f;
                         if (ReadFit(_fTfanMax, c) is float mx && mx > 1f) max = mx;
-                        WriteFit(_fTfanRpm, c, max * spin);
+                        WriteFit(_fTfanRpm, c, max * cruise);
                     }
                     else
-                    {
-                        float nom = 2200f;
-                        if (ReadFit(_fPropNom, c) is float n && n > 10f) nom = n;
-                        WriteFit(_fPropRpm, c, nom * spin);
-                        WriteFit(_fPropRatio, c, spin);
-                    }
+                        AnimatePropFan(c, spin, dt);
                 }
             }
             if (_engs.Length > 0)

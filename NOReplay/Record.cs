@@ -37,6 +37,8 @@ namespace NOReplay
             }
             try { RecordListener.Install(); }
             catch (Exception ex) { Plugin.Log.LogError("RecordListener.Install: " + ex); }
+            try { RecordParts.Install(); }
+            catch (Exception ex) { Plugin.Log.LogError("RecordParts.Install: " + ex); }
             Plugin.Log.LogInfo("Aufnahme bereit. F8 startet und stoppt.");
         }
 
@@ -63,6 +65,7 @@ namespace NOReplay
                 var engine = host.AddComponent<RecordEngine>();
                 // Capture writes the t=0 turret baseline. Flush drops that sample
                 // while Active is still false, so arm recording first.
+                RecordParts.Reset();
                 Active = true;
                 engine.CaptureExistingUnits();
                 Plugin.Log.LogInfo("Aufnahme gestartet (F8).");
@@ -78,6 +81,7 @@ namespace NOReplay
         {
             if (!Active) return;
             Active = false;
+            RecordParts.Reset();
             var host = Host;
             Host = null;
             if (host != null) UnityEngine.Object.Destroy(host);

@@ -10,6 +10,7 @@ namespace NOReplay
         static bool _worldStarting;
         static float _worldReadyAt;
         static object? _cachedNm;
+        static object? _loadedMission;
 
         static void CallStartReplaySession()
         {
@@ -71,8 +72,12 @@ namespace NOReplay
             Log.LogInfo("Nutze NM=" + nm);
             if (nm == null) return;
             _cachedNm = nm;
-            var sflags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
-            object? mission = mmType.GetProperty("CurrentMission", sflags)?.GetValue(null);
+            if (IsServerActive())
+            {
+                Log.LogInfo("Host läuft bereits.");
+                return;
+            }
+            object? mission = EnsureCurrentMission();
             if (mission == null)
             {
                 Log.LogError("CurrentMission fehlt, StartHost abgebrochen.");
@@ -84,8 +89,121 @@ namespace NOReplay
             object gs = ParseEnumPrefer(gsType, "SinglePlayer", "Singleplayer");
             object opt = Activator.CreateInstance(optType, sock, gs, map)!;
             var start = nmType.GetMethod("StartHost", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            start!.Invoke(nm, new[] { opt });
-            Log.LogInfo("StartHost zurück (wie SinglePlayerMenu).");
+            try
+            {
+                start!.Invoke(nm, new[] { opt });
+                Log.LogInfo("StartHost zurück (wie SinglePlayerMenu).");
+            }
+            catch (Exception ex)
+            {
+                Log.LogError("StartHost: " + (ex.InnerException?.Message ?? ex.Message));
+            }
+        }
+
+        static object? EnsureCurrentMission()
+        {
+            var mmType = FindGameType("MissionManager");
+            var sflags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+            object? mission = mmType?.GetProperty("CurrentMission", sflags)?.GetValue(null);
+            if (mission != null || _loadedMission == null || mmType == null)
+                return mission ?? _loadedMission;
+            try
+            {
+                mmType.GetMethod("SetMission", sflags)?.Invoke(null, new object[] { _loadedMission, false });
+                mission = mmType.GetProperty("CurrentMission", sflags)?.GetValue(null);
+            }
+            catch (Exception ex)
+            {
+                Log.LogWarning("SetMission: " + (ex.InnerException?.Message ?? ex.Message));
+            }
+            if (mission == null) mission = _loadedMission;
+            Log.LogInfo("SetMission erneut für Replay.");
+            return mission;
+        }
+
+        static bool TrySinglePlayerStart(object mission)
+        {
+            var menuType = FindGameType("SinglePlayerMenu");
+            if (menuType == null) return false;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            MethodInfo? start = null;
+            foreach (var m in menuType.GetMethods(flags))
+            {
+                if (m.Name != "StartMission") continue;
+                var ps = m.GetParameters();
+                if (ps.Length != 1) continue;
+                if (!ps[0].ParameterType.IsInstanceOfType(mission)) continue;
+                start = m;
+                break;
+            }
+            if (start == null) return false;
+            UnityEngine.Object? menu = null;
+            foreach (var o in Resources.FindObjectsOfTypeAll(menuType))
+            {
+                if (o == null) continue;
+                if (o is Behaviour b && b.isActiveAndEnabled) { menu = o; break; }
+                if (menu == null) menu = o;
+            }
+            if (menu == null) return false;
+            try
+            {
+                start.Invoke(menu, new[] { mission });
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.LogWarning("SinglePlayerMenu.StartMission: " + (ex.InnerException?.Message ?? ex.Message));
+                return false;
+            }
+        }
+
+        static bool TryPickerConfirm(object mission)
+        {
+            var pickerType = FindGameType("MissionsPicker");
+            if (pickerType == null) return false;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            Behaviour? picker = null;
+            foreach (var o in Resources.FindObjectsOfTypeAll(pickerType))
+            {
+                if (o is Behaviour b && b.isActiveAndEnabled) { picker = b; break; }
+            }
+            if (picker == null) return false;
+            pickerType.GetField("mission", flags)?.SetValue(picker, mission);
+            var confirm = pickerType.GetMethod("ConfirmPressed", flags);
+            if (confirm == null)
+            {
+                Log.LogError("MissionsPicker.ConfirmPressed fehlt.");
+                return false;
+            }
+            try
+            {
+                confirm.Invoke(picker, null);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.LogWarning("MissionsPicker.ConfirmPressed: " + (ex.InnerException?.Message ?? ex.Message));
+                return false;
+            }
+        }
+
+        static void StartReplayHost()
+        {
+            object? mission = EnsureCurrentMission();
+            bool viaMenu = mission != null && TrySinglePlayerStart(mission);
+            bool viaPicker = !viaMenu && mission != null && TryPickerConfirm(mission);
+            if ((viaMenu || viaPicker) && IsServerActive())
+            {
+                Log.LogInfo(viaMenu
+                    ? "Replay-Host über SinglePlayerMenu.StartMission."
+                    : "Replay bestätigt wie Klick auf Start.");
+                return;
+            }
+            if (viaMenu || viaPicker)
+                Log.LogInfo("Menü-Start hat den Host nicht gestartet, StartHost direkt.");
+            else
+                Log.LogInfo("Kein SinglePlayerMenu und kein aktiver MissionsPicker, StartHost direkt.");
+            CallStartHost();
         }
 
         static object ParseEnumPrefer(Type enumType, params string[] names)
@@ -179,6 +297,7 @@ namespace NOReplay
             bool ok = (bool)saveType.GetMethod("TryLoad", sflags)!.Invoke(null, args)!;
             Log.LogInfo("TryLoad ok=" + ok + " err=" + args[2]);
             if (!ok || args[1] == null) return;
+            _loadedMission = args[1];
             mmType.GetMethod("SetMission", sflags)!.Invoke(null, new[] { args[1], false });
             Log.LogInfo("SetMission " + missionName + ", StartMission nach Szenenload.");
         }

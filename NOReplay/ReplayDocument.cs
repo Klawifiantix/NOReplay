@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace NOReplay
@@ -16,6 +17,108 @@ namespace NOReplay
         public string DataRecorder = "";
         public float Duration;
         public List<ReplayObject> Objects = new List<ReplayObject>();
+
+        public void IndexChildren()
+        {
+            var byId = new Dictionary<string, ReplayObject>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < Objects.Count; i++)
+            {
+                var o = Objects[i];
+                if (o == null) continue;
+                o.OrdnanceLaunches = null;
+                o.GunBursts = null;
+                o.PartBreaks = null;
+                if (string.IsNullOrEmpty(o.Id) || byId.ContainsKey(o.Id)) continue;
+                byId[o.Id] = o;
+            }
+            var launches = new Dictionary<string, List<ReplayObject>>(StringComparer.OrdinalIgnoreCase);
+            var bursts = new Dictionary<string, List<ReplayObject>>(StringComparer.OrdinalIgnoreCase);
+            var parts = new Dictionary<string, List<ReplayObject>>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < Objects.Count; i++)
+            {
+                var o = Objects[i];
+                if (o == null || string.IsNullOrEmpty(o.ParentId)) continue;
+                if (!byId.ContainsKey(o.ParentId)) continue;
+                if (o.EventTime() < 0f && !IsPartBreak(o.Type) && !IsGunBurst(o.Type)) continue;
+                if (IsPartBreak(o.Type)) AddChild(parts, o.ParentId, o);
+                else if (IsGunBurst(o.Type)) AddChild(bursts, o.ParentId, o);
+                else if (IsOrdnanceLaunch(o.Type)) AddChild(launches, o.ParentId, o);
+            }
+            Stamp(byId, launches, 0);
+            Stamp(byId, bursts, 1);
+            Stamp(byId, parts, 2);
+        }
+
+        static void AddChild(Dictionary<string, List<ReplayObject>> map, string parentId, ReplayObject child)
+        {
+            if (!map.TryGetValue(parentId, out var list))
+            {
+                list = new List<ReplayObject>();
+                map[parentId] = list;
+            }
+            list.Add(child);
+        }
+
+        static void Stamp(Dictionary<string, ReplayObject> byId, Dictionary<string, List<ReplayObject>> map, int kind)
+        {
+            foreach (var pair in map)
+            {
+                if (!byId.TryGetValue(pair.Key, out var parent)) continue;
+                var list = pair.Value;
+                list.Sort(CompareEvent);
+                var arr = list.ToArray();
+                if (kind == 0) parent.OrdnanceLaunches = arr;
+                else if (kind == 1) parent.GunBursts = arr;
+                else parent.PartBreaks = arr;
+            }
+        }
+
+        static int CompareEvent(ReplayObject a, ReplayObject b)
+        {
+            int c = a.EventTime().CompareTo(b.EventTime());
+            if (c != 0) return c;
+            return string.CompareOrdinal(a.Id, b.Id);
+        }
+
+        public static bool IsGunBurst(string? type)
+        {
+            return (type ?? "").IndexOf("GunBurst", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        public static bool IsPartBreak(string? type)
+        {
+            return (type ?? "").IndexOf("PartBreak", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        public static bool IsOrdnanceLaunch(string? type)
+        {
+            string t = type ?? "";
+            if (t.Length == 0) return false;
+            if (IsGunBurst(t) || IsPartBreak(t)) return false;
+            if (t.IndexOf("Flare", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (t.IndexOf("Decoy", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (t.IndexOf("Chaff", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (t.IndexOf("Projectile", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (t.IndexOf("Shell", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (t.IndexOf("Missile", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (t.IndexOf("Bomb", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (t.IndexOf("Rocket", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (t.IndexOf("Torpedo", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (t.IndexOf("Weapon+", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
+        }
+
+        public static int CountAtOrBefore(ReplayObject[] items, float time)
+        {
+            int lo = 0, hi = items.Length;
+            while (lo < hi)
+            {
+                int mid = (lo + hi) >> 1;
+                if (items[mid].EventTime() <= time) lo = mid + 1;
+                else hi = mid;
+            }
+            return lo;
+        }
     }
 
     public class ReplayObject
@@ -40,6 +143,16 @@ namespace NOReplay
         public bool HasTurrets { get; private set; }
         public float SpawnAt = -1f;
         public float RemovedAt = -1f;
+        public bool HasPart;
+        public byte PartId;
+        public string? PartKind;
+        public string? PartPath;
+        public int PartSeg = -1;
+        public int PartRotor = -1;
+        public float PartVx, PartVy, PartVz;
+        public ReplayObject[]? OrdnanceLaunches;
+        public ReplayObject[]? GunBursts;
+        public ReplayObject[]? PartBreaks;
         public float NudgeX;
         public float NudgeZ;
         public List<ReplaySample> Samples = new List<ReplaySample>();
@@ -212,6 +325,21 @@ namespace NOReplay
             public readonly List<float> Traverse = new List<float>();
             public readonly List<float> Elevation = new List<float>();
             public bool Moves;
+        }
+
+        public float EventTime()
+        {
+            if (SpawnAt >= 0f) return SpawnAt;
+            if (Samples.Count > 0) return Samples[0].Time;
+            return -1f;
+        }
+
+        public float BurstEnd()
+        {
+            if (RemovedAt >= 0f) return RemovedAt;
+            if (Samples.Count > 0) return Samples[Samples.Count - 1].Time;
+            float start = EventTime();
+            return start >= 0f ? start : 0f;
         }
 
         public bool IsParkedStatic()

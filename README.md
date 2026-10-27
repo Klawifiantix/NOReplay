@@ -57,6 +57,8 @@ What you see
 * Rotors, propellers and the engine sound of the unit you are near.
 * Flares from the left and right ejectors of the airframe, with sound.
 * Missiles and bombs in the world and on the map, in the faction of the shooter, with launch and flight effect. Explosion at track end.
+* External missiles and bombs leave the wing pylons as they are fired, and the ammo line in the unit panel counts down. Scrubbing backward puts the rounds and the pylon stores back. Older ACMI files do this from the missile tracks and gun bursts already in the recording. Enclosed tube launchers and guns use the same count.
+* Wings, tails, stabilizers, rotors and other parts that break off are recorded and shown again on playback. The piece tumbles away, and scrubbing backward puts the airframe back together. Recordings made before this version have no part-break lines, so those airframes stay intact.
 * Gun bursts from the recorded gun, every barrel, with the game's tracers, muzzle flash, barrel spin, recoil, shell casings and the weapon's own fire sound. Turrets on aircraft, ships, vehicles and buildings keep the aim they had in the match, including hardpoint mounts such as the Chicane chin turret and gunpods.
 * Radar dishes keep turning on ships, radar trucks, radar buildings and AWACS. A radar truck folds the dish in while it is moving and unfolds it when it stops. Pause freezes the motion. Scrubbing sets the fold to the pose for that moment.
 * Trails behind airframes and ordnance. Airframe trails are thicker, ordnance trails thinner. Faction color. Dead units lose their trail.
@@ -67,7 +69,7 @@ What you see
 How it works
 
 Record
-* F8 toggles a recorder in the live match. It writes Tacview-style ACMI: unit id, parent, coalition, position samples, loadout, livery, gun-burst windows, and weather (time of day, conditions, cloud height, wind). Shells are not stored one by one. A burst is enough to rebuild the stream on playback.
+* F8 toggles a recorder in the live match. It writes Tacview-style ACMI: unit id, parent, coalition, position samples, loadout, livery, gun-burst windows, part breaks, and weather (time of day, conditions, cloud height, wind). Shells are not stored one by one. A burst is enough to rebuild the stream on playback. A part break is one line: which part, and the velocity when it left the airframe.
 * The recorder does not run during a replay. Replay patches that mute AI do not run in a normal match, so leaving the aircraft and normal firing stay intact.
 * Aircraft are registered before hardpoint weapons spawn. Turret recording stays attached and picks up the chin turret or gunpod once it exists. Loadout is written again if it arrives just after spawn.
 
@@ -99,5 +101,6 @@ Files
 
 Limits
 * The ACMI time step is about a fifth of a second. Several missiles fired inside that window share one timestamp, so a salvo appears as a short burst of spawns rather than millisecond gaps.
-* Shells are rebuilt from the burst, not stored one by one. Playback fires the recorded gun through the game's own tracer, so a twin-barrel mount shoots from both muzzles. Rounds already in the air are not rewound; a pause or a scrub clears them.
+* Shells are rebuilt from the burst, not stored one by one. Playback fires the recorded gun through the game's own tracer, so a twin-barrel mount shoots from both muzzles. Rounds already in the air are not rewound; a pause or a scrub clears them. The ammo counter does rewind: it is derived from the burst window and the recorded rate of fire.
+* A part that breaks off is one line in the ACMI (the part id, and the velocity when it leaves the airframe). Playback hides that part and anything mounted on it, and spawns a visual copy that falls for a few seconds. Jumping the timeline hides or restores the part without spawning another copy. Secondary breakup of wreckage that is already off the aircraft is not recorded.
 * Old ACMI files from before this recorder have no loadout, livery, gun-burst or weather lines. Playback still moves units. Those extras stay empty.

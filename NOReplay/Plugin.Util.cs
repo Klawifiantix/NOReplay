@@ -12,27 +12,35 @@ namespace NOReplay
         internal static Type? FindGameType(string typeName)
         {
             if (_typeCache.TryGetValue(typeName, out var cached)) return cached;
-            Type? found = null;
-            foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
+            Assembly[] assemblies;
+            try { assemblies = AppDomain.CurrentDomain.GetAssemblies(); }
+            catch { assemblies = Array.Empty<Assembly>(); }
+            // Assembly-CSharp first. Another BepInEx plugin must not win a game type name.
+            Type? found = FindNamedType(assemblies, typeName, gameOnly: true);
+            if (found == null)
+                found = FindNamedType(assemblies, typeName, gameOnly: false);
+            _typeCache[typeName] = found;
+            return found;
+        }
+
+        static Type? FindNamedType(Assembly[] assemblies, string typeName, bool gameOnly)
+        {
+            foreach (var a in assemblies)
             {
                 string an = a.GetName().Name ?? "";
+                bool game = an == "Assembly-CSharp";
+                if (gameOnly != game) continue;
                 Type[] types;
                 try { types = a.GetTypes(); }
                 catch (ReflectionTypeLoadException ex) { types = ex.Types; }
                 catch { continue; }
                 foreach (var t in types)
                 {
-                    if (t == null || t.Name != typeName) continue;
-                    if (an == "Assembly-CSharp")
-                    {
-                        _typeCache[typeName] = t;
+                    if (t != null && t.Name == typeName)
                         return t;
-                    }
-                    if (found == null) found = t;
                 }
             }
-            _typeCache[typeName] = found;
-            return found;
+            return null;
         }
 
         static Transform? _datum;

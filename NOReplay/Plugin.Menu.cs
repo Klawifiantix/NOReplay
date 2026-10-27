@@ -275,7 +275,7 @@ namespace NOReplay
                     scene = s;
             }
             Log.LogInfo("Lade Szene " + scene);
-            _worldReadyAt = Time.unscaledTime + 1.5f;
+            _worldReadyAt = Time.unscaledTime + 0.5f;
             SceneManager.LoadScene(scene);
         }
 
@@ -283,35 +283,8 @@ namespace NOReplay
         {
             if (!_pendingOfficialStart) return;
             if (Time.unscaledTime < _worldReadyAt) return;
-            var pickerType = FindGameType("MissionsPicker");
-            if (pickerType == null) return;
-            Behaviour? picker = null;
-            foreach (var o in Resources.FindObjectsOfTypeAll(pickerType))
-            {
-                if (o is Behaviour b && b.isActiveAndEnabled) { picker = b; break; }
-            }
-            if (picker == null) return;
-            var mmType = FindGameType("MissionManager");
-            object? mission = mmType?.GetProperty("CurrentMission",
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null);
-            if (mission == null)
-            {
-                Log.LogError("CurrentMission leer, offizieller Start abgebrochen.");
-                _pendingOfficialStart = false;
-                return;
-            }
-            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            pickerType.GetField("mission", flags)?.SetValue(picker, mission);
-            var confirm = pickerType.GetMethod("ConfirmPressed", flags);
-            if (confirm == null)
-            {
-                Log.LogError("MissionsPicker.ConfirmPressed fehlt.");
-                _pendingOfficialStart = false;
-                return;
-            }
             _pendingOfficialStart = false;
-            Log.LogInfo("Replay bestätigt wie Klick auf Start.");
-            confirm.Invoke(picker, null);
+            StartReplayHost();
         }
     }
 }

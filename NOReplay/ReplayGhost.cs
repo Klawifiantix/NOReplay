@@ -1241,7 +1241,8 @@ namespace NOReplay
 
             if (_air && !_neutral)
             {
-                ApplyFx(s);
+                try { ApplyFx(s); }
+                catch (Exception ex) { LogSubsystemOnce("ApplyFx", ex); }
             }
             else
             {
@@ -1255,13 +1256,32 @@ namespace NOReplay
                 }
             }
             if (!_ordnance && _visible)
-                TickRadars();
+            {
+                try { TickRadars(); }
+                catch (Exception ex) { LogSubsystemOnce("TickRadars", ex); }
+            }
             if (!_ordnance)
             {
-                TickStructural(true);
-                TickAmmo();
-                ReapplyInactiveOrdnance();
+                try { TickStructural(true); }
+                catch (Exception ex) { LogSubsystemOnce("TickStructural", ex); }
+                try { TickAmmo(); }
+                catch (Exception ex) { LogSubsystemOnce("TickAmmo", ex); }
+                try { ReapplyInactiveOrdnance(); }
+                catch (Exception ex) { LogSubsystemOnce("ReapplyInactiveOrdnance", ex); }
             }
+        }
+
+        int _subFail;
+
+        void LogSubsystemOnce(string where, Exception ex)
+        {
+            int bit = where == "ApplyFx" ? 1
+                : where == "TickRadars" ? 2
+                : where == "TickStructural" ? 4
+                : where == "TickAmmo" ? 8 : 16;
+            if ((_subFail & bit) != 0) return;
+            _subFail |= bit;
+            Plugin.Log.LogWarning(where + " " + ex.GetType().Name + ": " + ex.Message);
         }
 
         bool IsFar()

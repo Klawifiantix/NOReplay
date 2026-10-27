@@ -18,6 +18,11 @@ namespace NOReplay
 
         static FieldInfo? _firedField;
         static bool _firedLooked;
+        static FieldInfo? _gunLoaded;
+        static bool _gunLoadedLooked;
+        static FieldInfo? _launcherReloading;
+        static bool _launcherReloadingLooked;
+        readonly Dictionary<int, int> _weaponFull = new Dictionary<int, int>();
 
         sealed class AmmoStation
         {
@@ -188,7 +193,7 @@ namespace NOReplay
             }
         }
 
-        static void FillWeapons(AmmoStation slot)
+        void FillWeapons(AmmoStation slot)
         {
             var weapons = slot.Station.Weapons;
             if (weapons == null) return;
@@ -205,16 +210,12 @@ namespace NOReplay
                 else if (w is MissileLauncher launcher)
                 {
                     launchers.Add(launcher);
-                    int full = launcher.GetFullAmmo();
-                    if (full <= 0) full = launcher.ammo;
-                    launcherFull.Add(Mathf.Max(full, 0));
+                    launcherFull.Add(RememberFull(launcher, launcher.GetFullAmmo(), launcher.ammo));
                 }
                 else if (w is Gun gun)
                 {
                     guns.Add(gun);
-                    int full = gun.GetFullAmmo();
-                    if (full <= 0) full = gun.ammo;
-                    gunFull.Add(Mathf.Max(full, 0));
+                    gunFull.Add(RememberFull(gun, gun.GetFullAmmo(), gun.ammo));
                 }
             }
             slot.Missiles = missiles.ToArray();
@@ -538,6 +539,7 @@ namespace NOReplay
                     int launcherFull = i < st.LauncherFull.Length ? st.LauncherFull[i] : 0;
                     int spend = Mathf.Clamp(remain, 0, launcherFull);
                     launcher.ammo = launcherFull - spend;
+                    SetReloading(launcher, 0);
                     remain -= spend;
                 }
             }
@@ -547,7 +549,9 @@ namespace NOReplay
                 if (gun == null) continue;
                 int gunFull = i < st.GunFull.Length ? st.GunFull[i] : 0;
                 int spent = GunRounds(st, i, time);
-                gun.ammo = Mathf.Clamp(gunFull - spent, 0, Mathf.Max(gunFull, 0));
+                int left = Mathf.Clamp(gunFull - spent, 0, Mathf.Max(gunFull, 0));
+                gun.ammo = left;
+                SetGunLoaded(gun, left);
             }
             try { st.Station.AccountAmmo(); } catch { }
             int full = st.Station.FullAmmo;
@@ -604,6 +608,41 @@ namespace NOReplay
             }
             try { _firedField?.SetValue(mm, fired); } catch { }
             mm.ammo = fired ? 0 : 1;
+        }
+
+        int RememberFull(Component weapon, int reported, int currentAmmo)
+        {
+            int id = weapon.GetInstanceID();
+            if (_weaponFull.TryGetValue(id, out int cached) && cached > 0)
+                return cached;
+            int full = reported > 0 ? reported : currentAmmo;
+            if (full < 0) full = 0;
+            if (full > 0) _weaponFull[id] = full;
+            return full;
+        }
+
+        static void SetGunLoaded(Gun gun, int rounds)
+        {
+            if (!_gunLoadedLooked)
+            {
+                _gunLoadedLooked = true;
+                _gunLoaded = typeof(Gun).GetField("bulletsLoaded",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (_gunLoaded == null)
+                    Plugin.Log.LogWarning("Gun.bulletsLoaded fehlt");
+            }
+            try { _gunLoaded?.SetValue(gun, rounds); } catch { }
+        }
+
+        static void SetReloading(MissileLauncher launcher, int rounds)
+        {
+            if (!_launcherReloadingLooked)
+            {
+                _launcherReloadingLooked = true;
+                _launcherReloading = typeof(MissileLauncher).GetField("reloadingAmmo",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+            }
+            try { _launcherReloading?.SetValue(launcher, rounds); } catch { }
         }
     }
 }

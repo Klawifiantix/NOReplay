@@ -124,16 +124,22 @@ namespace NOReplay
                 if (tn == "DuctedFan")
                 {
                     float maxRpm = 2200f;
-                    if (_fFanMaxRpm?.GetValue(c) is float mr && mr > 10f) maxRpm = mr;
-                    _fFanRpm?.SetValue(c, maxRpm * Mathf.Clamp(thrustRatio, 0.6f, 0.95f));
+                    if (ReadFit(_fFanMaxRpm, c) is float mr && mr > 10f) maxRpm = mr;
+                    WriteFit(_fFanRpm, c, maxRpm * Mathf.Clamp(thrustRatio, 0.6f, 0.95f));
+                }
+                else if (tn == "Turbofan")
+                {
+                    float max = 10000f;
+                    if (ReadFit(_fTfanMax, c) is float mx && mx > 1f) max = mx;
+                    WriteFit(_fTfanRpm, c, max * Mathf.Clamp(thrustRatio, 0.6f, 0.95f));
                 }
                 else if (tn == "PropFan")
                 {
                     float nom = 2200f;
-                    if (_fPropNom?.GetValue(c) is float n && n > 10f) nom = n;
+                    if (ReadFit(_fPropNom, c) is float n && n > 10f) nom = n;
                     float ratio = Mathf.Clamp(thrustRatio, 0.6f, 0.95f);
-                    _fPropRpm?.SetValue(c, nom * ratio);
-                    _fPropRatio?.SetValue(c, ratio);
+                    WriteFit(_fPropRpm, c, nom * ratio);
+                    WriteFit(_fPropRatio, c, ratio);
                 }
             }
 
@@ -196,29 +202,53 @@ namespace NOReplay
             _spawnedDownwashTransforms.Clear();
         }
 
+        static object? ReadFit(FieldInfo? field, object target)
+        {
+            var decl = field?.DeclaringType;
+            if (decl == null || !decl.IsInstanceOfType(target)) return null;
+            try { return field!.GetValue(target); }
+            catch { return null; }
+        }
+
+        static void WriteFit(FieldInfo? field, object target, object value)
+        {
+            var decl = field?.DeclaringType;
+            if (decl == null || !decl.IsInstanceOfType(target)) return;
+            try { field!.SetValue(target, value); }
+            catch { }
+        }
+
         void DriveCspAudio(Component c, float rpm)
         {
-            DriveEngineSrc(c, _fCspAudio?.GetValue(c) ?? FieldOn(c, "propAudio"),
-                _fCspExt?.GetValue(c) ?? FieldOn(c, "exteriorSound"), rpm > 1f ? 0.55f : 0f, 0.95f);
+            DriveEngineSrc(c, ReadFit(_fCspAudio, c) ?? FieldOn(c, "propAudio"),
+                ReadFit(_fCspExt, c) ?? FieldOn(c, "exteriorSound"), rpm > 1f ? 0.55f : 0f, 0.95f);
         }
 
         void DriveRotorAudio(Component c, float ratio)
         {
-            DriveEngineSrc(c, _fRotorSrc?.GetValue(c) ?? FieldOn(c, "rotorSource"),
-                _fRotorExt?.GetValue(c) ?? FieldOn(c, "exteriorSound"), ratio * 0.7f, 0.9f + 0.15f * ratio);
+            DriveEngineSrc(c, ReadFit(_fRotorSrc, c) ?? FieldOn(c, "rotorSource"),
+                ReadFit(_fRotorExt, c) ?? FieldOn(c, "exteriorSound"), ratio * 0.7f, 0.9f + 0.15f * ratio);
         }
 
         void DriveTurbofanAudio(Component c, float ratio)
         {
-            DriveEngineSrc(c, _fTfanSrc?.GetValue(c) ?? FieldOn(c, "turbineAudio"),
+            object? src = null;
+            if (_tfanType != null && _tfanType.IsInstanceOfType(c))
+                src = ReadFit(_fTfanSrc, c);
+            if (src == null) src = FieldOn(c, "turbineAudio");
+            DriveEngineSrc(c, src,
                 FieldOn(c, "exteriorSound") ?? FieldOn(c, "clip"),
                 ratio > 0.05f ? 0.5f : 0f, 0.7f + 0.4f * ratio);
         }
 
         void DriveFanAudio(Component c, float ratio)
         {
-            object? src = _fFanSrc?.GetValue(c) ?? _fPfanSrc?.GetValue(c)
-                ?? FieldOn(c, "fanSource") ?? FieldOn(c, "source");
+            object? src = null;
+            if (_fanType != null && _fanType.IsInstanceOfType(c))
+                src = ReadFit(_fFanSrc, c);
+            if (src == null && _propType != null && _propType.IsInstanceOfType(c))
+                src = ReadFit(_fPfanSrc, c);
+            if (src == null) src = FieldOn(c, "fanSource") ?? FieldOn(c, "source");
             DriveEngineSrc(c, src, FieldOn(c, "exteriorSound"),
                 ratio > 0.05f ? 0.45f : 0f, 0.85f + 0.2f * ratio);
         }
@@ -411,13 +441,9 @@ namespace NOReplay
                     if (c == null) continue;
                     if (c is Behaviour sb) sb.enabled = false;
                     float nom = 300f;
-                    if (_fNomRpm != null)
-                    {
-                        object? v = _fNomRpm.GetValue(c);
-                        if (v is float f) nom = f;
-                    }
-                    _fStartup?.SetValue(c, 1f);
-                    _fRotorUnfold?.SetValue(c, true);
+                    if (ReadFit(_fNomRpm, c) is float f) nom = f;
+                    WriteFit(_fStartup, c, 1f);
+                    WriteFit(_fRotorUnfold, c, true);
                     // Unfold rotor hinges visually.
                     try
                     {
@@ -473,16 +499,13 @@ namespace NOReplay
                         }
                     }
                     float rad = Plugin.Clock.Paused ? 0f : nom * 0.1047f;
-                    _fAngSpeed?.SetValue(c, rad);
+                    WriteFit(_fAngSpeed, c, rad);
                     if (!Plugin.Clock.Paused)
                     {
-                        var hub = _fRotorHub?.GetValue(c) as Transform;
+                        var hub = ReadFit(_fRotorHub, c) as Transform;
                         float dir = 1f;
-                        if (_fRotorDir != null)
-                        {
-                            object? dv = _fRotorDir.GetValue(c);
-                            if (dv != null) dir = Convert.ToSingle(dv);
-                        }
+                        object? dv = ReadFit(_fRotorDir, c);
+                        if (dv != null) dir = Convert.ToSingle(dv);
                         if (hub != null)
                             hub.Rotate(0f, nom * 6f * dir * dt, 0f, Space.Self);
                     }
@@ -499,35 +522,39 @@ namespace NOReplay
                     float rpm = airborne ? 2000f : 900f;
                     if (tn == "ConstantSpeedProp")
                     {
-                        _fCspRpm?.SetValue(c, rpm);
-                        var hubGo = _fCspHub?.GetValue(c) as GameObject;
+                        WriteFit(_fCspRpm, c, rpm);
+                        var hubGo = ReadFit(_fCspHub, c) as GameObject;
                         float dir = 1f;
-                        if (_fCspDir != null)
-                        {
-                            object? dv = _fCspDir.GetValue(c);
-                            if (dv != null) dir = Convert.ToSingle(dv);
-                        }
+                        object? dv = ReadFit(_fCspDir, c);
+                        if (dv != null) dir = Convert.ToSingle(dv);
                         if (hubGo != null)
                             hubGo.transform.Rotate(0f, 0f, rpm * -6f * dir * dt, Space.Self);
                         DriveCspAudio(c, rpm);
                     }
-                    else if (tn == "DuctedFan" || tn == "Turbofan")
+                    else if (tn == "DuctedFan")
                     {
                         float maxRpm = 2200f;
-                        if (_fFanMaxRpm != null && _fFanMaxRpm.GetValue(c) is float mr && mr > 10f) maxRpm = mr;
+                        if (ReadFit(_fFanMaxRpm, c) is float mr && mr > 10f) maxRpm = mr;
                         rpm = maxRpm * (airborne ? 0.9f : 0.55f);
-                        _fFanRpm?.SetValue(c, rpm);
-                        _fPropRpm?.SetValue(c, rpm);
+                        WriteFit(_fFanRpm, c, rpm);
                         DriveFanAudio(c, airborne ? 0.9f : 0.45f);
+                    }
+                    else if (tn == "Turbofan")
+                    {
+                        float max = 10000f;
+                        if (ReadFit(_fTfanMax, c) is float mx && mx > 1f) max = mx;
+                        rpm = max * (airborne ? 0.8f : 0.35f);
+                        WriteFit(_fTfanRpm, c, rpm);
+                        DriveTurbofanAudio(c, airborne ? 0.8f : 0.35f);
                     }
                     else
                     {
                         float nom = 2200f;
-                        if (_fPropNom != null && _fPropNom.GetValue(c) is float n && n > 10f) nom = n;
+                        if (ReadFit(_fPropNom, c) is float n && n > 10f) nom = n;
                         float ratio = airborne ? 0.95f : 0.55f;
                         rpm = nom * ratio;
-                        _fPropRpm?.SetValue(c, rpm);
-                        _fPropRatio?.SetValue(c, ratio);
+                        WriteFit(_fPropRpm, c, rpm);
+                        WriteFit(_fPropRatio, c, ratio);
                         DriveFanAudio(c, airborne ? 0.9f : 0.45f);
                     }
                 }
@@ -538,18 +565,18 @@ namespace NOReplay
                 {
                     var c = _engs[i];
                     if (c == null) continue;
-                    _fOperable?.SetValue(c, true);
-                    _fHasFuel?.SetValue(c, true);
-                    _fStarted?.SetValue(c, 1f);
-                    _fThrottle?.SetValue(c, airborne ? 0.7f : 0.2f);
+                    WriteFit(_fOperable, c, true);
+                    WriteFit(_fHasFuel, c, true);
+                    WriteFit(_fStarted, c, 1f);
+                    WriteFit(_fThrottle, c, airborne ? 0.7f : 0.2f);
                     float rpm = 0.3f;
                     if (_engType != null)
                     {
                         float max = 10000f;
-                        if (_fEngMaxPublic != null && _fEngMaxPublic.GetValue(c) is float mx) max = mx;
+                        if (ReadFit(_fEngMaxPublic, c) is float mx) max = mx;
                         rpm = max * (airborne ? 0.8f : 0.35f);
                     }
-                    _fRpm?.SetValue(c, rpm);
+                    WriteFit(_fRpm, c, rpm);
                     DriveTurbofanAudio(c, airborne ? 0.8f : 0.35f);
                 }
             }
@@ -561,9 +588,9 @@ namespace NOReplay
                     if (c == null) continue;
                     if (c is Behaviour tb) tb.enabled = false;
                     float max = 10000f;
-                    if (_fTfanMax != null && _fTfanMax.GetValue(c) is float mx) max = mx;
+                    if (ReadFit(_fTfanMax, c) is float mx) max = mx;
                     float rpm = max * (airborne ? 0.8f : 0.35f);
-                    _fTfanRpm?.SetValue(c, rpm);
+                    WriteFit(_fTfanRpm, c, rpm);
                     DriveTurbofanAudio(c, airborne ? 0.8f : 0.35f);
                 }
             }

@@ -104,7 +104,9 @@ namespace NOReplay
 
         internal void InvalidateStructure()
         {
-            _stations = null;
+            var unit = StructureUnit();
+            bool sameWeapons = _stations != null && unit != null && AmmoStamp(unit) == _ammoStamp;
+            if (!sameWeapons) _stations = null;
             _partById = null;
             _rotors = null;
             _partVisCount = int.MinValue;

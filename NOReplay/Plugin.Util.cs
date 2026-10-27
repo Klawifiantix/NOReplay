@@ -297,6 +297,37 @@ namespace NOReplay
         static Type? _dopplerType;
         static Component? _dopplerTarget;
         static readonly object[] _dopplerOff = { false };
+        static readonly object[] _dopplerOn = { true };
+        static bool? _dopplerSpatial;
+        static PropertyInfo? _camStateProp;
+        static FieldInfo? _tvStateField;
+        static FieldInfo? _freeStateField;
+        static bool _camStateReady;
+
+        internal static bool CameraIsTvOrFree()
+        {
+            CacheListener();
+            return CamStateIsTvOrFree();
+        }
+
+        static bool CamStateIsTvOrFree()
+        {
+            if (_camMgr == null) return false;
+            if (!_camStateReady)
+            {
+                _camStateReady = true;
+                var t = _camMgr.GetType();
+                var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                _camStateProp = t.GetProperty("currentState", flags);
+                _tvStateField = t.GetField("TVState", flags) ?? t.GetField("tvState", flags);
+                _freeStateField = t.GetField("freeState", flags);
+            }
+            var state = _camStateProp?.GetValue(_camMgr);
+            if (state == null) return false;
+            var tv = _tvStateField?.GetValue(_camMgr);
+            var free = _freeStateField?.GetValue(_camMgr);
+            return (tv != null && ReferenceEquals(state, tv)) || (free != null && ReferenceEquals(state, free));
+        }
 
         internal static void CacheListener()
         {
@@ -337,17 +368,24 @@ namespace NOReplay
                 if (_followField?.GetValue(_camMgr) is Component u)
                 {
                     _followUnit = u;
-                    if (!ReferenceEquals(u, _dopplerTarget))
+                    bool spatial = CamStateIsTvOrFree();
+                    if (!ReferenceEquals(u, _dopplerTarget) || _dopplerSpatial != spatial)
                     {
                         _dopplerTarget = u;
+                        _dopplerSpatial = spatial;
                         if (_setDoppler == null || _dopplerType != u.GetType())
                         {
                             _dopplerType = u.GetType();
                             _setDoppler = _dopplerType.GetMethod("SetDoppler", flags);
                         }
-                        try { _setDoppler?.Invoke(u, _dopplerOff); }
+                        try { _setDoppler?.Invoke(u, spatial ? _dopplerOn : _dopplerOff); }
                         catch { }
                     }
+                }
+                else
+                {
+                    _dopplerTarget = null;
+                    _dopplerSpatial = null;
                 }
             }
             else if (Camera.main != null)

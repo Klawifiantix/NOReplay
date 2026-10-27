@@ -218,16 +218,56 @@ namespace NOReplay
             catch { }
         }
 
-        void DriveCspAudio(Component c, float rpm)
+        static float Num(object? v, float fallback)
         {
-            DriveEngineSrc(c, ReadFit(_fCspAudio, c) ?? FieldOn(c, "propAudio"),
-                ReadFit(_fCspExt, c) ?? FieldOn(c, "exteriorSound"), rpm > 1f ? 0.55f : 0f, 0.95f);
+            if (v is float f) return f;
+            if (v is int i) return i;
+            if (v is double d) return (float)d;
+            return fallback;
+        }
+
+        float CompNum(Component c, string name, float fallback)
+        {
+            return Num(FieldOn(c, name), fallback);
+        }
+
+        void DriveCspAudio(Component c, float throttle)
+        {
+            object? src = ReadFit(_fCspAudio, c) ?? FieldOn(c, "propAudio");
+            if (throttle <= 0.02f) { StopEngineSrc(src); return; }
+            float limit = CompNum(c, "rpmLimit", 2000f);
+            float rpm = Num(ReadFit(_fCspRpm, c), 0f);
+            float rpmRatio = limit > 1f && rpm > 1f ? Mathf.Clamp(rpm / limit, 0f, 1.5f) : Mathf.Clamp01(throttle);
+            float targetAoa = CompNum(c, "targetAOA", 0f);
+            float aoa = CompNum(c, "averageAoA", 0f);
+            if (Mathf.Abs(aoa) < 0.01f) aoa = throttle * targetAoa;
+            float pitchBase = CompNum(c, "pitchBase", 1f);
+            float volumeBase = CompNum(c, "volumeBase", 0.2f);
+            float pitch = pitchBase
+                + rpmRatio * CompNum(c, "rpmModifyPitch", 0f)
+                + CompNum(c, "angleModifyPitch", 0f) * aoa * rpmRatio;
+            float vol = volumeBase
+                + rpmRatio * CompNum(c, "rpmModifyVolume", 0f)
+                + CompNum(c, "angleModifyVolume", 0f) * aoa * rpmRatio;
+            if (pitch < 0.05f) pitch = pitchBase > 0.05f ? pitchBase : 1f;
+            DriveEngineSrc(c, src, ReadFit(_fCspExt, c) ?? FieldOn(c, "exteriorSound"), Mathf.Max(0f, vol), pitch);
         }
 
         void DriveRotorAudio(Component c, float ratio)
         {
-            DriveEngineSrc(c, ReadFit(_fRotorSrc, c) ?? FieldOn(c, "rotorSource"),
-                ReadFit(_fRotorExt, c) ?? FieldOn(c, "exteriorSound"), ratio * 0.7f, 0.9f + 0.15f * ratio);
+            object? src = ReadFit(_fRotorSrc, c) ?? FieldOn(c, "rotorSource");
+            if (ratio <= 0.02f) { StopEngineSrc(src); return; }
+            float pitchF = CompNum(c, "pitch", 1f);
+            float volF = CompNum(c, "volume", 1f);
+            float condition = CompNum(c, "condition", 1f);
+            if (condition <= 0.001f) condition = 1f;
+            float speedRatio = ratio;
+            float limit = CompNum(c, "angularSpeedLimit", 0f);
+            float speed = CompNum(c, "angularSpeed", 0f);
+            if (limit > 0.01f && speed > 0.01f)
+                speedRatio = Mathf.Clamp(speed / limit, 0f, 1.5f);
+            DriveEngineSrc(c, src, ReadFit(_fRotorExt, c) ?? FieldOn(c, "exteriorSound"),
+                Mathf.Max(0f, speedRatio * volF * condition), Mathf.Max(0.05f, speedRatio * pitchF));
         }
 
         void DriveTurbofanAudio(Component c, float ratio)
@@ -236,9 +276,43 @@ namespace NOReplay
             if (_tfanType != null && _tfanType.IsInstanceOfType(c))
                 src = ReadFit(_fTfanSrc, c);
             if (src == null) src = FieldOn(c, "turbineAudio");
-            DriveEngineSrc(c, src,
-                FieldOn(c, "exteriorSound") ?? FieldOn(c, "clip"),
-                ratio > 0.05f ? 0.5f : 0f, 0.7f + 0.4f * ratio);
+            DriveSpoolAudio(c, src, ratio);
+        }
+
+        void DriveJetAudio(Component c, float ratio)
+        {
+            if (c is Behaviour jb) jb.enabled = false;
+            var bind = JetRpmOf(c.GetType());
+            float max = 10000f;
+            if (bind.MaxRpm?.GetValue(c) is float mx && mx > 1f) max = mx;
+            bind.Rpm?.SetValue(c, max * Mathf.Clamp01(ratio));
+            object? src = bind.TurbineAudio != null ? bind.TurbineAudio.GetValue(c) : FieldOn(c, "turbineAudio");
+            DriveSpoolAudio(c, src, ratio);
+        }
+
+        void DriveSpoolAudio(Component c, object? src, float ratio)
+        {
+            if (ratio <= 0.02f) { StopEngineSrc(src); return; }
+            float maxPitch = CompNum(c, "turbineMaxPitch", 1f);
+            if (maxPitch < 0.05f) maxPitch = 1f;
+            float rpmRatio = Mathf.Clamp01(ratio);
+            RememberSource(src);
+            DriveEngineSrc(c, src, null, OrigVolume(src, 1f), rpmRatio * maxPitch);
+        }
+
+        void DriveTurbineEngineAudio(Component c, float ratio)
+        {
+            object? src = FieldOn(c, "turbineAudio");
+            if (c is Behaviour eb) eb.enabled = false;
+            if (ratio <= 0.02f) { StopEngineSrc(src); return; }
+            float pitchF = CompNum(c, "pitch", 1f);
+            float volF = CompNum(c, "volume", 1f);
+            float rpmRatio = 1f;
+            float powerRatio = ratio * ratio;
+            float pitch = rpmRatio - powerRatio * pitchF + pitchF;
+            float vol = (rpmRatio * 0.25f + powerRatio * 0.75f) * volF;
+            if (pitch < 0.05f) pitch = 1f;
+            DriveEngineSrc(c, src, null, Mathf.Max(0f, vol), pitch);
         }
 
         void DriveFanAudio(Component c, float ratio)
@@ -246,11 +320,36 @@ namespace NOReplay
             object? src = null;
             if (_fanType != null && _fanType.IsInstanceOfType(c))
                 src = ReadFit(_fFanSrc, c);
-            if (src == null && _propType != null && _propType.IsInstanceOfType(c))
+            if (src == null) src = FieldOn(c, "fanSource");
+            if (ratio <= 0.02f) { StopEngineSrc(src); return; }
+            float rpmRatio = Mathf.Clamp01(ratio);
+            float pitchF = CompNum(c, "pitch", 1f);
+            if (pitchF < 0.05f) pitchF = 1f;
+            float unthrottled = CompNum(c, "unthrottledVolume", 0.5f);
+            float throttled = CompNum(c, "throttledVolume", 1f);
+            float thrust = Mathf.Abs(CompNum(c, "currentThrust", 0f));
+            float maxThrust = CompNum(c, "maxThrust", 0f);
+            float thrustRatio = maxThrust > 1f && thrust > 0.01f ? Mathf.Clamp01(thrust / maxThrust) : rpmRatio;
+            float vol = rpmRatio * (unthrottled + thrustRatio * throttled);
+            DriveEngineSrc(c, src, FieldOn(c, "exteriorSound"), Mathf.Max(0f, vol), rpmRatio * pitchF);
+        }
+
+        void DrivePropFanAudio(Component c, float ratio)
+        {
+            object? src = null;
+            if (_propType != null && _propType.IsInstanceOfType(c))
                 src = ReadFit(_fPfanSrc, c);
-            if (src == null) src = FieldOn(c, "fanSource") ?? FieldOn(c, "source");
-            DriveEngineSrc(c, src, FieldOn(c, "exteriorSound"),
-                ratio > 0.05f ? 0.45f : 0f, 0.85f + 0.2f * ratio);
+            if (src == null) src = FieldOn(c, "source");
+            if (ratio <= 0.02f) { StopEngineSrc(src); return; }
+            float rpmRatio = Mathf.Clamp01(ratio);
+            float vol = CompNum(c, "volumeBase", 0.2f)
+                + CompNum(c, "rpmVolumePortion", 0.5f) * rpmRatio
+                + CompNum(c, "aoaVolumePortion", 0.3f) * ratio * rpmRatio;
+            float pitch = CompNum(c, "pitchMultiplier", 1f)
+                * (CompNum(c, "rpmPitchPortion", 0.9f) * rpmRatio
+                    + CompNum(c, "aoaPitchPortion", 0.1f) * ratio * rpmRatio);
+            if (pitch < 0.05f) pitch = 1f;
+            DriveEngineSrc(c, src, FieldOn(c, "exteriorSound"), Mathf.Max(0f, vol), pitch);
         }
 
         struct JetRpmBind
@@ -273,6 +372,7 @@ namespace NOReplay
             public FieldInfo? Amount;
             public FieldInfo? Flame;
             public FieldInfo? Glow;
+            public FieldInfo? Source;
         }
 
         static JetRpmBind JetRpmOf(Type t)
@@ -289,36 +389,31 @@ namespace NOReplay
             return b;
         }
 
-        void DriveJetAudio(Component c, float ratio)
-        {
-            if (c is Behaviour jb) jb.enabled = false;
-            var bind = JetRpmOf(c.GetType());
-            float max = 10000f;
-            if (bind.MaxRpm?.GetValue(c) is float mx && mx > 1f) max = mx;
-            bind.Rpm?.SetValue(c, max * Mathf.Clamp01(ratio));
-            object? src = bind.TurbineAudio != null ? bind.TurbineAudio.GetValue(c) : FieldOn(c, "turbineAudio");
-            DriveEngineSrc(c, src, null, ratio > 0.05f ? 0.55f : 0f, 0.75f + 0.35f * ratio);
-        }
-
         void DriveOneEngine(Component c, float ratio)
         {
             if (c == null) return;
             switch (c.GetType().Name)
             {
                 case "RotorShaft":
-                    DriveRotorAudio(c, ratio);
+                    DriveRotorAudio(c, ratio > 0.02f ? 1f : 0f);
                     break;
                 case "ConstantSpeedProp":
-                    DriveCspAudio(c, 1800f);
+                    DriveCspAudio(c, ratio);
                     break;
                 case "Turbojet":
-                case "Turbofan":
-                case "TurbineEngine":
                     DriveJetAudio(c, ratio);
                     break;
+                case "Turbofan":
+                    DriveTurbofanAudio(c, ratio);
+                    break;
+                case "TurbineEngine":
+                    DriveTurbineEngineAudio(c, ratio);
+                    break;
                 case "DuctedFan":
-                case "PropFan":
                     DriveFanAudio(c, ratio);
+                    break;
+                case "PropFan":
+                    DrivePropFanAudio(c, ratio);
                     break;
             }
         }
@@ -426,6 +521,14 @@ namespace NOReplay
                     Plugin.Log.LogInfo("Gear ACMI " + gameObject.name + " val=" + s.Gear + " down=" + _gearFromAcmi);
                 }
             }
+            if (s.HasThrottle)
+            {
+                _haveThr = true;
+                _thr = s.Throttle;
+            }
+            float thr = s.HasThrottle && s.Throttle >= 0f
+                ? Mathf.Clamp01(s.Throttle)
+                : (airborne ? 0.75f : 0.05f);
             bool gearDown = _haveGearAcmi ? _gearFromAcmi : !airborne;
             // Respect ACMI gear state – do not override with height check
             if (!_haveGearAcmi && _startedAir && gearDown && Physics.Raycast(transform.position + Vector3.up * 4f, Vector3.down, out var still, 1200f, ~0, QueryTriggerInteraction.Ignore) && still.distance > 2f)
@@ -509,7 +612,6 @@ namespace NOReplay
                         if (hub != null)
                             hub.Rotate(0f, nom * 6f * dir * dt, 0f, Space.Self);
                     }
-                    DriveRotorAudio(c, Plugin.Clock.Paused ? 0f : 1f);
                 }
             }
             if (_props.Length > 0 && !Plugin.Clock.Paused)
@@ -519,9 +621,12 @@ namespace NOReplay
                     var c = _props[i];
                     if (c == null) continue;
                     string tn = c.GetType().Name;
-                    float rpm = airborne ? 2000f : 900f;
+                    float spin = Mathf.Lerp(0.4f, 1f, thr);
                     if (tn == "ConstantSpeedProp")
                     {
+                        float limit = CompNum(c, "rpmLimit", 2000f);
+                        if (limit < 10f) limit = 2000f;
+                        float rpm = limit * spin;
                         WriteFit(_fCspRpm, c, rpm);
                         var hubGo = ReadFit(_fCspHub, c) as GameObject;
                         float dir = 1f;
@@ -529,33 +634,25 @@ namespace NOReplay
                         if (dv != null) dir = Convert.ToSingle(dv);
                         if (hubGo != null)
                             hubGo.transform.Rotate(0f, 0f, rpm * -6f * dir * dt, Space.Self);
-                        DriveCspAudio(c, rpm);
                     }
                     else if (tn == "DuctedFan")
                     {
                         float maxRpm = 2200f;
                         if (ReadFit(_fFanMaxRpm, c) is float mr && mr > 10f) maxRpm = mr;
-                        rpm = maxRpm * (airborne ? 0.9f : 0.55f);
-                        WriteFit(_fFanRpm, c, rpm);
-                        DriveFanAudio(c, airborne ? 0.9f : 0.45f);
+                        WriteFit(_fFanRpm, c, maxRpm * spin);
                     }
                     else if (tn == "Turbofan")
                     {
                         float max = 10000f;
                         if (ReadFit(_fTfanMax, c) is float mx && mx > 1f) max = mx;
-                        rpm = max * (airborne ? 0.8f : 0.35f);
-                        WriteFit(_fTfanRpm, c, rpm);
-                        DriveTurbofanAudio(c, airborne ? 0.8f : 0.35f);
+                        WriteFit(_fTfanRpm, c, max * spin);
                     }
                     else
                     {
                         float nom = 2200f;
                         if (ReadFit(_fPropNom, c) is float n && n > 10f) nom = n;
-                        float ratio = airborne ? 0.95f : 0.55f;
-                        rpm = nom * ratio;
-                        WriteFit(_fPropRpm, c, rpm);
-                        WriteFit(_fPropRatio, c, ratio);
-                        DriveFanAudio(c, airborne ? 0.9f : 0.45f);
+                        WriteFit(_fPropRpm, c, nom * spin);
+                        WriteFit(_fPropRatio, c, spin);
                     }
                 }
             }
@@ -568,16 +665,15 @@ namespace NOReplay
                     WriteFit(_fOperable, c, true);
                     WriteFit(_fHasFuel, c, true);
                     WriteFit(_fStarted, c, 1f);
-                    WriteFit(_fThrottle, c, airborne ? 0.7f : 0.2f);
-                    float rpm = 0.3f;
-                    if (_engType != null)
+                    WriteFit(_fThrottle, c, thr);
+                    float rpm = 0f;
+                    if (_engType != null && thr > 0.02f)
                     {
                         float max = 10000f;
-                        if (ReadFit(_fEngMaxPublic, c) is float mx) max = mx;
-                        rpm = max * (airborne ? 0.8f : 0.35f);
+                        if (ReadFit(_fEngMaxPublic, c) is float mx && mx > 1f) max = mx;
+                        rpm = max;
                     }
                     WriteFit(_fRpm, c, rpm);
-                    DriveTurbofanAudio(c, airborne ? 0.8f : 0.35f);
                 }
             }
             if (_tfans.Length > 0)
@@ -588,19 +684,11 @@ namespace NOReplay
                     if (c == null) continue;
                     if (c is Behaviour tb) tb.enabled = false;
                     float max = 10000f;
-                    if (ReadFit(_fTfanMax, c) is float mx) max = mx;
-                    float rpm = max * (airborne ? 0.8f : 0.35f);
-                    WriteFit(_fTfanRpm, c, rpm);
-                    DriveTurbofanAudio(c, airborne ? 0.8f : 0.35f);
+                    if (ReadFit(_fTfanMax, c) is float mx && mx > 1f) max = mx;
+                    WriteFit(_fTfanRpm, c, max * Mathf.Lerp(0.35f, 1f, thr));
                 }
             }
-            DriveAircraftEngines(airborne ? 0.8f : 0.4f);
-            if (s.HasThrottle)
-            {
-                _haveThr = true;
-                _thr = s.Throttle;
-            }
-            float thr = _haveThr ? _thr : (airborne ? 0.8f : 0.55f);
+            DriveAircraftEngines(Plugin.Clock.Paused ? 0f : thr);
             WriteThrottle(thr);
             CloseAirbrakes();
             DriveJetExhaust(true, thr);
@@ -1126,6 +1214,7 @@ namespace NOReplay
             float thrustRatio = throttle;
             bool allowAb = on && throttle > 0.92f;
             float abAmt = allowAb ? Mathf.Clamp01((throttle - 0.92f) / 0.08f) : 0f;
+            bool hear = on && !Plugin.Clock.Paused && Plugin.AudioNear(gameObject, 550f);
             var abFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             for (int i = 0; i < _nozzles.Length; i++)
             {
@@ -1154,38 +1243,69 @@ namespace NOReplay
                         upd?.Invoke(haze, _particleArgs);
                     }
                     var abs = _fAfterburners?.GetValue(c) as Array;
-                    if (abs == null) continue;
-                    foreach (var ab in abs)
+                    if (abs != null)
                     {
-                        if (ab == null) continue;
-                        var at = ab.GetType();
-                        if (!_abFields.TryGetValue(at, out var af))
+                        foreach (var ab in abs)
                         {
-                            af = new AbFields
+                            if (ab == null) continue;
+                            var at = ab.GetType();
+                            if (!_abFields.TryGetValue(at, out var af))
                             {
-                                Amount = at.GetField("afterburnerAmount", abFlags),
-                                Flame = at.GetField("flameRenderer", abFlags),
-                                Glow = at.GetField("nozzleGlowRenderer", abFlags),
-                            };
-                            _abFields[at] = af;
-                        }
-                        af.Amount?.SetValue(ab, abAmt);
-                        var flame = af.Flame?.GetValue(ab) as Renderer;
-                        if (flame != null)
-                        {
-                            flame.enabled = abAmt > 0.01f;
-                            if (flame.material != null)
-                            {
-                                flame.material.SetFloat("_Brightness", abAmt);
-                                flame.material.SetFloat("_Temperature", abAmt);
+                                af = new AbFields
+                                {
+                                    Amount = at.GetField("afterburnerAmount", abFlags),
+                                    Flame = at.GetField("flameRenderer", abFlags),
+                                    Glow = at.GetField("nozzleGlowRenderer", abFlags),
+                                    Source = at.GetField("source", abFlags),
+                                };
+                                _abFields[at] = af;
                             }
+                            af.Amount?.SetValue(ab, abAmt);
+                            var flame = af.Flame?.GetValue(ab) as Renderer;
+                            if (flame != null)
+                            {
+                                flame.enabled = abAmt > 0.01f;
+                                if (flame.material != null)
+                                {
+                                    flame.material.SetFloat("_Brightness", abAmt);
+                                    flame.material.SetFloat("_Temperature", abAmt);
+                                }
+                            }
+                            var glowR = af.Glow?.GetValue(ab) as Renderer;
+                            if (glowR != null) glowR.enabled = abAmt > 0.01f;
+                            object? abSrc = af.Source?.GetValue(ab);
+                            if (hear && abAmt > 0.01f)
+                            {
+                                RememberSource(abSrc);
+                                float dir = NozzleDirection(c);
+                                DriveEngineSrc(c, abSrc, null, abAmt * dir, OrigPitch(abSrc, 1f));
+                            }
+                            else
+                                StopEngineSrc(abSrc);
                         }
-                        var glowR = af.Glow?.GetValue(ab) as Renderer;
-                        if (glowR != null) glowR.enabled = abAmt > 0.01f;
                     }
+                    object? thrustSrc = FieldOn(c, "thrustAudio");
+                    if (hear && thrustRatio > 0.02f)
+                    {
+                        RememberSource(thrustSrc);
+                        float maxVol = CompNum(c, "thrustMaxVolume", 1f);
+                        DriveEngineSrc(c, thrustSrc, null, thrustRatio * maxVol * NozzleDirection(c), OrigPitch(thrustSrc, 1f));
+                    }
+                    else
+                        StopEngineSrc(thrustSrc);
                 }
                 catch { }
             }
+        }
+
+        float NozzleDirection(Component nozzle)
+        {
+            var cam = Camera.main;
+            if (cam == null || nozzle == null) return 1f;
+            Vector3 toNozzle = nozzle.transform.position - cam.transform.position;
+            if (toNozzle.sqrMagnitude < 0.01f) return 1f;
+            float facing = Vector3.Dot(toNozzle.normalized, nozzle.transform.forward);
+            return Mathf.Lerp(0.5f, 2f, facing);
         }
 
 

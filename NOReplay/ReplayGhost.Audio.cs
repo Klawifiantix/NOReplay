@@ -27,6 +27,8 @@ namespace NOReplay
 
         static readonly Dictionary<Type, AudioSrcProps> _audioProps = new Dictionary<Type, AudioSrcProps>();
         static readonly Dictionary<(Type, string), FieldInfo?> _fieldCache = new Dictionary<(Type, string), FieldInfo?>();
+        static readonly Dictionary<int, float> _origSourceVolume = new Dictionary<int, float>();
+        static readonly Dictionary<int, float> _origSourcePitch = new Dictionary<int, float>();
 
         static AudioSrcProps PropsFor(Type st)
         {
@@ -52,15 +54,56 @@ namespace NOReplay
             return p;
         }
 
+        static void RememberSource(object? src)
+        {
+            if (src is not UnityEngine.Object uo) return;
+            int id = uo.GetInstanceID();
+            if (_origSourceVolume.ContainsKey(id)) return;
+            try
+            {
+                var p = PropsFor(src.GetType());
+                if (p.Volume?.GetValue(src) is float vol) _origSourceVolume[id] = vol;
+                if (p.Pitch?.GetValue(src) is float pitch) _origSourcePitch[id] = pitch;
+            }
+            catch { }
+        }
+
+        static float OrigVolume(object? src, float fallback)
+        {
+            if (src is UnityEngine.Object uo && _origSourceVolume.TryGetValue(uo.GetInstanceID(), out float v) && v > 0.001f)
+                return v;
+            return fallback;
+        }
+
+        static float OrigPitch(object? src, float fallback)
+        {
+            if (src is UnityEngine.Object uo && _origSourcePitch.TryGetValue(uo.GetInstanceID(), out float v) && v > 0.001f)
+                return v;
+            return fallback;
+        }
+
+        static void StopEngineSrc(object? src)
+        {
+            if (src == null) return;
+            try
+            {
+                var p = PropsFor(src.GetType());
+                p.Volume?.SetValue(src, 0f);
+                src.GetType().GetMethod("Stop", Type.EmptyTypes)?.Invoke(src, null);
+            }
+            catch { }
+        }
+
         static void DriveEngineSrc(Component host, object? src, object? clip, float vol, float pitch)
         {
             if (host is Behaviour bh && bh.enabled) bh.enabled = false;
             if (src == null) return;
+            RememberSource(src);
             if (Plugin.Clock.Paused) vol = 0f;
             bool followed = host != null && Plugin.IsFollowed(host.gameObject);
-            if (host != null && !followed && !Plugin.AudioNear(host.gameObject, 550f))
+            if (vol <= 0.01f || (host != null && !followed && !Plugin.AudioNear(host.gameObject, 550f)))
             {
-                try { PropsFor(src.GetType()).Volume?.SetValue(src, 0f); } catch { }
+                StopEngineSrc(src);
                 return;
             }
             var p = PropsFor(src.GetType());
@@ -71,15 +114,12 @@ namespace NOReplay
                 p.Mute?.SetValue(src, false);
                 p.Enabled?.SetValue(src, true);
                 try { p.IgnoreListenerPause?.SetValue(src, true); } catch { }
-                p.SpatialBlend?.SetValue(src, followed ? 0f : 1f);
-                p.MinDistance?.SetValue(src, 12f);
-                p.MaxDistance?.SetValue(src, 700f);
-                p.DopplerLevel?.SetValue(src, 0f);
+                p.SpatialBlend?.SetValue(src, 1f);
                 p.Priority?.SetValue(src, followed ? 0 : 64);
                 p.Pitch?.SetValue(src, pitch);
                 p.Volume?.SetValue(src, vol);
                 object? playing = p.IsPlaying?.GetValue(src);
-                if (!(playing is bool on && on) && vol > 0.01f)
+                if (!(playing is bool on && on))
                     p.Play?.Invoke(src, null);
             }
             catch { }
@@ -110,6 +150,7 @@ namespace NOReplay
                 if (c == null) continue;
                 try
                 {
+                    RememberSource(c);
                     at.GetProperty("playOnAwake")?.SetValue(c, false);
                     at.GetProperty("volume")?.SetValue(c, 0f);
                     stop?.Invoke(c, null);
@@ -128,12 +169,9 @@ namespace NOReplay
                 if (c == null) continue;
                 try
                 {
+                    RememberSource(c);
                     at.GetProperty("playOnAwake")?.SetValue(c, false);
                     at.GetProperty("spatialBlend")?.SetValue(c, 1f);
-                    at.GetProperty("dopplerLevel")?.SetValue(c, 0f);
-                    at.GetProperty("minDistance")?.SetValue(c, 15f);
-                    at.GetProperty("maxDistance")?.SetValue(c, 700f);
-                    at.GetProperty("rolloffMode")?.SetValue(c, 1);
                 }
                 catch { }
             }
@@ -151,7 +189,27 @@ namespace NOReplay
                 if (c == null) continue;
                 try
                 {
+                    RememberSource(c);
                     at.GetProperty("playOnAwake")?.SetValue(c, false);
+                    at.GetProperty("volume")?.SetValue(c, 0f);
+                    stop?.Invoke(c, null);
+                }
+                catch { }
+            }
+        }
+
+        internal void SilenceSources()
+        {
+            var at = Type.GetType("UnityEngine.AudioSource, UnityEngine.AudioModule")
+                     ?? Plugin.FindGameType("AudioSource");
+            if (at == null) return;
+            var stop = at.GetMethod("Stop", Type.EmptyTypes);
+            foreach (var c in GetComponentsInChildren(at, true))
+            {
+                if (c == null) continue;
+                try
+                {
+                    RememberSource(c);
                     at.GetProperty("volume")?.SetValue(c, 0f);
                     stop?.Invoke(c, null);
                 }

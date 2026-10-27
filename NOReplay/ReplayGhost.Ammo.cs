@@ -447,7 +447,7 @@ namespace NOReplay
             return lo;
         }
 
-        static int CountRounds(AmmoStation st, float time)
+        int CountRounds(AmmoStation st, float time)
         {
             int sum = 0;
             for (int i = 0; i < st.Guns.Length; i++)
@@ -455,7 +455,7 @@ namespace NOReplay
             return sum;
         }
 
-        static int GunRounds(AmmoStation st, int gun, float time)
+        int GunRounds(AmmoStation st, int gun, float time)
         {
             if (gun < 0 || gun >= st.Bursts.Length) return 0;
             var bursts = st.Bursts[gun];
@@ -469,17 +469,20 @@ namespace NOReplay
             return n;
         }
 
-        static int RoundsOf(ReplayObject burst, float time)
+        int RoundsOf(ReplayObject burst, float time)
         {
-            if (burst == null) return 0;
-            float start = burst.EventTime();
-            if (start < 0f || time < start) return 0;
-            float end = burst.BurstEnd();
-            if (end < start) end = start;
-            float dur = Mathf.Min(time, end) - start;
-            float rpm = burst.Rpm > 1f ? burst.Rpm : 600f;
-            if (dur <= 0.001f) return 1;
-            int n = Mathf.RoundToInt(dur * rpm / 60f);
+            if (burst == null || burst.Samples == null || burst.Samples.Count == 0) return 0;
+            float start = burst.SpawnAt >= 0f ? burst.SpawnAt : burst.Samples[0].Time;
+            if (time < start) return 0;
+            float lastSample = burst.Samples[burst.Samples.Count - 1].Time;
+            float end = lastSample;
+            float rpm = ResolveEffectiveGunRpm(burst, out bool singleShot);
+            float step = Mathf.Clamp(60f / Mathf.Max(rpm, 1f), 0.008f, 30f);
+            if (singleShot && (end - start) < Mathf.Max(step * 0.9f, 0.7f))
+                end = start;
+            float until = Mathf.Min(time, end);
+            if (until + 0.0001f < start) return 0;
+            int n = Mathf.FloorToInt((until - start) / step + 0.0001f) + 1;
             return n < 1 ? 1 : n;
         }
 

@@ -568,7 +568,10 @@ namespace NOReplay
             FreezePhysics();
             SilenceAirframe();
             if (!_ordnance)
+            {
                 EnsureRadarsCurrent(true);
+                EnsureGunsCurrent(true);
+            }
             SuppressDamageFx();
             DisableFlightAssist();
             SnapSurfacesNow();
@@ -994,7 +997,12 @@ namespace NOReplay
                 ToggleOrdnanceFx(on);
             }
             if (!on)
+            {
+                HaltGuns(false);
                 StopSurfaceFx(false);
+            }
+            else
+                ResumeGuns();
             if (_visible != on)
             {
                 _visible = on;
@@ -1071,6 +1079,7 @@ namespace NOReplay
                     else if (!_ordnance)
                         PlayUnitWreckFx(transform.position, transform.rotation);
                 }
+                HaltGuns(false);
                 if (_visible)
                 {
                     Plugin.ReleaseCameraIfOn(gameObject);
@@ -1249,11 +1258,13 @@ namespace NOReplay
                 WriteUnitMotion(_spdMs, _velMs);
                 if (_ship && !_neutral)
                     DriveShipFx(_spdMs, _velMs);
-                if (NearMe(90f))
+                if (NearMe(350f))
                 {
                     if (_ship) DriveShipAudio(_spdMs);
                     else if (!_ordnance) DriveVehicleAudio(_spdMs);
                 }
+                else if (!_ordnance)
+                    StopGroundAudio();
             }
             if (!_ordnance && _visible)
             {
@@ -1299,6 +1310,8 @@ namespace NOReplay
         void EnterSleep()
         {
             _asleep = true;
+            HaltGuns(false);
+            SilenceSources();
             SetVisible(false);
             var tr = transform;
             for (int i = 0; i < tr.childCount; i++)
@@ -1318,6 +1331,7 @@ namespace NOReplay
                 if (ch != null) ch.gameObject.SetActive(true);
             }
             SetVisible(true);
+            ResumeGuns();
             ReapplyReplayHides();
             if (!_air && !_ship && !_ordnance)
                 Plugin.KillLaserBeams(gameObject);

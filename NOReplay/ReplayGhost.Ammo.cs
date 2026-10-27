@@ -535,9 +535,9 @@ namespace NOReplay
                 {
                     var launcher = st.Launchers[i];
                     if (launcher == null) continue;
-                    int full = i < st.LauncherFull.Length ? st.LauncherFull[i] : 0;
-                    int spend = Mathf.Clamp(remain, 0, full);
-                    launcher.ammo = full - spend;
+                    int launcherFull = i < st.LauncherFull.Length ? st.LauncherFull[i] : 0;
+                    int spend = Mathf.Clamp(remain, 0, launcherFull);
+                    launcher.ammo = launcherFull - spend;
                     remain -= spend;
                 }
             }
@@ -545,9 +545,9 @@ namespace NOReplay
             {
                 var gun = st.Guns[i];
                 if (gun == null) continue;
-                int full = i < st.GunFull.Length ? st.GunFull[i] : 0;
+                int gunFull = i < st.GunFull.Length ? st.GunFull[i] : 0;
                 int spent = GunRounds(st, i, time);
-                gun.ammo = Mathf.Clamp(full - spent, 0, Mathf.Max(full, 0));
+                gun.ammo = Mathf.Clamp(gunFull - spent, 0, Mathf.Max(gunFull, 0));
             }
             try { st.Station.AccountAmmo(); } catch { }
             int full = st.Station.FullAmmo;

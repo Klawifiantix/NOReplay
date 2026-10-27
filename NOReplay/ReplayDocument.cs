@@ -107,6 +107,18 @@ namespace NOReplay
             if (t.IndexOf("Weapon+", StringComparison.OrdinalIgnoreCase) >= 0) return true;
             return false;
         }
+
+        public static int CountAtOrBefore(ReplayObject[] items, float time)
+        {
+            int lo = 0, hi = items.Length;
+            while (lo < hi)
+            {
+                int mid = (lo + hi) >> 1;
+                if (items[mid].EventTime() <= time) lo = mid + 1;
+                else hi = mid;
+            }
+            return lo;
+        }
     }
 
     public class ReplayObject
@@ -328,18 +340,6 @@ namespace NOReplay
             if (Samples.Count > 0) return Samples[Samples.Count - 1].Time;
             float start = EventTime();
             return start >= 0f ? start : 0f;
-        }
-
-        public static int CountAtOrBefore(ReplayObject[] items, float time)
-        {
-            int lo = 0, hi = items.Length;
-            while (lo < hi)
-            {
-                int mid = (lo + hi) >> 1;
-                if (items[mid].EventTime() <= time) lo = mid + 1;
-                else hi = mid;
-            }
-            return lo;
         }
 
         public bool IsParkedStatic()

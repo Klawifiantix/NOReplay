@@ -183,11 +183,12 @@ namespace NOReplay
             {
                 var r = all[i];
                 if (r == null) continue;
-                if (_knownRends.Add(r) && !r.enabled)
+                if (_knownRends.Add(r) && !r.enabled && !RendererForcedOff(r))
                     _disabledInPrefab.Add(r);
             }
             _rend = all;
             SyncHardpointRenderers();
+            ReapplyReplayHides();
         }
 
         void SyncHardpointRenderers()
@@ -523,6 +524,7 @@ namespace NOReplay
 
         void OnDestroy()
         {
+            ClearStructural();
             DestroyDownwashTransforms();
             ReleaseGunVisuals();
             if (_trail != null)
@@ -761,6 +763,7 @@ namespace NOReplay
             _liveryPainted = false;
             FreezePhysics();
             HideLoadoutBits();
+            InvalidateStructure();
             EnsureGunsCurrent(true);
             EnsureRadarsCurrent(true);
             CacheLocals();
@@ -962,6 +965,7 @@ namespace NOReplay
             {
                 var r = _rend[i];
                 if (r == null) continue;
+                if (RendererForcedOff(r)) { r.enabled = false; continue; }
                 if (on && _disabledInPrefab.Contains(r)) continue;
                 r.enabled = on;
             }
@@ -971,6 +975,7 @@ namespace NOReplay
                 {
                     var r = _rend[i];
                     if (r == null) continue;
+                    if (RendererForcedOff(r)) { r.enabled = false; continue; }
                     if (on && _disabledInPrefab.Contains(r)) continue;
                     r.enabled = on;
                 }
@@ -978,7 +983,8 @@ namespace NOReplay
                 {
                     foreach (var r in GetComponentsInChildren<Renderer>(true))
                     {
-                        if (r == null || _disabledInPrefab.Contains(r)) continue;
+                        if (r == null || _disabledInPrefab.Contains(r) || RendererForcedOff(r)) continue;
+                        if (IsAmmoInactive(r.gameObject)) continue;
                         r.enabled = true;
                         r.gameObject.layer = 0;
                         if (!r.gameObject.activeSelf) r.gameObject.SetActive(true);
@@ -994,6 +1000,7 @@ namespace NOReplay
                 _visible = on;
                 Plugin.SetMapIcon(gameObject, on);
             }
+            ReapplyReplayHides();
         }
 
         internal void TryBoom(float t)
@@ -1070,6 +1077,7 @@ namespace NOReplay
                     StopOrdnanceAudio();
                     SetGhostVisible(false);
                 }
+                if (!_ordnance) TickStructural(false);
                 return;
             }
             _boomed = false;
@@ -1248,6 +1256,12 @@ namespace NOReplay
             }
             if (!_ordnance && _visible)
                 TickRadars();
+            if (!_ordnance)
+            {
+                TickStructural(true);
+                TickAmmo();
+                ReapplyInactiveOrdnance();
+            }
         }
 
         bool IsFar()
@@ -1284,6 +1298,7 @@ namespace NOReplay
                 if (ch != null) ch.gameObject.SetActive(true);
             }
             SetVisible(true);
+            ReapplyReplayHides();
             if (!_air && !_ship && !_ordnance)
                 Plugin.KillLaserBeams(gameObject);
         }
@@ -1298,9 +1313,10 @@ namespace NOReplay
             {
                 var r = _rend[i];
                 if (r == null) continue;
-                if (on && _disabledInPrefab.Contains(r)) continue;
+                if (on && (RendererForcedOff(r) || _disabledInPrefab.Contains(r))) continue;
                 r.enabled = on;
             }
+            if (on) ReapplyInactiveOrdnance();
         }
 
         void BindMotion()

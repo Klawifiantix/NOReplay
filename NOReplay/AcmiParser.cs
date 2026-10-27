@@ -180,6 +180,47 @@ namespace NOReplay
                         if (float.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out var spread))
                             obj.Spread = spread;
                     }
+                    else if (key.Equals("Part", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (byte.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out var partId))
+                        {
+                            obj.PartId = partId;
+                            obj.HasPart = true;
+                        }
+                    }
+                    else if (key.Equals("Kind", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!string.IsNullOrEmpty(val)) obj.PartKind = val;
+                    }
+                    else if (key.Equals("Path", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!string.IsNullOrEmpty(val)) obj.PartPath = val;
+                    }
+                    else if (key.Equals("Seg", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seg))
+                            obj.PartSeg = seg;
+                    }
+                    else if (key.Equals("Rotor", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out var rotor))
+                            obj.PartRotor = rotor;
+                    }
+                    else if (key.Equals("Vx", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (float.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out var vx))
+                            obj.PartVx = vx;
+                    }
+                    else if (key.Equals("Vy", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (float.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out var vy))
+                            obj.PartVy = vy;
+                    }
+                    else if (key.Equals("Vz", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (float.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out var vz))
+                            obj.PartVz = vz;
+                    }
                     else if (key.Equals("Visible", StringComparison.OrdinalIgnoreCase) && val.StartsWith("0"))
                     {
                         obj.RemovedAt = time;
@@ -233,6 +274,9 @@ namespace NOReplay
                     }
                 }
 
+                if (obj.SpawnAt < 0f && ReplayDocument.IsPartBreak(obj.Type))
+                    obj.SpawnAt = time;
+
                 if (hasPose)
                 {
                     sample.Time = time;
@@ -268,6 +312,16 @@ namespace NOReplay
                 if (o.HasTurrets) turretUnits++;
             if (turretUnits > 0)
                 Plugin.Log.LogInfo("Turmstellungen: " + turretUnits);
+
+            doc.IndexChildren();
+            int launches = 0, partBreaks = 0;
+            foreach (var o in doc.Objects)
+            {
+                if (o.OrdnanceLaunches != null) launches += o.OrdnanceLaunches.Length;
+                if (o.PartBreaks != null) partBreaks += o.PartBreaks.Length;
+            }
+            if (launches > 0 || partBreaks > 0)
+                Plugin.Log.LogInfo("Waffen-Index Starts=" + launches + " Teile=" + partBreaks);
 
             float max = doc.Duration;
             foreach (var o in doc.Objects)

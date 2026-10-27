@@ -193,7 +193,7 @@ namespace NOReplay
 
         static int GunIndex(Unit unit, Gun gun)
         {
-            var guns = unit.GetComponentsInChildren<Gun>(true);
+            var guns = TurretKeys.FindGuns(unit);
             for (int i = 0; i < guns.Length; i++)
                 if (guns[i] == gun) return i;
             return -1;
@@ -201,15 +201,7 @@ namespace NOReplay
 
         static string GunPath(Transform unit, Transform gun)
         {
-            var parts = new List<string>();
-            var t = gun;
-            while (t != null && t != unit)
-            {
-                parts.Add(t.name);
-                t = t.parent;
-            }
-            parts.Reverse();
-            return string.Join("/", parts);
+            return TurretKeys.Relative(unit, gun);
         }
 
         static float Field(object? obj, string name)

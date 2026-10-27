@@ -139,21 +139,45 @@ namespace NOReplay
         const float TurretStillDegrees = 0.05f;
 
         /// <summary>
+        /// Exact key, then a path suffix either way, then the only channel
+        /// when the unit recorded a single turret.
+        /// </summary>
+        TurretChannel? FindTurretChannel(string key)
+        {
+            if (_turrets == null || string.IsNullOrEmpty(key)) return null;
+            if (_turrets.TryGetValue(key, out var exact)) return exact;
+            foreach (var pair in _turrets)
+            {
+                string k = pair.Key;
+                if (string.IsNullOrEmpty(k)) continue;
+                if (k.EndsWith("/" + key, System.StringComparison.OrdinalIgnoreCase)
+                    || key.EndsWith("/" + k, System.StringComparison.OrdinalIgnoreCase))
+                    return pair.Value;
+            }
+            if (_turrets.Count == 1)
+            {
+                foreach (var pair in _turrets)
+                    return pair.Value;
+            }
+            return null;
+        }
+
+        /// <summary>
         /// A channel owns the visual pose when it has several samples or any
         /// angle away from zero. One static (0, 0) baseline does not.
         /// </summary>
         public bool TurretChannelMoves(string key)
         {
-            if (_turrets == null || string.IsNullOrEmpty(key)) return false;
-            return _turrets.TryGetValue(key, out var ch) && ch.Moves;
+            var ch = FindTurretChannel(key);
+            return ch != null && ch.Moves;
         }
 
         public bool TryTurret(string key, float time, out float traverse, out float elevation)
         {
             traverse = 0f;
             elevation = 0f;
-            if (_turrets == null || string.IsNullOrEmpty(key)) return false;
-            if (!_turrets.TryGetValue(key, out var ch)) return false;
+            var ch = FindTurretChannel(key);
+            if (ch == null) return false;
             int n = ch.Times.Count;
             if (n == 0) return false;
             if (n == 1 || time <= ch.Times[0])

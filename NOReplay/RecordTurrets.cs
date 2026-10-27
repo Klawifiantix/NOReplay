@@ -35,7 +35,7 @@ namespace NOReplay
         {
             if (host == null || unit == null) return;
             if (host.GetComponent<RecordTurrets>() != null) return;
-            var turrets = unit.GetComponentsInChildren<Turret>(true) ?? System.Array.Empty<Turret>();
+            var turrets = TurretKeys.FindTurrets(unit);
             // Aircraft weapon mounts spawn in OnStartClient, after this registration.
             if (turrets.Length == 0 && unit is not Aircraft) return;
             var rec = host.gameObject.AddComponent<RecordTurrets>();
@@ -115,8 +115,7 @@ namespace NOReplay
         bool Rescan()
         {
             if (_unit == null) return false;
-            var found = _unit.GetComponentsInChildren<Turret>(true);
-            if (found == null) return false;
+            var found = TurretKeys.FindTurrets(_unit);
             if (found.Length == _slots.Length)
             {
                 bool same = true;

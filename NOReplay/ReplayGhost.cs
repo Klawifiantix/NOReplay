@@ -442,6 +442,7 @@ namespace NOReplay
         internal void Adopt(ReplayObject track)
         {
             Track = track;
+            ClearAppliedLoadout();
             DetectKind();
             _ordnance = Plugin.IsOrdnancePublic(track.Type, track.Name);
             if (_ordnance) _ship = false;

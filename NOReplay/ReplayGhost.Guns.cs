@@ -30,36 +30,55 @@ namespace NOReplay
         float _nextGunScan;
         float _gunWatchStart = -1f;
         float _gunAimUntil;
+        Quaternion _aimYaw;
+        Quaternion _aimPitch;
+        bool _aimPose;
+        Turret[] _turretComps = Array.Empty<Turret>();
+        string? _appliedLoadout;
         static bool _simLogged;
         static bool _simFailLogged;
 
-        internal bool HasTurretTrack => Track != null && Track.HasTurrets;
+        internal bool HasMovingTurretTrack => Track != null && Track.HasMovingTurrets;
+
+        internal bool LoadoutAlreadyApplied(string loadout)
+        {
+            return _appliedLoadout != null && string.Equals(_appliedLoadout, loadout, StringComparison.Ordinal);
+        }
+
+        internal void MarkLoadoutApplied(string loadout)
+        {
+            _appliedLoadout = loadout;
+        }
+
+        internal void ClearAppliedLoadout()
+        {
+            _appliedLoadout = null;
+        }
 
         void AimGuns()
         {
             if (_ordnance) return;
             EnsureGunsCurrent(false);
-            if (HasTurretTrack)
-            {
+            KeepTurretsDisabled();
+            bool bursting = _aimPose && _gunAimUntil > Time.unscaledTime;
+            if (HasMovingTurretTrack)
                 ApplyTurretAngles(Plugin.Clock.Time);
-                return;
-            }
-            if (_neutral) return;
-            if (_gunAimUntil > Time.unscaledTime) return;
-            for (int i = 0; i < _turrets.Length; i++)
-            {
-                if (_turrets[i] != null) _turrets[i].localRotation = Quaternion.identity;
-                if (_elev[i] != null) _elev[i].localRotation = Quaternion.identity;
-            }
+            // A single (0, 0) baseline is not a pose. While the burst window is
+            // open, keep the shot aim. After it closes, leave the last rotation
+            // instead of snapping the barrel straight ahead.
+            if (bursting)
+                ApplyBurstAim();
         }
 
         internal void ApplyTurretAngles(float time)
         {
             EnsureGunsCurrent(false);
+            KeepTurretsDisabled();
             if (Track == null) return;
             for (int i = 0; i < _turrets.Length; i++)
             {
                 string key = i < _turretKeys.Length ? _turretKeys[i] : "";
+                if (!Track.TurretChannelMoves(key)) continue;
                 if (!Track.TryTurret(key, time, out float trav, out float elev)) continue;
                 var elevTr = _elev[i];
                 if (elevTr != null)
@@ -72,19 +91,61 @@ namespace NOReplay
 
         internal void AimGun(Vector3 worldDir)
         {
-            if (HasTurretTrack) return;
             EnsureGunsCurrent(false);
+            KeepTurretsDisabled();
             if (worldDir.sqrMagnitude < 0.01f || Drive == null) return;
+            if (!AnyTurretOpenForBurst()) return;
             _gunAimUntil = Time.unscaledTime + 0.15f;
             var localDir = Drive.InverseTransformDirection(worldDir.normalized);
             float yaw = Mathf.Atan2(localDir.x, localDir.z) * Mathf.Rad2Deg;
             float pitch = -Mathf.Asin(Mathf.Clamp(localDir.y, -1f, 1f)) * Mathf.Rad2Deg;
-            var yawQ = Quaternion.Euler(0f, yaw, 0f);
-            var pitchQ = Quaternion.Euler(pitch, 0f, 0f);
+            _aimYaw = Quaternion.Euler(0f, yaw, 0f);
+            _aimPitch = Quaternion.Euler(pitch, 0f, 0f);
+            _aimPose = true;
+            ApplyBurstAim();
+        }
+
+        bool AnyTurretOpenForBurst()
+        {
+            if (_turrets.Length == 0) return !HasMovingTurretTrack;
             for (int i = 0; i < _turrets.Length; i++)
             {
-                if (_turrets[i] != null) _turrets[i].localRotation = yawQ;
-                if (_elev[i] != null) _elev[i].localRotation = pitchQ;
+                if (!TurretPoseIsRecorded(i)) return true;
+            }
+            return false;
+        }
+
+        bool TurretPoseIsRecorded(int index)
+        {
+            if (Track == null || index < 0) return false;
+            string key = index < _turretKeys.Length ? _turretKeys[index] : "";
+            return Track.TurretChannelMoves(key);
+        }
+
+        void ApplyBurstAim()
+        {
+            for (int i = 0; i < _turrets.Length; i++)
+            {
+                if (TurretPoseIsRecorded(i)) continue;
+                if (_turrets[i] != null) _turrets[i].localRotation = _aimYaw;
+                if (_elev[i] != null) _elev[i].localRotation = _aimPitch;
+            }
+        }
+
+        void KeepTurretsDisabled()
+        {
+            for (int i = 0; i < _turretComps.Length; i++)
+            {
+                var turret = _turretComps[i];
+                if (turret != null && turret.enabled)
+                    turret.enabled = false;
+            }
+            if (_gunRt == null) return;
+            for (int i = 0; i < _gunRt.Length; i++)
+            {
+                var rt = _gunRt[i];
+                if (rt != null && rt.Gun is Behaviour gun && gun.enabled)
+                    gun.enabled = false;
             }
         }
 
@@ -92,7 +153,7 @@ namespace NOReplay
         {
             var rt = ResolveGun(burst);
             if (rt == null) return;
-            if (HasTurretTrack)
+            if (HasMovingTurretTrack)
                 ApplyTurretAngles(Plugin.Clock.Time);
             KickRecoil(rt);
             KickSpin(rt);
@@ -105,6 +166,7 @@ namespace NOReplay
         internal void HaltGuns(bool clearBullets)
         {
             _gunAimUntil = 0f;
+            _aimPose = false;
             _ejects.Clear();
             if (_gunRt == null) return;
             for (int i = 0; i < _gunRt.Length; i++)
@@ -182,6 +244,7 @@ namespace NOReplay
             _muzzleIds.Clear();
             _turrets = Array.Empty<Transform>();
             _elev = Array.Empty<Transform>();
+            _turretComps = Array.Empty<Turret>();
             _turretKeys = Array.Empty<string>();
             _gunStampValid = false;
             _nextGunScan = 0f;
@@ -241,7 +304,7 @@ namespace NOReplay
         /// Rebind when the turret or gun set changes so aim, muzzle flash and
         /// HoldLocals exclusion follow the new mounts.
         /// </summary>
-        void EnsureGunsCurrent(bool force)
+        internal void EnsureGunsCurrent(bool force)
         {
             if (_ordnance) return;
             if (!force && _gunsBound && Time.unscaledTime < _nextGunScan) return;
@@ -284,6 +347,7 @@ namespace NOReplay
                 }
             }
             var turrets = GetComponentsInChildren<Turret>(true);
+            _turretComps = turrets;
             _turrets = new Transform[turrets.Length];
             _elev = new Transform[turrets.Length];
             _turretKeys = TurretKeys.Build(transform, turrets);

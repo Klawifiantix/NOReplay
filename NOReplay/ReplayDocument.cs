@@ -122,7 +122,30 @@ namespace NOReplay
                 ch.Traverse.Add(traverse);
                 ch.Elevation.Add(elevation);
             }
+            if (ch.Times.Count > 1
+                || Mathf.Abs(traverse) > TurretStillDegrees
+                || Mathf.Abs(elevation) > TurretStillDegrees)
+                ch.Moves = true;
             HasTurrets = true;
+            if (ch.Moves) HasMovingTurrets = true;
+        }
+
+        /// <summary>
+        /// True when some turret channel moved, or holds a non-zero pose.
+        /// One 0.00|0.00 spawn sample does not count.
+        /// </summary>
+        public bool HasMovingTurrets { get; private set; }
+
+        const float TurretStillDegrees = 0.05f;
+
+        /// <summary>
+        /// A channel owns the visual pose when it has several samples or any
+        /// angle away from zero. One static (0, 0) baseline does not.
+        /// </summary>
+        public bool TurretChannelMoves(string key)
+        {
+            if (_turrets == null || string.IsNullOrEmpty(key)) return false;
+            return _turrets.TryGetValue(key, out var ch) && ch.Moves;
         }
 
         public bool TryTurret(string key, float time, out float traverse, out float elevation)
@@ -164,6 +187,7 @@ namespace NOReplay
             public readonly List<float> Times = new List<float>();
             public readonly List<float> Traverse = new List<float>();
             public readonly List<float> Elevation = new List<float>();
+            public bool Moves;
         }
 
         public bool IsParkedStatic()

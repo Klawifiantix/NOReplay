@@ -56,7 +56,7 @@ namespace NOReplay
                     _nextShot[o.Id] = time;
                     continue;
                 }
-                if (!ghost.HasTurretTrack && o.TrySample(time, out var aim))
+                if (o.TrySample(time, out var aim))
                 {
                     var dir = AimDir(aim);
                     if (dir.sqrMagnitude > 0.01f) ghost.AimGun(dir);

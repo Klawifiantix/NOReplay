@@ -7,9 +7,11 @@ using UnityEngine;
 namespace NOReplay
 {
     /// <summary>
-    /// Samples every Turret on a recorded unit. Angles are the game's own
-    /// traverseAngle / elevationAngle. Idle turrets are written once, then only
-    /// when an angle moves more than half a degree.
+    /// Samples every Turret on a recorded unit. Angles are the visual local
+    /// pose (traverse = turret yaw, elevation = elevation-transform pitch).
+    /// traverseAngle / elevationAngle are only used when that transform is
+    /// missing. Idle turrets are written once, then only when an angle moves
+    /// more than half a degree.
     /// Aircraft stay attached even when no turret exists yet: the Chicane chin
     /// gun and gunpods are hardpoint mounts spawned after RegisterUnit.
     /// </summary>
@@ -27,6 +29,7 @@ namespace NOReplay
         bool _baseline;
         static FieldInfo? _traverse;
         static FieldInfo? _elevation;
+        static FieldInfo? _elevTransform;
 
         internal static void Attach(RecordUnit host, Unit unit)
         {
@@ -56,13 +59,27 @@ namespace NOReplay
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             _traverse = typeof(Turret).GetField("traverseAngle", flags);
             _elevation = typeof(Turret).GetField("elevationAngle", flags);
+            _elevTransform = typeof(Turret).GetField("elevationTransform", flags);
+        }
+
+        static Transform? ElevationOf(Turret turret)
+        {
+            if (_elevTransform == null) return null;
+            try { return _elevTransform.GetValue(turret) as Transform; }
+            catch { return null; }
         }
 
         void LateUpdate()
         {
-            if (!Record.Active || _host == null || _unit == null)
+            if (_host == null || _unit == null)
             {
                 enabled = false;
+                return;
+            }
+            if (!Record.Active)
+            {
+                // Keep a baseline that arrived before recording was armed.
+                if (_pending == null) enabled = false;
                 return;
             }
             if (_pending != null && _host.props.Count == 0)
@@ -131,9 +148,15 @@ namespace NOReplay
                 if (t != null && prev.TryGetValue(t, out var old) && old.Key == keys[i])
                 {
                     next[i] = old;
+                    if (old.Elev == null) old.Elev = ElevationOf(t);
                     continue;
                 }
-                next[i] = new Slot { Turret = t, Key = keys[i] };
+                next[i] = new Slot
+                {
+                    Turret = t,
+                    Key = keys[i],
+                    Elev = t != null ? ElevationOf(t) : null
+                };
             }
             _slots = next;
         }
@@ -147,11 +170,11 @@ namespace NOReplay
             {
                 var s = _slots[i];
                 if (s.Turret == null || string.IsNullOrEmpty(s.Key)) continue;
-                float trav = Read(_traverse, s.Turret);
-                float elev = Read(_elevation, s.Turret);
+                float trav = ReadTraverse(s);
+                float elev = ReadElevation(s);
                 bool changed = !s.Seen
                     || Mathf.Abs(Mathf.DeltaAngle(s.Trav, trav)) > ChangeDegrees
-                    || Mathf.Abs(Mathf.DeltaAngle(s.Elev, elev)) > ChangeDegrees;
+                    || Mathf.Abs(Mathf.DeltaAngle(s.ElevAng, elev)) > ChangeDegrees;
                 if (!forceAll && !changed) continue;
                 if (any) sb.Append(';');
                 any = true;
@@ -160,7 +183,7 @@ namespace NOReplay
                 sb.Append('|');
                 sb.Append(elev.ToString("0.00", CultureInfo.InvariantCulture));
                 s.Trav = trav;
-                s.Elev = elev;
+                s.ElevAng = elev;
                 s.Seen = true;
             }
             if (any) Flush(sb.ToString());
@@ -168,18 +191,40 @@ namespace NOReplay
 
         void Flush(string value)
         {
-            if (_host == null || !Record.Active || Record.Host == null) return;
-            if (_host.props.Count > 0)
+            if (_host == null) return;
+            // Never drop a captured pose. Recording may still be arming, or the
+            // unit line may still own props until the next writer tick.
+            if (!Record.Active || Record.Host == null || _host.props.Count > 0)
             {
                 _pending = value;
                 return;
             }
             var eng = _host.Engine;
-            if (eng == null || RecordEngine.writer == null) return;
+            if (eng == null || RecordEngine.writer == null)
+            {
+                _pending = value;
+                return;
+            }
             _pending = null;
             _host.props["Turrets"] = value;
             eng.invokeWriterUpdate(_host);
             _host.props.Remove("Turrets");
+        }
+
+        static float ReadTraverse(Slot s)
+        {
+            var turret = s.Turret;
+            if (turret == null) return 0f;
+            var tr = turret.transform;
+            if (tr == null) return Read(_traverse, turret);
+            return Mathf.DeltaAngle(0f, tr.localEulerAngles.y);
+        }
+
+        static float ReadElevation(Slot s)
+        {
+            if (s.Elev != null)
+                return Mathf.DeltaAngle(0f, s.Elev.localEulerAngles.x);
+            return s.Turret != null ? Read(_elevation, s.Turret) : 0f;
         }
 
         static float Read(FieldInfo? field, Turret turret)
@@ -196,9 +241,10 @@ namespace NOReplay
         sealed class Slot
         {
             public Turret? Turret;
+            public Transform? Elev;
             public string Key = "";
             public float Trav;
-            public float Elev;
+            public float ElevAng;
             public bool Seen;
         }
     }

@@ -39,6 +39,7 @@ namespace NOReplay
             UpdatePose();
             Engine.invokeWriterUpdate(this);
             props.Clear();
+            RecordTurrets.Attach(this, ship);
 
             if (unit != null)
             {

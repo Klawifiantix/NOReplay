@@ -146,6 +146,15 @@ namespace NOReplay
                     {
                         if (!string.IsNullOrEmpty(val)) obj.Weapon = val;
                     }
+                    else if (key.Equals("Gun", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out var gunIndex))
+                            obj.GunIndex = gunIndex;
+                    }
+                    else if (key.Equals("Turrets", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ParseTurrets(obj, val, time);
+                    }
                     else if (key.Equals("Rpm", StringComparison.OrdinalIgnoreCase))
                     {
                         if (float.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out var rpm))
@@ -254,6 +263,11 @@ namespace NOReplay
                 Plugin.Log.LogInfo("Shell-Pfad ergänzt: " + filled);
             if (bursts > 0)
                 Plugin.Log.LogInfo("Kanonenstöße: " + bursts);
+            int turretUnits = 0;
+            foreach (var o in doc.Objects)
+                if (o.HasTurrets) turretUnits++;
+            if (turretUnits > 0)
+                Plugin.Log.LogInfo("Turmstellungen: " + turretUnits);
 
             float max = doc.Duration;
             foreach (var o in doc.Objects)
@@ -421,6 +435,25 @@ namespace NOReplay
             if (bits.Length > 6 && TryNum(bits, 6, out var x)) { s.X = x; any = true; }
             if (bits.Length > 7 && TryNum(bits, 7, out var z)) { s.Z = z; any = true; }
             return any;
+        }
+
+        static void ParseTurrets(ReplayObject obj, string val, float time)
+        {
+            if (string.IsNullOrEmpty(val)) return;
+            var segs = val.Split(';');
+            for (int i = 0; i < segs.Length; i++)
+            {
+                string seg = segs[i];
+                if (seg.Length == 0) continue;
+                int colon = seg.IndexOf(':');
+                if (colon <= 0 || colon >= seg.Length - 1) continue;
+                string key = seg.Substring(0, colon);
+                var ang = seg.Substring(colon + 1).Split('|');
+                if (ang.Length < 2) continue;
+                if (!float.TryParse(ang[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var trav)) continue;
+                if (!float.TryParse(ang[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var elev)) continue;
+                obj.AddTurretKey(time, key, trav, elev);
+            }
         }
 
         static bool TryNum(string[] bits, int i, out float v)

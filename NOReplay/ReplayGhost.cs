@@ -523,6 +523,7 @@ namespace NOReplay
         void OnDestroy()
         {
             DestroyDownwashTransforms();
+            ReleaseGunVisuals();
             if (_trail != null)
             {
                 UnityEngine.Object.Destroy(_trail.gameObject);
@@ -858,7 +859,11 @@ namespace NOReplay
         {
             var root = Drive;
             var all = root.GetComponentsInChildren<Transform>(true);
-            if (_parts.Length > 0 && all.Length <= _parts.Length + 1) return;
+            if (_parts.Length > 0 && all.Length <= _parts.Length + 1)
+            {
+                ProtectGunParts();
+                return;
+            }
             int n = 0;
             for (int i = 0; i < all.Length; i++)
             {
@@ -906,6 +911,7 @@ namespace NOReplay
                 _partSkip[k] = skip;
                 k++;
             }
+            ProtectGunParts();
         }
 
         void HoldLocals()
@@ -1104,6 +1110,7 @@ namespace NOReplay
             if (_air && Drive.childCount != _lastKids)
             {
                 _lastKids = Drive.childCount;
+                InvalidateGuns();
                 RefreshRenderers();
                 if (_visible) SetGhostVisible(true);
                 _liveryPainted = false;
@@ -1122,7 +1129,8 @@ namespace NOReplay
                 HoldLocals();
                 HoldAirbrakes();
             }
-            if (!_ordnance && !_neutral) AimGuns();
+            if (!_ordnance) AimGuns();
+            TickGunVisuals();
 
             float nowT = Plugin.Clock.Time;
             bool rewound = _prevT >= 0f && nowT + 0.02f < _prevT;

@@ -27,46 +27,57 @@ namespace NOReplay
             if (gun == null || !Record.Active || Plugin.CurrentDoc != null) return;
             if (gun.GetComponentInParent<ReplayGhost>() != null) return;
             int id = gun.GetInstanceID();
-            if (!_open.ContainsKey(id))
+            var recorder = Recorder();
+            if (recorder == null) return;
+            if (_open.TryGetValue(id, out var existing))
             {
-                var recorder = Recorder();
-                if (recorder == null) return;
-                var burst = Begin(gun, recorder);
-                if (burst != null)
+                existing.LastShot = Time.time;
+                if (Time.time - existing.LastAim >= 0.08f)
+                    WriteAim(existing, gun, recorder);
+                if (existing.SingleShot || ClipSpent(gun))
                 {
-                    _open[id] = burst;
-                    Record.Log?.LogInfo("GunBurst start " + (gun.attachedUnit?.unitName ?? "?"));
+                    End(existing, recorder);
+                    _open.Remove(id);
                 }
+                return;
+            }
+            var burst = Begin(gun, recorder);
+            if (burst != null && burst.Open)
+            {
+                _open[id] = burst;
+                Record.Log?.LogInfo("GunBurst start " + (gun.attachedUnit?.unitName ?? "?"));
             }
         }
-        Gun[] _guns = Array.Empty<Gun>();
-        float _scan;
-        FieldInfo? _ticks;
         FieldInfo? _muzzles;
         FieldInfo? _rate;
         FieldInfo? _muzzleVel;
         FieldInfo? _spread;
         FieldInfo? _info;
-        FieldInfo? _lastFired;
+        FieldInfo? _magCap;
+        FieldInfo? _reloadTime;
+        FieldInfo? _bulletsLoaded;
 
         void Awake()
         {
             Instance = this;
             _engine = Record.Host != null ? Record.Host.GetComponent<RecordEngine>() : null;
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            _ticks = typeof(Gun).GetField("ticksSinceTriggerPull", flags);
             _muzzles = typeof(Gun).GetField("muzzles", flags);
             _rate = typeof(Gun).GetField("fireRate", flags);
             _muzzleVel = typeof(Gun).GetField("muzzleVelocity", flags);
             _spread = typeof(Gun).GetField("bulletSpread", flags);
             _info = typeof(Weapon).GetField("info", flags);
-            _lastFired = typeof(Gun).GetField("lastFired", flags);
+            _magCap = typeof(Gun).GetField("magazineCapacity", flags);
+            _reloadTime = typeof(Gun).GetField("reloadTime", flags);
+            _bulletsLoaded = typeof(Gun).GetField("bulletsLoaded", flags);
         }
 
-        void Update()
+        void OnDisable() => FlushAll();
+
+        void OnDestroy() => FlushAll();
+
+        public override void Update()
         {
-            // Bursts start via NotifyFire. Aim and the end-of-burst poll share a 0.1s clock
-            // so lastFired is not boxed every frame.
             if (_open.Count == 0) return;
             var recorder = Recorder();
             if (recorder == null) return;
@@ -76,21 +87,8 @@ namespace NOReplay
             {
                 var burst = pair.Value;
                 var gun = burst.Gun;
-                if (gun == null)
-                {
-                    _toEnd.Add(pair.Key);
-                    continue;
-                }
-                if (now - burst.LastAim < 0.1f)
-                    continue;
-                bool firing = false;
-                if (_lastFired?.GetValue(gun) is float fired)
-                    firing = Time.timeSinceLevelLoad - fired < 0.5f;
-                else if (_ticks?.GetValue(gun) is int ticks)
-                    firing = ticks > 0;
-                if (firing)
-                    WriteAim(burst, gun, recorder);
-                else if (now - burst.LastAim > 0.15f)
+                if (gun == null || gun.attachedUnit == null || gun.attachedUnit.disabled
+                    || now - burst.LastShot > burst.HoldWindow)
                     _toEnd.Add(pair.Key);
             }
             for (int i = 0; i < _toEnd.Count; i++)
@@ -104,6 +102,43 @@ namespace NOReplay
             }
         }
 
+        void FlushAll()
+        {
+            if (_open.Count == 0) return;
+            var recorder = Recorder();
+            var pending = new List<Burst>(_open.Values);
+            _open.Clear();
+            if (recorder == null) return;
+            for (int i = 0; i < pending.Count; i++)
+            {
+                try { End(pending[i], recorder); }
+                catch { }
+            }
+        }
+
+        public float GetEffectiveRpm(Gun gun, out bool singleShot, out float interval)
+        {
+            float fireRate = _rate?.GetValue(gun) is float r && r > 0f ? r : 600f;
+            int mag = _magCap?.GetValue(gun) is int m ? m : 0;
+            float reload = _reloadTime?.GetValue(gun) is float rt ? rt : 0f;
+            float fireInterval = 60f / Mathf.Max(fireRate, 1f);
+            if (mag == 1 && reload > 0f)
+            {
+                singleShot = true;
+                interval = Mathf.Max(fireInterval, reload);
+                return 60f / interval;
+            }
+            singleShot = fireInterval >= 0.25f;
+            interval = fireInterval;
+            return fireRate;
+        }
+
+        bool ClipSpent(Gun gun)
+        {
+            return _bulletsLoaded?.GetValue(gun) is int bl && bl <= 0
+                && _reloadTime?.GetValue(gun) is float rt && rt > 0.15f;
+        }
+
         Burst? Begin(Gun gun, RecordEngine recorder)
         {
             var unit = gun.attachedUnit;
@@ -115,7 +150,7 @@ namespace NOReplay
                 if (acmi != null) parent = acmi.tacviewId;
             }
             var info = _info?.GetValue(gun);
-            float rpm = _rate?.GetValue(gun) is float r ? r : 0f;
+            float rpm = GetEffectiveRpm(gun, out bool singleShot, out float interval);
             float muzzle = _muzzleVel?.GetValue(gun) is float m ? m : 0f;
             float spread = _spread?.GetValue(gun) is float s ? s : 0f;
             float drag = Field(info, "dragCoef");
@@ -124,7 +159,11 @@ namespace NOReplay
             var burst = new Burst
             {
                 Host = gameObject.AddComponent<RecordObject>(),
-                Gun = gun
+                Gun = gun,
+                LastShot = Time.time,
+                HoldWindow = Mathf.Clamp(interval * 1.6f, 0.06f, 0.25f),
+                SingleShot = singleShot,
+                Open = true
             };
             burst.Host.unitId = (long)System.Threading.Interlocked.Increment(ref _next) | (1L << 34);
             burst.Host.tacviewId = burst.Host.unitId;
@@ -144,6 +183,11 @@ namespace NOReplay
             recorder.invokeWriterUpdate(burst.Host);
             burst.Host.props.Clear();
             WriteAim(burst, gun, recorder);
+            if (singleShot || ClipSpent(gun))
+            {
+                End(burst, recorder);
+                burst.Open = false;
+            }
             return burst;
         }
 
@@ -216,6 +260,10 @@ namespace NOReplay
             public RecordObject Host = null!;
             public Gun Gun = null!;
             public float LastAim = -1f;
+            public float LastShot;
+            public float HoldWindow;
+            public bool SingleShot;
+            public bool Open;
         }
     }
 }

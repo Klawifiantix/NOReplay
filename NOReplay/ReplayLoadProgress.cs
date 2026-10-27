@@ -26,7 +26,7 @@ namespace NOReplay
             }
         }
 
-        public static void Set(float t, string extra = null)
+        public static void Set(float t, string? extra = null)
         {
             _progress = Mathf.Clamp01(t);
             if (!string.IsNullOrEmpty(extra))

@@ -48,8 +48,9 @@ namespace NOReplay
                 var o = _bursts[i];
                 if (o.Samples.Count == 0) continue;
                 float start = o.SpawnAt >= 0f ? o.SpawnAt : o.Samples[0].Time;
-                float end = o.RemovedAt >= 0f ? o.RemovedAt : o.Samples[o.Samples.Count - 1].Time;
-                if (time < start || time > end + 0.05f) continue;
+                float lastSample = o.Samples[o.Samples.Count - 1].Time;
+                float end = lastSample;
+                if (time < start) continue;
                 var ghost = GhostFor(FindParent(o));
                 if (ghost == null || !ghost.gameObject.activeInHierarchy || ghost.IsWrecked || !ghost.IsTrackAlive())
                 {
@@ -61,13 +62,18 @@ namespace NOReplay
                     var dir = AimDir(aim);
                     if (dir.sqrMagnitude > 0.01f) ghost.AimGun(dir);
                 }
+                float rpm = ghost.ResolveEffectiveGunRpm(o, out bool singleShot);
+                float step = Mathf.Clamp(60f / rpm, 0.008f, 30f);
+                // Older ACMI files kept a single cannon shot open for ~0.5s.
+                if (singleShot && (end - start) < Mathf.Max(step * 0.9f, 0.7f))
+                    end = start;
+                float grace = singleShot ? Mathf.Clamp(step, 0.35f, 2f) : 0.05f;
+                if (time > end + grace) continue;
                 if (!Plugin.AudioNear(ghost.gameObject, 3500f))
                 {
                     _nextShot[o.Id] = time;
                     continue;
                 }
-                float rpm = o.Rpm > 1f ? o.Rpm : 600f;
-                float step = Mathf.Clamp(60f / rpm, 0.008f, 0.5f);
                 if (!_nextShot.TryGetValue(o.Id, out float next) || next < start)
                     next = Mathf.Max(start, time - step);
                 if (next < time - step * 3f)

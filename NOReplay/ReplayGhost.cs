@@ -189,6 +189,7 @@ namespace NOReplay
             _rend = all;
             SyncHardpointRenderers();
             ReapplyReplayHides();
+            ProtectPropulsionParts();
         }
 
         void SyncHardpointRenderers()
@@ -568,7 +569,10 @@ namespace NOReplay
             FreezePhysics();
             SilenceAirframe();
             if (!_ordnance)
+            {
                 EnsureRadarsCurrent(true);
+                EnsureGunsCurrent(true);
+            }
             SuppressDamageFx();
             DisableFlightAssist();
             SnapSurfacesNow();
@@ -604,6 +608,8 @@ namespace NOReplay
                 Plugin.KillLaserBeams(gameObject);
             }
             if (_ordnance) IgniteMissileFx();
+            if (!_ordnance)
+                MuteAllSources();
             SpatializeSources();
             if (!_neutral) Invoke(nameof(SpatializeSources), 1.5f);
             RefreshRenderers();
@@ -873,6 +879,7 @@ namespace NOReplay
             {
                 ProtectGunParts();
                 ProtectRadarParts();
+                ProtectPropulsionParts();
                 return;
             }
             int n = 0;
@@ -898,6 +905,10 @@ namespace NOReplay
                     || nm.IndexOf("Hub", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Prop", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Fan", StringComparison.OrdinalIgnoreCase) >= 0
+                    || nm.IndexOf("Rotat", StringComparison.OrdinalIgnoreCase) >= 0
+                    || nm.IndexOf("Spinner", StringComparison.OrdinalIgnoreCase) >= 0
+                    || nm.IndexOf("Disc", StringComparison.OrdinalIgnoreCase) >= 0
+                    || nm.IndexOf("Disk", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Swash", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Gear", StringComparison.OrdinalIgnoreCase) >= 0
                     || nm.IndexOf("Strut", StringComparison.OrdinalIgnoreCase) >= 0
@@ -924,6 +935,7 @@ namespace NOReplay
             }
             ProtectGunParts();
             ProtectRadarParts();
+            ProtectPropulsionParts();
         }
 
         void HoldLocals()
@@ -994,7 +1006,12 @@ namespace NOReplay
                 ToggleOrdnanceFx(on);
             }
             if (!on)
+            {
+                HaltGuns(false);
                 StopSurfaceFx(false);
+            }
+            else
+                ResumeGuns();
             if (_visible != on)
             {
                 _visible = on;
@@ -1071,6 +1088,7 @@ namespace NOReplay
                     else if (!_ordnance)
                         PlayUnitWreckFx(transform.position, transform.rotation);
                 }
+                HaltGuns(false);
                 if (_visible)
                 {
                     Plugin.ReleaseCameraIfOn(gameObject);
@@ -1249,11 +1267,13 @@ namespace NOReplay
                 WriteUnitMotion(_spdMs, _velMs);
                 if (_ship && !_neutral)
                     DriveShipFx(_spdMs, _velMs);
-                if (NearMe(90f))
+                if (NearMe(350f))
                 {
                     if (_ship) DriveShipAudio(_spdMs);
                     else if (!_ordnance) DriveVehicleAudio(_spdMs);
                 }
+                else if (!_ordnance)
+                    StopGroundAudio();
             }
             if (!_ordnance && _visible)
             {
@@ -1299,6 +1319,8 @@ namespace NOReplay
         void EnterSleep()
         {
             _asleep = true;
+            HaltGuns(false);
+            SilenceSources();
             SetVisible(false);
             var tr = transform;
             for (int i = 0; i < tr.childCount; i++)
@@ -1318,6 +1340,7 @@ namespace NOReplay
                 if (ch != null) ch.gameObject.SetActive(true);
             }
             SetVisible(true);
+            ResumeGuns();
             ReapplyReplayHides();
             if (!_air && !_ship && !_ordnance)
                 Plugin.KillLaserBeams(gameObject);

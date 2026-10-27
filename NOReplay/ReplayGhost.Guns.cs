@@ -15,6 +15,9 @@ namespace NOReplay
         static FieldInfo? _fSpread, _fMuzzleVel, _fSelfDestruct, _fTracerRatio, _fTracerSize, _fTracerColor;
         static FieldInfo? _fEjectPrefab, _fEjectXf, _fEjectDelay, _fEjectLife, _fEjectLin, _fEjectAng;
         static FieldInfo? _fImpactGround, _fImpactArmor, _fImpactWater, _fImpactSelf, _fVisualOnly;
+        static FieldInfo? _fMagCap, _fReloadTime, _fFireRate;
+        static FieldInfo? _fTurretMode, _fTurretManual, _fTurretDisabled;
+        static bool _turretDisarmLooked;
         static bool _gunFields;
 
         GunRuntime[] _gunRt = Array.Empty<GunRuntime>();
@@ -137,16 +140,52 @@ namespace NOReplay
             for (int i = 0; i < _turretComps.Length; i++)
             {
                 var turret = _turretComps[i];
-                if (turret != null && turret.enabled)
-                    turret.enabled = false;
+                if (turret != null) DisarmTurret(turret);
             }
             if (_gunRt == null) return;
             for (int i = 0; i < _gunRt.Length; i++)
             {
                 var rt = _gunRt[i];
-                if (rt != null && rt.Gun is Behaviour gun && gun.enabled)
+                if (rt != null && rt.Gun is Behaviour gun)
                     gun.enabled = false;
             }
+        }
+
+        static void DisarmTurret(Turret turret)
+        {
+            turret.enabled = false;
+            if (!_turretDisarmLooked)
+            {
+                _turretDisarmLooked = true;
+                var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                _fTurretMode = typeof(Turret).GetField("targetAcquisitionMode", flags);
+                _fTurretManual = typeof(Turret).GetField("manual", flags);
+                _fTurretDisabled = typeof(Turret).GetField("disabled", flags);
+            }
+            try
+            {
+                // SlowUpdate ignores Behaviour.enabled. The private disabled flag
+                // makes ChooseTarget and FixedUpdate return before SetTarget can
+                // turn the turret back on and fire. There is no TargetAcquisitionMode.none;
+                // assignedTargetDetectors (1) is the mode that does not start a search loop.
+                if (_fTurretMode != null && _fTurretMode.FieldType.IsEnum)
+                {
+                    object mode = Enum.ToObject(_fTurretMode.FieldType, 1);
+                    var names = Enum.GetNames(_fTurretMode.FieldType);
+                    for (int i = 0; i < names.Length; i++)
+                    {
+                        if (names[i].Equals("none", StringComparison.OrdinalIgnoreCase))
+                        {
+                            mode = Enum.Parse(_fTurretMode.FieldType, names[i]);
+                            break;
+                        }
+                    }
+                    _fTurretMode.SetValue(turret, mode);
+                }
+                _fTurretManual?.SetValue(turret, false);
+                _fTurretDisabled?.SetValue(turret, true);
+            }
+            catch { }
         }
 
         internal void FireRecordedGun(ReplayObject burst, float sustainUntil)
@@ -168,6 +207,7 @@ namespace NOReplay
             _gunAimUntil = 0f;
             _aimPose = false;
             _ejects.Clear();
+            KeepTurretsDisabled();
             if (_gunRt == null) return;
             for (int i = 0; i < _gunRt.Length; i++)
             {
@@ -199,6 +239,7 @@ namespace NOReplay
 
         internal void TickGunVisuals()
         {
+            KeepTurretsDisabled();
             if (_gunRt == null || _gunRt.Length == 0) return;
             bool paused = Plugin.Clock != null && Plugin.Clock.Paused;
             float now = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
@@ -224,7 +265,7 @@ namespace NOReplay
                     bool hear = Plugin.AudioNear(gameObject, 700f);
                     bool want = !paused && rt.SustainUntil >= now;
                     bool playing = rt.Sources.Length > 1 && IsPlaying(rt.Sources[1]);
-                    if (want && hear && (!rt.Looping || !playing)) StartLoop(rt);
+                    if (want && hear && rt.SustainUntil > now + 0.05f && (!rt.Looping || !playing)) StartLoop(rt);
                     else if (rt.Looping && (!want || !hear)) StopLoop(rt, !want && !paused && hear);
                 }
                 else if (!paused && rt.Looping && now > rt.SustainUntil)
@@ -356,7 +397,7 @@ namespace NOReplay
             {
                 var t = turrets[i];
                 if (t == null) continue;
-                if (t is Behaviour tb) tb.enabled = false;
+                DisarmTurret(t);
                 _turrets[i] = t.transform;
                 _elev[i] = elevField?.GetValue(t) as Transform;
                 _gunFree.Add(t.transform);
@@ -403,6 +444,9 @@ namespace NOReplay
                 EjectPoint = _fEjectXf?.GetValue(gun) as Transform,
                 EjectDelay = Flt(_fEjectDelay, gun, 0.2f),
                 EjectLife = Flt(_fEjectLife, gun, 4f),
+                MagCapacity = _fMagCap?.GetValue(gun) is int mag ? mag : 0,
+                ReloadTime = Flt(_fReloadTime, gun),
+                FireRate = Flt(_fFireRate, gun),
                 EjectLin = _fEjectLin?.GetValue(gun) is Vector3 lin ? lin : Vector3.zero,
                 EjectAng = _fEjectAng?.GetValue(gun) is Vector3 ang ? ang : Vector3.zero,
                 SustainUntil = -1f
@@ -448,6 +492,28 @@ namespace NOReplay
             if (burst.GunIndex >= 0 && burst.GunIndex < _gunRt.Length && _gunRt[burst.GunIndex] != null)
                 return _gunRt[burst.GunIndex];
             return _gunRt[0];
+        }
+
+        internal float ResolveEffectiveGunRpm(ReplayObject burst, out bool singleShot)
+        {
+            var rt = ResolveGun(burst);
+            if (rt != null)
+            {
+                if (rt.MagCapacity == 1 && rt.ReloadTime > 0f)
+                {
+                    singleShot = true;
+                    float iv = Mathf.Max(rt.FireRate > 0.1f ? 60f / rt.FireRate : 0.1f, rt.ReloadTime);
+                    return 60f / iv;
+                }
+                if (rt.FireRate > 0.1f && (60f / rt.FireRate) >= 0.25f)
+                {
+                    singleShot = true;
+                    return rt.FireRate;
+                }
+            }
+            float rpm = burst.Rpm > 1f ? burst.Rpm : (rt != null && rt.FireRate > 1f ? rt.FireRate : 600f);
+            singleShot = (60f / Mathf.Max(rpm, 1f)) >= 0.25f;
+            return rpm;
         }
 
         static bool PathEquals(string have, string want)
@@ -659,7 +725,9 @@ namespace NOReplay
                 var st = rt.RecoilSound.GetType();
                 st.GetMethod("Play", Type.EmptyTypes)?.Invoke(rt.RecoilSound, null);
             }
-            if (rt.Sources.Length > 1 && rt.FireSustained != null && !rt.Looping)
+            float now = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+            if (rt.Sources.Length > 1 && rt.FireSustained != null && !rt.Looping
+                && sustainUntil > now + 0.05f)
                 StartLoop(rt);
         }
 
@@ -935,6 +1003,9 @@ namespace NOReplay
             _fImpactWater = g.GetField("impactEffectWater", GunFlags);
             _fImpactSelf = g.GetField("selfDestructEffect", GunFlags);
             _fVisualOnly = typeof(BulletSim).GetField("visualOnly", GunFlags);
+            _fMagCap = g.GetField("magazineCapacity", GunFlags);
+            _fReloadTime = g.GetField("reloadTime", GunFlags);
+            _fFireRate = g.GetField("fireRate", GunFlags);
         }
 
         sealed class GunRuntime
@@ -959,6 +1030,8 @@ namespace NOReplay
             public GameObject? EjectPrefab;
             public Transform? EjectPoint;
             public float EjectDelay, EjectLife;
+            public int MagCapacity;
+            public float ReloadTime, FireRate;
             public Vector3 EjectLin, EjectAng;
             public float SustainUntil = -1f;
             public bool SimFailed;

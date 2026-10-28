@@ -68,7 +68,16 @@ namespace NOReplay
                     int cut = raw.IndexOf(',');
                     string deadId = (cut < 0 ? raw : raw.Substring(0, cut)).Trim();
                     if (deadId.Length > 0 && objects.TryGetValue(deadId, out var dead))
+                    {
                         dead.RemovedAt = time;
+                        // These ids are reused after removal. Drop the finished event from the
+                        // active lookup so the next line with this id creates a new object.
+                        if (ReleasesIdOnRemove(dead.Type))
+                        {
+                            objects.Remove(deadId);
+                            state.Remove(deadId);
+                        }
+                    }
                     if (time > doc.Duration) doc.Duration = time;
                     continue;
                 }
@@ -89,6 +98,10 @@ namespace NOReplay
                     obj = new ReplayObject { Id = objId };
                     objects[objId] = obj;
                     doc.Objects.Add(obj);
+                }
+                else if (IgnoreClosedGunBurstUpdate(obj, rest))
+                {
+                    continue;
                 }
 
                 ReplaySample sample = state.TryGetValue(objId, out var prev)
@@ -329,6 +342,25 @@ namespace NOReplay
                     max = Math.Max(max, o.Samples[o.Samples.Count - 1].Time);
             doc.Duration = max;
             return doc;
+        }
+
+        static bool ReleasesIdOnRemove(string? type)
+        {
+            string t = type ?? "";
+            return t.IndexOf("GunBurst", StringComparison.OrdinalIgnoreCase) >= 0
+                || t.IndexOf("Explosion", StringComparison.OrdinalIgnoreCase) >= 0
+                || t.IndexOf("PartBreak", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        static bool IgnoreClosedGunBurstUpdate(ReplayObject obj, string rest)
+        {
+            if ((obj.Type ?? "").IndexOf("GunBurst", StringComparison.OrdinalIgnoreCase) < 0)
+                return false;
+            if (obj.RemovedAt >= 0f)
+                return true;
+            if (rest.IndexOf("Type=Misc+Explosion", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            return rest.IndexOf("Radius=", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         static void ApplyGlobal(ReplayDocument doc, string rest)

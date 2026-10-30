@@ -165,7 +165,7 @@ namespace NOReplay
                 SingleShot = singleShot,
                 Open = true
             };
-            burst.Host.unitId = (long)System.Threading.Interlocked.Increment(ref _next) | (1L << 34);
+            burst.Host.unitId = (long)System.Threading.Interlocked.Increment(ref _next) | (1L << 35);
             burst.Host.tacviewId = burst.Host.unitId;
             burst.Host.props = new Dictionary<string, string>
             {

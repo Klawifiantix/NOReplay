@@ -176,6 +176,8 @@ namespace NOReplay
             {
                 string t = o.Type ?? "";
                 if (t.IndexOf("Projectile", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                if (t.IndexOf("Weapon", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                if (!string.IsNullOrEmpty(o.Name)) continue;
                 if (o.Samples.Count == 0) continue;
                 list.Add(o);
             }

@@ -109,6 +109,13 @@ namespace NOReplay
                 if (type.StartsWith("Air+", StringComparison.OrdinalIgnoreCase)) return true;
             }
             if (string.IsNullOrEmpty(name)) return false;
+            if (type.IndexOf("Ground", StringComparison.OrdinalIgnoreCase) >= 0
+                || type.IndexOf("Vehicle", StringComparison.OrdinalIgnoreCase) >= 0
+                || type.IndexOf("Sea", StringComparison.OrdinalIgnoreCase) >= 0
+                || type.IndexOf("Water", StringComparison.OrdinalIgnoreCase) >= 0
+                || type.IndexOf("Ship", StringComparison.OrdinalIgnoreCase) >= 0
+                || type.IndexOf("Building", StringComparison.OrdinalIgnoreCase) >= 0)
+                return false;
             string n = name.ToLowerInvariant();
             string[] keys =
             {
@@ -193,6 +200,17 @@ namespace NOReplay
             string n = name ?? "";
             if (n.IndexOf("Emplacement", StringComparison.OrdinalIgnoreCase) >= 0) return false;
             if (n.IndexOf("Launcher", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (t.IndexOf("Missile", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (t.IndexOf("Bomb", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (t.IndexOf("Rocket", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (t.IndexOf("Weapon+", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (t.IndexOf("Flare", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (t.IndexOf("Decoy", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (t.IndexOf("Chaff", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (t.IndexOf("Shell", StringComparison.OrdinalIgnoreCase) >= 0
+                && t.IndexOf("Misc", StringComparison.OrdinalIgnoreCase) < 0
+                && n.Length > 0)
+                return true;
             if (n.IndexOf("Vagrant", StringComparison.OrdinalIgnoreCase) >= 0
                 || n.IndexOf("VT-7", StringComparison.OrdinalIgnoreCase) >= 0
                 || n.IndexOf("Chicane", StringComparison.OrdinalIgnoreCase) >= 0
@@ -207,13 +225,6 @@ namespace NOReplay
                 || n.IndexOf("Medusa", StringComparison.OrdinalIgnoreCase) >= 0
                 || n.IndexOf("Brawler", StringComparison.OrdinalIgnoreCase) >= 0)
                 return false;
-            if (t.IndexOf("Missile", StringComparison.OrdinalIgnoreCase) >= 0) return true;
-            if (t.IndexOf("Bomb", StringComparison.OrdinalIgnoreCase) >= 0) return true;
-            if (t.IndexOf("Rocket", StringComparison.OrdinalIgnoreCase) >= 0) return true;
-            if (t.IndexOf("Weapon+", StringComparison.OrdinalIgnoreCase) >= 0) return true;
-            if (t.IndexOf("Flare", StringComparison.OrdinalIgnoreCase) >= 0) return true;
-            if (t.IndexOf("Decoy", StringComparison.OrdinalIgnoreCase) >= 0) return true;
-            if (t.IndexOf("Chaff", StringComparison.OrdinalIgnoreCase) >= 0) return true;
             for (int i = 0; i < OrdnanceHints.Length; i++)
                 if (n.IndexOf(OrdnanceHints[i], StringComparison.OrdinalIgnoreCase) >= 0)
                     return true;

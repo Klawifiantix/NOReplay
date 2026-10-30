@@ -188,6 +188,10 @@ namespace NOReplay
             var b = Samples[hi];
             float span = b.Time - a.Time;
             float u = span > 0.0001f ? (t - a.Time) / span : 0f;
+            OrientationOf(a, out float ax, out float ay, out float az, out float aw);
+            OrientationOf(b, out float bx, out float by, out float bz, out float bw);
+            OrientationMath.Slerp(ax, ay, az, aw, bx, by, bz, bw, u,
+                out float qx, out float qy, out float qz, out float qw);
             s = new ReplaySample
             {
                 Time = t,
@@ -203,13 +207,26 @@ namespace NOReplay
                 Tas = a.HasTas ? a.Tas : b.Tas,
                 HasThrottle = a.HasThrottle || b.HasThrottle,
                 Throttle = a.HasThrottle ? a.Throttle : b.Throttle,
-                HasQuat = a.HasQuat || b.HasQuat,
-                Qx = a.HasQuat ? Mathf.Lerp(a.Qx, b.Qx, u) : b.Qx,
-                Qy = a.HasQuat ? Mathf.Lerp(a.Qy, b.Qy, u) : b.Qy,
-                Qz = a.HasQuat ? Mathf.Lerp(a.Qz, b.Qz, u) : b.Qz,
-                Qw = a.HasQuat ? Mathf.Lerp(a.Qw, b.Qw, u) : b.Qw
+                HasQuat = true,
+                Qx = qx,
+                Qy = qy,
+                Qz = qz,
+                Qw = qw
             };
             return true;
+        }
+
+        static void OrientationOf(ReplaySample s, out float x, out float y, out float z, out float w)
+        {
+            if (s.HasQuat)
+            {
+                x = s.Qx;
+                y = s.Qy;
+                z = s.Qz;
+                w = s.Qw;
+                return;
+            }
+            OrientationMath.FromPlaybackEuler(s.Pitch, s.Yaw, s.Roll, out x, out y, out z, out w);
         }
 
         Dictionary<string, TurretChannel>? _turrets;

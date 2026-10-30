@@ -293,6 +293,12 @@ namespace NOReplay
                 if (hasPose)
                 {
                     sample.Time = time;
+                    if (sample.HasQuat && state.TryGetValue(objId, out var prevPose) && prevPose.HasQuat)
+                    {
+                        OrientationMath.AlignHemisphere(
+                            prevPose.Qx, prevPose.Qy, prevPose.Qz, prevPose.Qw,
+                            ref sample.Qx, ref sample.Qy, ref sample.Qz, ref sample.Qw);
+                    }
                     if (obj.SpawnAt < 0f) obj.SpawnAt = time;
                     if (sample.Time > doc.Duration)
                         doc.Duration = sample.Time;
@@ -300,6 +306,12 @@ namespace NOReplay
                     state[objId] = sample;
                 }
             }
+
+            int promoted = 0;
+            foreach (var o in doc.Objects)
+                if (PromoteNamedShell(o)) promoted++;
+            if (promoted > 0)
+                Plugin.Log.LogInfo("Geschosse als Munition: " + promoted);
 
             foreach (var o in doc.Objects)
             {
@@ -485,6 +497,16 @@ namespace NOReplay
             if (n.IndexOf("GBM", StringComparison.OrdinalIgnoreCase) >= 0) return true;
             if (n.IndexOf("Bomb", StringComparison.OrdinalIgnoreCase) >= 0) return true;
             return false;
+        }
+
+        static bool PromoteNamedShell(ReplayObject shell)
+        {
+            string t = shell.Type ?? "";
+            if (t.IndexOf("Projectile", StringComparison.OrdinalIgnoreCase) < 0) return false;
+            if (t.IndexOf("GunBurst", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+            if (string.IsNullOrWhiteSpace(shell.Name)) return false;
+            shell.Type = "Weapon+Shell";
+            return true;
         }
 
         static bool IsShell(string? type)

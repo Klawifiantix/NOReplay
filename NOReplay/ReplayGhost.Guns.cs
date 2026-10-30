@@ -15,7 +15,7 @@ namespace NOReplay
         static FieldInfo? _fSpread, _fMuzzleVel, _fSelfDestruct, _fTracerRatio, _fTracerSize, _fTracerColor;
         static FieldInfo? _fEjectPrefab, _fEjectXf, _fEjectDelay, _fEjectLife, _fEjectLin, _fEjectAng;
         static FieldInfo? _fImpactGround, _fImpactArmor, _fImpactWater, _fImpactSelf, _fVisualOnly;
-        static FieldInfo? _fMagCap, _fReloadTime, _fFireRate;
+        static FieldInfo? _fMagCap, _fReloadTime, _fFireRate, _fGuided;
         static FieldInfo? _fTurretMode, _fTurretManual, _fTurretDisabled;
         static bool _turretDisarmLooked;
         static bool _gunFields;
@@ -40,6 +40,9 @@ namespace NOReplay
         string? _appliedLoadout;
         static bool _simLogged;
         static bool _simFailLogged;
+        static bool _shellGunLogged;
+        static ReplayDocument? _shellDoc;
+        static HashSet<string>? _shellParents;
 
         internal bool HasMovingTurretTrack => Track != null && Track.HasMovingTurrets;
 
@@ -449,6 +452,7 @@ namespace NOReplay
                 FireRate = Flt(_fFireRate, gun),
                 EjectLin = _fEjectLin?.GetValue(gun) is Vector3 lin ? lin : Vector3.zero,
                 EjectAng = _fEjectAng?.GetValue(gun) is Vector3 ang ? ang : Vector3.zero,
+                GuidedShell = _fGuided?.GetValue(gun) != null,
                 SustainUntil = -1f
             };
             if (rt.MuzzleVelocity < 1f && gun.info != null)
@@ -516,6 +520,29 @@ namespace NOReplay
             return rpm;
         }
 
+        static bool ParentFiredShell(string? parentId)
+        {
+            if (string.IsNullOrEmpty(parentId)) return false;
+            var doc = Plugin.CurrentDoc;
+            if (doc == null) return false;
+            if (!ReferenceEquals(doc, _shellDoc))
+            {
+                _shellDoc = doc;
+                _shellParents = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var objs = doc.Objects;
+                for (int i = 0; i < objs.Count; i++)
+                {
+                    var o = objs[i];
+                    if (o == null || string.IsNullOrEmpty(o.ParentId)) continue;
+                    string t = o.Type ?? "";
+                    if (t.IndexOf("Shell", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    if (t.IndexOf("GunBurst", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                    _shellParents.Add(o.ParentId);
+                }
+            }
+            return _shellParents != null && _shellParents.Contains(parentId);
+        }
+
         static bool PathEquals(string have, string want)
         {
             have = TurretKeys.Sanitize(have);
@@ -527,6 +554,15 @@ namespace NOReplay
 
         void SpawnVisualBullets(GunRuntime rt, ReplayObject burst)
         {
+            if (rt.GuidedShell && ParentFiredShell(burst.ParentId))
+            {
+                if (!_shellGunLogged)
+                {
+                    _shellGunLogged = true;
+                    Plugin.Log.LogInfo("Kanone feuert Geschoss, kein Tracer " + rt.Path);
+                }
+                return;
+            }
             if (rt.Muzzles.Length == 0) return;
             var sim = EnsureSim(rt);
             if (sim == null) return;
@@ -1006,6 +1042,7 @@ namespace NOReplay
             _fMagCap = g.GetField("magazineCapacity", GunFlags);
             _fReloadTime = g.GetField("reloadTime", GunFlags);
             _fFireRate = g.GetField("fireRate", GunFlags);
+            _fGuided = g.GetField("guidedProjectile", GunFlags);
         }
 
         sealed class GunRuntime
@@ -1033,6 +1070,7 @@ namespace NOReplay
             public int MagCapacity;
             public float ReloadTime, FireRate;
             public Vector3 EjectLin, EjectAng;
+            public bool GuidedShell;
             public float SustainUntil = -1f;
             public bool SimFailed;
             public BulletSim? Sim;

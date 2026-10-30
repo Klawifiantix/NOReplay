@@ -12,9 +12,10 @@ namespace NOReplay
         private readonly Dictionary<string, string> TYPES = new()
         {
             {"MSL", "Weapon+Missile"},
-            {"BOMB", "Weapon+Bomb"},
-            {"SHL", "Projectile+Shell" }
+            {"BOMB", "Weapon+Bomb"}
         };
+
+        bool _shell;
 
         static readonly FieldInfo? warheadField =
             typeof(Missile).GetField("warhead", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -47,13 +48,22 @@ namespace NOReplay
                 info = Record.UnitInfo["missiles"][missile.definition.code];
             }
             string code = missile.definition?.code ?? "";
-            if (TYPES.TryGetValue(code, out var mapped))
+            _shell = IsPhysicalShell(missile);
+            if (_shell)
+                info[1] = "Weapon+Shell";
+            else if (TYPES.TryGetValue(code, out var mapped))
                 info[1] = mapped;
             else if ((missile.definition?.unitName ?? "").IndexOf("Bomb", StringComparison.OrdinalIgnoreCase) >= 0
                      || code.IndexOf("BOMB", StringComparison.OrdinalIgnoreCase) >= 0)
                 info[1] = "Weapon+Bomb";
             else
                 info[1] = "Weapon+Missile";
+            if (_shell)
+            {
+                Record.Log?.LogInfo("Kanone-Shell " + (missile.definition?.unitName ?? "?")
+                    + " code=" + code
+                    + " seeker=" + (missile.GetComponent<MissileSeeker>()?.GetType().Name ?? "-"));
+            }
             if (unit.unitName.EndsWith("kt)"))
             {
                 base.destroyedEvent = true;
@@ -136,7 +146,8 @@ namespace NOReplay
                 return;
             }
             timer += Time.deltaTime;
-            if (timer < RecordConfig.munitionUpdateDelta.Value)
+            float step = _shell ? 0.05f : RecordConfig.munitionUpdateDelta.Value;
+            if (timer < step)
             {
                 return;
             }
@@ -146,6 +157,17 @@ namespace NOReplay
             Engine.invokeWriterUpdate(this);
             props.Clear();
             timer = 0;
+        }
+
+        static bool IsPhysicalShell(Missile missile)
+        {
+            if (missile == null) return false;
+            string code = missile.definition?.code ?? "";
+            if (code.Equals("SHL", StringComparison.OrdinalIgnoreCase)) return true;
+            var seeker = missile.GetComponent<MissileSeeker>();
+            if (seeker == null) return false;
+            string seekerName = seeker.GetType().Name;
+            return seekerName.IndexOf("Shell", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         bool IsWarheadDetonated()

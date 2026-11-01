@@ -227,7 +227,7 @@ namespace NOReplay
 
         float _panelAt;
 
-        int _ordSeekSerial = -1;
+        int _ordSeekSerial;
 
         void ApplyOrdnanceSeeks()
         {

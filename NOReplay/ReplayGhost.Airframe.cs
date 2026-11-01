@@ -418,44 +418,65 @@ namespace NOReplay
             }
         }
 
-        void DriveAircraftEngines(float ratio)
+        void EnsureEngineList()
         {
-            bool near = Plugin.AudioNear(gameObject, 550f);
-            if (!near) ratio = 0f;
-            if (!_engineListReady)
+            if (_engineListReady) return;
+            var found = new HashSet<Component>();
+            if (_acType == null) _acType = Plugin.FindGameType("Aircraft");
+            Component? ac = _acType != null ? GetComponent(_acType) ?? GetComponentInChildren(_acType, true) : null;
+            if (ac != null)
             {
-                var found = new System.Collections.Generic.List<Component>(4);
-                if (_acType == null) _acType = Plugin.FindGameType("Aircraft");
-                Component? ac = _acType != null ? GetComponent(_acType) ?? GetComponentInChildren(_acType, true) : null;
-                object? list = null;
-                if (ac != null)
-                {
-                    if (_fAcEngines == null)
-                        _fAcEngines = _acType!.GetField("engines", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                    list = _fAcEngines?.GetValue(ac);
-                    if (list == null)
-                        list = _acType!.GetField("engineStates", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(ac);
-                }
-                if (list is System.Collections.IEnumerable en)
-                {
-                    foreach (var e in en)
-                        if (e is Component c) found.Add(c);
-                }
-                if (found.Count == 0)
-                {
-                    foreach (var c in GetComponentsInChildren<MonoBehaviour>(true))
-                    {
-                        if (c == null || c is ReplayGhost) continue;
-                        string tn = c.GetType().Name;
-                        if (tn == "Turbojet" || tn == "Turbofan" || tn == "TurbineEngine"
-                            || tn == "RotorShaft" || tn == "ConstantSpeedProp"
-                            || tn == "DuctedFan" || tn == "PropFan")
-                            found.Add(c);
-                    }
-                }
-                _engineList = found.ToArray();
-                _engineListReady = true;
+                var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                if (_fAcEngines == null)
+                    _fAcEngines = _acType!.GetField("engines", flags);
+                if (_fAcEngineStates == null)
+                    _fAcEngineStates = _acType!.GetField("engineStates", flags);
+                AddEngineList(found, _fAcEngines?.GetValue(ac));
+                AddEngineList(found, _fAcEngineStates?.GetValue(ac));
             }
+            foreach (var c in GetComponentsInChildren<MonoBehaviour>(true))
+            {
+                if (c == null || c is ReplayGhost) continue;
+                switch (c.GetType().Name)
+                {
+                    case "Turbojet":
+                    case "Turbofan":
+                    case "TurbineEngine":
+                    case "RotorShaft":
+                    case "ConstantSpeedProp":
+                    case "DuctedFan":
+                    case "PropFan":
+                        found.Add(c);
+                        break;
+                }
+            }
+            _engineList = new Component[found.Count];
+            found.CopyTo(_engineList);
+            for (int i = 0; i < _engineList.Length; i++)
+            {
+                var c = _engineList[i];
+                if (c is not Behaviour b) continue;
+                string n = c.GetType().Name;
+                if (n == "TurbineEngine" || n == "Turbojet" || n == "Turbofan")
+                    b.enabled = false;
+            }
+            _engineListReady = true;
+        }
+
+        static void AddEngineList(HashSet<Component> found, object? list)
+        {
+            if (list is not System.Collections.IEnumerable en) return;
+            foreach (var e in en)
+                if (e is Component c && c != null)
+                    found.Add(c);
+        }
+
+        void DriveAircraftEngines(float throttle)
+        {
+            EnsureEngineList();
+            // Throttle on a helicopter is collective. Zero collective must not mute a living ghost.
+            bool play = !Plugin.Clock.Paused && Plugin.AudioNear(gameObject, 550f);
+            float ratio = play ? Mathf.Max(throttle, 0.35f) : 0f;
             for (int i = 0; i < _engineList.Length; i++)
                 DriveOneEngine(_engineList[i], ratio);
         }
@@ -817,7 +838,7 @@ namespace NOReplay
                     WriteFit(_fTfanRpm, c, max * Mathf.Lerp(0.35f, 1f, thr));
                 }
             }
-            DriveAircraftEngines(Plugin.Clock.Paused ? 0f : thr);
+            DriveAircraftEngines(thr);
             WriteThrottle(thr);
             CloseAirbrakes();
             DriveJetExhaust(true, thr);

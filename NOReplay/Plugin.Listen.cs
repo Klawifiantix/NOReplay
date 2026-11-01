@@ -314,7 +314,6 @@ namespace NOReplay
             if (c == null) return true;
             if (c.gameObject.name == "NOReplay_GunShot" || c.gameObject.name == "NOReplay_GunLoop") return true;
             var rg = c.GetComponentInParent<ReplayGhost>();
-            if (rg != null && rg.IsOrdnancePublic) return true;
             CacheListener();
             if (!_listenOk) return true;
             if (AudioNear(c.gameObject, 1400f)) return true;

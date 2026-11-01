@@ -221,6 +221,7 @@ namespace NOReplay
             }
             var mt = FindGameType("Missile");
             var missile = mt != null ? go.GetComponent(mt) : null;
+            bool hear = Plugin.AudioNear(go, 900f);
             if (missile != null && mt != null)
             {
                 var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
@@ -231,24 +232,36 @@ namespace NOReplay
                     if (flight != null)
                     {
                         var ft = flight.GetType();
-                        ft.GetProperty("mute")?.SetValue(flight, false);
-                        ft.GetProperty("loop")?.SetValue(flight, true);
-                        ft.GetProperty("volume")?.SetValue(flight, 0.7f);
-                        ft.GetProperty("spatialBlend")?.SetValue(flight, 1f);
-                        bool playing = ft.GetProperty("isPlaying")?.GetValue(flight) is bool b && b;
-                        if (!playing) ft.GetMethod("Play", Type.EmptyTypes)?.Invoke(flight, null);
+                        if (!hear)
+                        {
+                            ft.GetProperty("volume")?.SetValue(flight, 0f);
+                            ft.GetMethod("Stop", Type.EmptyTypes)?.Invoke(flight, null);
+                        }
+                        else
+                        {
+                            ft.GetProperty("mute")?.SetValue(flight, false);
+                            ft.GetProperty("loop")?.SetValue(flight, true);
+                            ft.GetProperty("volume")?.SetValue(flight, 0.7f);
+                            ft.GetProperty("spatialBlend")?.SetValue(flight, 1f);
+                            bool playing = ft.GetProperty("isPlaying")?.GetValue(flight) is bool b && b;
+                            if (!playing) ft.GetMethod("Play", Type.EmptyTypes)?.Invoke(flight, null);
+                        }
                     }
                 }
                 catch { }
-                var motors = mt.GetField("motors", flags)?.GetValue(missile) as Array;
-                if (motors != null)
+                if (hear)
                 {
-                    foreach (var motor in motors)
+                    var motors = mt.GetField("motors", flags)?.GetValue(missile) as Array;
+                    if (motors != null)
                     {
-                        if (motor == null) continue;
-                        try { motor.GetType().GetMethod("Activate", flags)?.Invoke(motor, new[] { missile }); } catch { }
+                        foreach (var motor in motors)
+                        {
+                            if (motor == null) continue;
+                            try { motor.GetType().GetMethod("Activate", flags)?.Invoke(motor, new[] { missile }); } catch { }
+                        }
                     }
                 }
+                if (missile is Behaviour missileBeh) missileBeh.enabled = false;
             }
         }
     }

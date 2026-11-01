@@ -31,6 +31,7 @@ namespace NOReplay
             if (MainMenuVisible()) return;
             if (Time.unscaledTime < _worldReadyAt) return;
             _worldStarting = false;
+            RaiseAudioVoices();
             TryActivateServer();
             DumpNetworkState("nach Szenenwechsel");
             Log.LogInfo("Server aktiv=" + IsServerActive() + " — StartMission kommt vom Spiel (OnStartServer).");

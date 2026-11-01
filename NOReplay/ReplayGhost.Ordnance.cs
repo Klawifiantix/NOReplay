@@ -472,8 +472,8 @@ namespace NOReplay
 
         void StopOrdnanceAudio()
         {
-            if (!_ordAudioOn && !_ordVoiceHeld) return;
             _ordVoiceHeld = false;
+            _ordAudioOn = false;
             var at = Type.GetType("UnityEngine.AudioSource, UnityEngine.AudioModule")
                      ?? Plugin.FindGameType("AudioSource");
             if (at != null)
@@ -529,6 +529,8 @@ namespace NOReplay
             if (!_ordnance || _boomed) return;
             _boomed = true;
             if (IsFlareTrack()) return;
+            StopOrdnanceAudio();
+            Plugin.ReleaseCameraIfOn(gameObject);
             PlayWarheadBoom(transform.position);
         }
 
@@ -567,6 +569,15 @@ namespace NOReplay
             catch { }
         }
 
+        void DisableMissileSim()
+        {
+            var mt = Plugin.FindGameType("Missile");
+            if (mt == null) return;
+            var raw = GetComponentsInChildren(mt, true);
+            for (int i = 0; i < raw.Length; i++)
+                if (raw[i] is Behaviour b) b.enabled = false;
+        }
+
         void PlayWarheadBoom(Vector3 pos)
         {
             Plugin.Log?.LogInfo("Boom " + gameObject.name + " at " + pos);
@@ -590,9 +601,10 @@ namespace NOReplay
                 catch { }
                 try
                 {
+                    bool hearBoom = Plugin.AudioNearWorld(pos, 700f);
                     var flight = mt.GetField("flightSound", flags)?.GetValue(missile);
                     var clip = mt.GetField("nearbyDetonationClip", flags)?.GetValue(missile);
-                    if (flight != null && clip != null)
+                    if (hearBoom && flight != null && clip != null)
                     {
                         var ft = flight.GetType();
                         ft.GetMethod("Stop", Type.EmptyTypes)?.Invoke(flight, null);
@@ -660,6 +672,8 @@ namespace NOReplay
                 go.transform.SetParent(null, true);
                 go.SetActive(true);
                 PlayParticles(go);
+                if (!Plugin.AudioNearWorld(pos, 700f))
+                    MuteBoomAudio(go);
                 foreach (var c in go.GetComponentsInChildren<MonoBehaviour>(true))
                 {
                     if (c == null) continue;

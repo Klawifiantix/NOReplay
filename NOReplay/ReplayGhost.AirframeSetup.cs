@@ -97,18 +97,71 @@ namespace NOReplay
                 _pEmEnabled = _pPsEmission.PropertyType.GetProperty("enabled");
         }
 
+        static Action<object, bool>? _setEmitFlag;
+        static Action<object, bool>? _setEmitModule;
+        static bool _emitSetterReady;
+
+        static void EnsureEmitSetters()
+        {
+            if (_emitSetterReady) return;
+            _emitSetterReady = true;
+            BindParticleRefl();
+            _setEmitFlag = FieldFast.BoolPropSetter(_pPsEnableEmission);
+            var pt = ParticleType();
+            var get = _pPsEmission?.GetGetMethod(true);
+            var set = _pEmEnabled?.GetSetMethod(true);
+            if (pt == null || get == null || set == null || _pPsEmission == null) return;
+            try
+            {
+                var emType = _pPsEmission.PropertyType;
+                var obj = System.Linq.Expressions.Expression.Parameter(typeof(object), "o");
+                var on = System.Linq.Expressions.Expression.Parameter(typeof(bool), "on");
+                var local = System.Linq.Expressions.Expression.Variable(emType, "em");
+                var body = System.Linq.Expressions.Expression.Block(
+                    new[] { local },
+                    System.Linq.Expressions.Expression.Assign(local, System.Linq.Expressions.Expression.Call(System.Linq.Expressions.Expression.Convert(obj, pt), get)),
+                    System.Linq.Expressions.Expression.Call(local, set, on));
+                _setEmitModule = System.Linq.Expressions.Expression.Lambda<Action<object, bool>>(body, obj, on).Compile();
+            }
+            catch { _setEmitModule = null; }
+        }
+
         internal static void EnableParticleEmission(Component? ps)
         {
             if (ps == null) return;
-            BindParticleRefl();
+            EnsureEmitSetters();
             try
             {
-                _pPsEnableEmission?.SetValue(ps, true);
-                if (_pPsEmission != null && _pEmEnabled != null)
-                {
-                    var em = _pPsEmission.GetValue(ps);
-                    if (em != null) _pEmEnabled.SetValue(em, true);
-                }
+                if (_setEmitFlag != null) _setEmitFlag(ps, true);
+                else _pPsEnableEmission?.SetValue(ps, true);
+            }
+            catch { }
+            if (!SetEmitModule(ps, true))
+                SetEmitModuleReflected(ps, true);
+        }
+
+        static bool SetEmitModule(Component ps, bool on)
+        {
+            if (_setEmitModule == null) return false;
+            try
+            {
+                _setEmitModule(ps, on);
+                return true;
+            }
+            catch
+            {
+                _setEmitModule = null;
+                return false;
+            }
+        }
+
+        static void SetEmitModuleReflected(Component ps, bool on)
+        {
+            if (_pPsEmission == null || _pEmEnabled == null) return;
+            try
+            {
+                var em = _pPsEmission.GetValue(ps);
+                if (em != null) _pEmEnabled.SetValue(em, on);
             }
             catch { }
         }
@@ -116,17 +169,15 @@ namespace NOReplay
         internal static void DisableParticleEmission(Component? ps)
         {
             if (ps == null) return;
-            BindParticleRefl();
+            EnsureEmitSetters();
             try
             {
-                _pPsEnableEmission?.SetValue(ps, false);
-                if (_pPsEmission != null && _pEmEnabled != null)
-                {
-                    var em = _pPsEmission.GetValue(ps);
-                    if (em != null) _pEmEnabled.SetValue(em, false);
-                }
+                if (_setEmitFlag != null) _setEmitFlag(ps, false);
+                else _pPsEnableEmission?.SetValue(ps, false);
             }
             catch { }
+            if (!SetEmitModule(ps, false))
+                SetEmitModuleReflected(ps, false);
         }
 
         internal static void PlayParticleSystem(Component? ps)

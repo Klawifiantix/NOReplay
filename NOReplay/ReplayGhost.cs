@@ -104,7 +104,7 @@ namespace NOReplay
         struct SpeedWrite
         {
             public object Target;
-            public FieldInfo Field;
+            public Action<object, float> Set;
         }
         SpeedWrite[] _speeds = Array.Empty<SpeedWrite>();
         Component[] _unitComps = Array.Empty<Component>();
@@ -172,7 +172,8 @@ namespace NOReplay
         const float AirVis = 80000f;
         const float GroundVis = 2500f;
         bool _colsOff;
-        static Camera? _cam;
+        Renderer[]? _flareRends;
+        int _flareKids = -1;
         public static readonly System.Collections.Generic.Dictionary<int, Vector3> Velocities = new System.Collections.Generic.Dictionary<int, Vector3>();
         float _camTimer;
         Vector3 _lastCamPos;
@@ -312,7 +313,7 @@ namespace NOReplay
 
         void CheckCameraReposition(Vector3 vel)
         {
-            var cam = Camera.main;
+            var cam = Plugin.MainCamera();
             if (cam == null || Drive == null) return;
             Vector3 camPos = cam.transform.position;
             Vector3 toCam = camPos - Drive.position;
@@ -369,8 +370,6 @@ namespace NOReplay
                 break;
             }
         }
-
-        static int _camFrame;
 
         bool CheckIsShip(string t, string nm, string gn)
         {
@@ -1120,8 +1119,18 @@ namespace NOReplay
             if (IsFlareTrack())
             {
                 SetGhostVisible(true);
-                foreach (var r in GetComponentsInChildren<Renderer>(true))
-                    if (r != null) r.enabled = true;
+                int kids = transform.childCount;
+                if (_flareRends == null || kids != _flareKids || ((Time.frameCount + gameObject.GetInstanceID()) & 31) == 0)
+                {
+                    _flareRends = GetComponentsInChildren<Renderer>(true);
+                    _flareKids = kids;
+                }
+                var rends = _flareRends;
+                for (int i = 0; i < rends.Length; i++)
+                {
+                    var r = rends[i];
+                    if (r != null && !r.enabled) r.enabled = true;
+                }
             }
             else if (!_visible) SetGhostVisible(true);
             if (_asleep && (_air || _ship))
@@ -1320,14 +1329,10 @@ namespace NOReplay
 
         bool IsFar()
         {
-            if (_camFrame != Time.frameCount)
-            {
-                _camFrame = Time.frameCount;
-                _cam = Camera.main;
-            }
-            if (_cam == null) return false;
+            var cam = Plugin.MainCamera();
+            if (cam == null) return false;
             float lim = (_air || _ordnance) ? AirVis : GroundVis;
-            return (transform.position - _cam.transform.position).sqrMagnitude > lim * lim;
+            return (transform.position - cam.transform.position).sqrMagnitude > lim * lim;
         }
 
         void EnterSleep()
@@ -1389,7 +1394,7 @@ namespace NOReplay
                 var ct = c.GetType();
                 var f = FindInstField(ct, "speed");
                 if (f != null && f.FieldType == typeof(float))
-                    list.Add(new SpeedWrite { Target = c, Field = f });
+                    list.Add(new SpeedWrite { Target = c, Set = FieldFast.FloatSetter(f) });
                 if (_unitType != null && _unitType.IsAssignableFrom(ct))
                     units.Add(c);
                 else if (ct.Name == "Aircraft" || ct.Name == "Ship" || ct.Name == "GroundVehicle")
@@ -1417,7 +1422,7 @@ namespace NOReplay
             if (!_motionBound) BindMotion();
             for (int i = 0; i < _speeds.Length; i++)
             {
-                try { _speeds[i].Field.SetValue(_speeds[i].Target, spdMs); } catch { }
+                try { _speeds[i].Set(_speeds[i].Target, spdMs); } catch { }
             }
             for (int i = 0; i < _motionRbs.Length; i++)
             {
@@ -1437,7 +1442,7 @@ namespace NOReplay
                 float detail = 0f;
                 if (active)
                 {
-                    var cam = Camera.main;
+                    var cam = Plugin.MainCamera();
                     if (cam != null)
                     {
                         float dist = Vector3.Distance(transform.position, cam.transform.position);
@@ -1453,8 +1458,16 @@ namespace NOReplay
                 {
                     var u = _unitComps[i];
                     if (u == null) continue;
-                    try { _fUnitDisplayDetail?.SetValue(u, detail); } catch { }
-                    try { _fUnitAirDensity?.SetValue(u, 1f); } catch { }
+                    try
+                    {
+                        if (_fUnitDisplayDetail != null) FieldFast.SetFloat(_fUnitDisplayDetail, u, detail);
+                    }
+                    catch { }
+                    try
+                    {
+                        if (_fUnitAirDensity != null) FieldFast.SetFloat(_fUnitAirDensity, u, 1f);
+                    }
+                    catch { }
                 }
 
                 if (_air && active && Time.unscaledTime >= _nextRadarAltAt)
@@ -1465,7 +1478,8 @@ namespace NOReplay
                     {
                         try
                         {
-                            _mCheckRadarAlt.Invoke(_aircraftComp, null);
+                            if (_checkRadarAlt == null) _checkRadarAlt = FieldFast.Call(_mCheckRadarAlt);
+                            _checkRadarAlt?.Invoke(_aircraftComp);
                             updatedAlt = true;
                         }
                         catch { }
@@ -1481,9 +1495,10 @@ namespace NOReplay
                                 if (u == null) continue;
                                 try
                                 {
-                                    float cur = updatedAlt && _fUnitRadarAlt.GetValue(u) is float ca ? ca : float.MaxValue;
+                                    float cur = float.MaxValue;
+                                    if (updatedAlt && TryReadFloat(_fUnitRadarAlt, u, out float ca)) cur = ca;
                                     if (hit.distance < cur || !updatedAlt)
-                                        _fUnitRadarAlt.SetValue(u, hit.distance);
+                                        FieldFast.SetFloat(_fUnitRadarAlt, u, hit.distance);
                                 }
                                 catch { }
                             }
@@ -1495,7 +1510,7 @@ namespace NOReplay
                             {
                                 var u = _unitComps[i];
                                 if (u == null) continue;
-                                try { _fUnitRadarAlt.SetValue(u, fallbackAlt); } catch { }
+                                try { FieldFast.SetFloat(_fUnitRadarAlt, u, fallbackAlt); } catch { }
                             }
                         }
                     }
@@ -1505,5 +1520,6 @@ namespace NOReplay
 
         static MethodInfo? _mSetGearBool;
         static Type? _aircraftType;
+        static Action<object>? _checkRadarAlt;
     }
 }

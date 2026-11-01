@@ -155,6 +155,10 @@ namespace NOReplay
             return false;
         }
 
+        static MethodInfo? _hideSpectator;
+        static MethodInfo? _hideAirbase;
+        static Type? _specUi;
+
         static bool PrefixCheckShowSpectatorPanel(object __instance)
         {
             if (CurrentDoc == null) return true;
@@ -162,31 +166,47 @@ namespace NOReplay
             {
                 try
                 {
-                    var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
                     var uiType = __instance.GetType();
-                    uiType.GetMethod("HideSpectatorPanel", flags)?.Invoke(__instance, null);
-                    uiType.GetMethod("HideSelectAirbase", flags)?.Invoke(__instance, null);
+                    if (_specUi != uiType)
+                    {
+                        _specUi = uiType;
+                        var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                        _hideSpectator = uiType.GetMethod("HideSpectatorPanel", flags);
+                        _hideAirbase = uiType.GetMethod("HideSelectAirbase", flags);
+                    }
+                    _hideSpectator?.Invoke(__instance, null);
+                    _hideAirbase?.Invoke(__instance, null);
                 }
                 catch { }
             }
             return false;
         }
 
+        static readonly System.Collections.Generic.Dictionary<int, Component> _mfdLabels =
+            new System.Collections.Generic.Dictionary<int, Component>();
+
         static void PostfixVirtualMFDUpdate(object __instance)
         {
             if (CurrentDoc == null || __instance == null) return;
             try
             {
-                var f = _mfdMissionTimeField
-                    ?? (__instance.GetType().GetField("missionTime", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic));
-                if (f?.GetValue(__instance) is Component mt && mt != null)
+                if (__instance is not UnityEngine.Object uo) return;
+                int id = uo.GetInstanceID();
+                bool refresh = (Time.frameCount & 63) == 0;
+                if (refresh || !_mfdLabels.TryGetValue(id, out var mt) || mt == null)
                 {
-                    if (mt.gameObject.activeSelf)
-                        mt.gameObject.SetActive(false);
-                    var parent = mt.transform.parent;
-                    if (parent != null && parent.gameObject.activeSelf)
-                        parent.gameObject.SetActive(false);
+                    var f = _mfdMissionTimeField
+                        ?? uo.GetType().GetField("missionTime", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    _mfdMissionTimeField ??= f;
+                    mt = f?.GetValue(__instance) as Component;
+                    if (mt == null) return;
+                    _mfdLabels[id] = mt;
                 }
+                if (mt.gameObject.activeSelf)
+                    mt.gameObject.SetActive(false);
+                var parent = mt.transform.parent;
+                if (parent != null && parent.gameObject.activeSelf)
+                    parent.gameObject.SetActive(false);
             }
             catch { }
         }

@@ -254,10 +254,10 @@ namespace NOReplay
 
         bool WheelsInView()
         {
-            if (_cam == null) _cam = Camera.main;
-            if (_cam == null) return NearMe(WheelVis);
+            var cam = Plugin.MainCamera();
+            if (cam == null) return NearMe(WheelVis);
             float lim = WheelVis * WheelVis;
-            return (transform.position - _cam.transform.position).sqrMagnitude <= lim;
+            return (transform.position - cam.transform.position).sqrMagnitude <= lim;
         }
 
         void ReleaseWheelMaterials()

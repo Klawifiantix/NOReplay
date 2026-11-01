@@ -156,6 +156,15 @@ namespace NOReplay
         public float NudgeX;
         public float NudgeZ;
         public List<ReplaySample> Samples = new List<ReplaySample>();
+        int _sampleCursor = -1;
+
+        readonly struct SampleTimes : SampleIndex.ISampleTimes
+        {
+            public readonly List<ReplaySample> Samples;
+            public SampleTimes(List<ReplaySample> samples) { Samples = samples; }
+            public int Count => Samples.Count;
+            public float TimeAt(int index) => Samples[index].Time;
+        }
 
         public bool TrySample(float t, out ReplaySample s)
         {
@@ -165,25 +174,23 @@ namespace NOReplay
             if (n == 1)
             {
                 s = Samples[0];
+                _sampleCursor = 0;
                 return true;
             }
             if (t <= Samples[0].Time)
             {
                 s = Samples[0];
+                _sampleCursor = 0;
                 return true;
             }
             if (t >= Samples[n - 1].Time)
             {
                 s = Samples[n - 1];
+                _sampleCursor = n - 2;
                 return true;
             }
-            int lo = 0, hi = n - 1;
-            while (hi - lo > 1)
-            {
-                int mid = (lo + hi) / 2;
-                if (Samples[mid].Time <= t) lo = mid;
-                else hi = mid;
-            }
+            int lo = SampleIndex.Bracket(new SampleTimes(Samples), t, ref _sampleCursor);
+            int hi = lo + 1;
             var a = Samples[lo];
             var b = Samples[hi];
             float span = b.Time - a.Time;
@@ -286,8 +293,7 @@ namespace NOReplay
             {
                 string k = pair.Key;
                 if (string.IsNullOrEmpty(k)) continue;
-                if (k.EndsWith("/" + key, System.StringComparison.OrdinalIgnoreCase)
-                    || key.EndsWith("/" + k, System.StringComparison.OrdinalIgnoreCase))
+                if (EndsWithSegment(k, key) || EndsWithSegment(key, k))
                     return pair.Value;
             }
             if (_turrets.Count == 1)
@@ -296,6 +302,14 @@ namespace NOReplay
                     return pair.Value;
             }
             return null;
+        }
+
+        static bool EndsWithSegment(string path, string key)
+        {
+            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(key)) return false;
+            int need = key.Length + 1;
+            if (path.Length < need || path[path.Length - need] != '/') return false;
+            return string.Compare(path, path.Length - key.Length, key, 0, key.Length, StringComparison.OrdinalIgnoreCase) == 0;
         }
 
         /// <summary>
@@ -320,21 +334,18 @@ namespace NOReplay
             {
                 traverse = ch.Traverse[0];
                 elevation = ch.Elevation[0];
+                ch.Cursor = 0;
                 return true;
             }
             if (time >= ch.Times[n - 1])
             {
                 traverse = ch.Traverse[n - 1];
                 elevation = ch.Elevation[n - 1];
+                ch.Cursor = n - 2;
                 return true;
             }
-            int lo = 0, hi = n - 1;
-            while (hi - lo > 1)
-            {
-                int mid = (lo + hi) >> 1;
-                if (ch.Times[mid] <= time) lo = mid;
-                else hi = mid;
-            }
+            int lo = SampleIndex.Bracket(ch.Times, time, ref ch.Cursor);
+            int hi = lo + 1;
             float span = ch.Times[hi] - ch.Times[lo];
             float u = span > 0.0001f ? (time - ch.Times[lo]) / span : 0f;
             traverse = Mathf.LerpAngle(ch.Traverse[lo], ch.Traverse[hi], u);
@@ -347,6 +358,7 @@ namespace NOReplay
             public readonly List<float> Times = new List<float>();
             public readonly List<float> Traverse = new List<float>();
             public readonly List<float> Elevation = new List<float>();
+            public int Cursor = -1;
             public bool Moves;
         }
 

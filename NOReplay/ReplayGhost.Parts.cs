@@ -561,7 +561,7 @@ namespace NOReplay
 
         bool BreakFxNear(Vector3 pos)
         {
-            var cam = Camera.main;
+            var cam = Plugin.MainCamera();
             if (cam == null) return true;
             return (pos - cam.transform.position).sqrMagnitude <= BreakFxRange * BreakFxRange;
         }

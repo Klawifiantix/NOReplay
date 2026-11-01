@@ -154,6 +154,9 @@ namespace NOReplay
             }
         }
 
+        static object? _turretModeValue;
+        static bool _turretModeReady;
+
         static void DisarmTurret(Turret turret)
         {
             turret.enabled = false;
@@ -173,20 +176,31 @@ namespace NOReplay
                 // assignedTargetDetectors (1) is the mode that does not start a search loop.
                 if (_fTurretMode != null && _fTurretMode.FieldType.IsEnum)
                 {
-                    object mode = Enum.ToObject(_fTurretMode.FieldType, 1);
-                    var names = Enum.GetNames(_fTurretMode.FieldType);
-                    for (int i = 0; i < names.Length; i++)
+                    if (!_turretModeReady)
                     {
-                        if (names[i].Equals("none", StringComparison.OrdinalIgnoreCase))
+                        _turretModeReady = true;
+                        _turretModeValue = Enum.ToObject(_fTurretMode.FieldType, 1);
+                        var names = Enum.GetNames(_fTurretMode.FieldType);
+                        for (int i = 0; i < names.Length; i++)
                         {
-                            mode = Enum.Parse(_fTurretMode.FieldType, names[i]);
-                            break;
+                            if (names[i].Equals("none", StringComparison.OrdinalIgnoreCase))
+                            {
+                                _turretModeValue = Enum.Parse(_fTurretMode.FieldType, names[i]);
+                                break;
+                            }
                         }
                     }
-                    _fTurretMode.SetValue(turret, mode);
+                    if (_turretModeValue != null)
+                        _fTurretMode.SetValue(turret, _turretModeValue);
                 }
-                _fTurretManual?.SetValue(turret, false);
-                _fTurretDisabled?.SetValue(turret, true);
+                if (_fTurretManual != null && _fTurretManual.FieldType == typeof(bool))
+                    FieldFast.SetBool(_fTurretManual, turret, false);
+                else
+                    _fTurretManual?.SetValue(turret, false);
+                if (_fTurretDisabled != null && _fTurretDisabled.FieldType == typeof(bool))
+                    FieldFast.SetBool(_fTurretDisabled, turret, true);
+                else
+                    _fTurretDisabled?.SetValue(turret, true);
             }
             catch { }
         }
@@ -945,7 +959,7 @@ namespace NOReplay
 
         static bool CamNear(Vector3 world, float metres)
         {
-            var cam = Camera.main;
+            var cam = Plugin.MainCamera();
             if (cam == null) return true;
             return (cam.transform.position - world).sqrMagnitude <= metres * metres;
         }

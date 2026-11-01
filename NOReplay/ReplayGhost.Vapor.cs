@@ -522,7 +522,7 @@ namespace NOReplay
             if (_fGForce == null)
                 _fGForce = FindInstField(_aircraftComp.GetType(), "gForce");
             if (_fGForce == null || _fGForce.FieldType != typeof(float)) return;
-            try { _fGForce.SetValue(_aircraftComp, gLoad); }
+            try { FieldFast.SetFloat(_fGForce, _aircraftComp, gLoad); }
             catch { }
         }
 
@@ -540,7 +540,7 @@ namespace NOReplay
         {
             if (!_visible || _neutral) return 0f;
             if (gameObject == Plugin._ghost) return 1000f;
-            var cam = Camera.main;
+            var cam = Plugin.MainCamera();
             if (cam == null) return 2f;
             float dist = Vector3.Distance(transform.position, cam.transform.position);
             return 1000f / Mathf.Max(dist, 1f);

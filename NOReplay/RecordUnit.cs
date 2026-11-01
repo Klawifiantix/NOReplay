@@ -102,10 +102,23 @@ namespace NOReplay
                 // Raw transform quaternion
                 var q = unit.transform.rotation;
                 props.Add("Q", $"{q.x.ToString(CultureInfo.InvariantCulture)}|{q.y.ToString(CultureInfo.InvariantCulture)}|{q.z.ToString(CultureInfo.InvariantCulture)}|{q.w.ToString(CultureInfo.InvariantCulture)}");
-
                 lastPos = newPos;
                 lastRot = newRot;
             }
+        }
+
+        internal void RepeatPoseIfStill()
+        {
+            if (props.ContainsKey("T") || float.IsNaN(lastPos.x)) return;
+            if (!props.ContainsKey("RpmRatio") && !props.ContainsKey("JetRpm")
+                && !props.ContainsKey("TurbineRpm") && !props.ContainsKey("Throttle"))
+                return;
+            props.Add("T", UpdatePosition(lastPos));
+            var q = unit.transform.rotation;
+            props.Add("Q", q.x.ToString(CultureInfo.InvariantCulture) + "|"
+                + q.y.ToString(CultureInfo.InvariantCulture) + "|"
+                + q.z.ToString(CultureInfo.InvariantCulture) + "|"
+                + q.w.ToString(CultureInfo.InvariantCulture));
         }
 
         internal void UpdateState()

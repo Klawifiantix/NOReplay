@@ -181,9 +181,8 @@ namespace NOReplay
                 if (n.IndexOf("Render", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                 if (n.IndexOf("Camera", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                 if (n.IndexOf("Orbit", StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                if (n == "RotorShaft" || n == "TurbineEngine" || n == "LandingGear"
-                    || n == "SoftBodyRotor" || n == "SwashRotor" || n == "Turbofan"
-                    || n == "Turbojet" || n == "Aircraft"
+                if (n == "RotorShaft" || n == "LandingGear"
+                    || n == "SoftBodyRotor" || n == "SwashRotor" || n == "Aircraft"
                     || n == "JetNozzle" || n == "Downwash" || n == "DownwashEffect"
                     || n == "VaporEffect" || n == "VaporEmitter") continue;
                 if (n.IndexOf("Particle", StringComparison.OrdinalIgnoreCase) >= 0) continue;
@@ -822,6 +821,7 @@ namespace NOReplay
             if (_acType != null)
             {
                 _fAcEngines = _acType.GetField("engines", flags);
+                _fAcEngineStates = _acType.GetField("engineStates", flags);
                 _mCheckRadarAlt = _acType.GetMethod("CheckRadarAlt", flags);
                 _fUnitRadarAlt = FindInstField(_acType, "radarAlt");
                 _fUnitDisplayDetail = FindInstField(_acType, "displayDetail");

@@ -207,6 +207,12 @@ namespace NOReplay
                 Tas = a.HasTas ? a.Tas : b.Tas,
                 HasThrottle = a.HasThrottle || b.HasThrottle,
                 Throttle = a.HasThrottle ? a.Throttle : b.Throttle,
+                HasRpm = a.HasRpm || b.HasRpm,
+                Rpm = a.HasRpm && b.HasRpm ? Mathf.Lerp(a.Rpm, b.Rpm, u) : (a.HasRpm ? a.Rpm : b.Rpm),
+                HasJetRpm = a.HasJetRpm || b.HasJetRpm,
+                JetRpm = a.HasJetRpm && b.HasJetRpm ? Mathf.Lerp(a.JetRpm, b.JetRpm, u) : (a.HasJetRpm ? a.JetRpm : b.JetRpm),
+                HasTurbineRpm = a.HasTurbineRpm || b.HasTurbineRpm,
+                TurbineRpm = a.HasTurbineRpm && b.HasTurbineRpm ? Mathf.Lerp(a.TurbineRpm, b.TurbineRpm, u) : (a.HasTurbineRpm ? a.TurbineRpm : b.TurbineRpm),
                 HasQuat = true,
                 Qx = qx,
                 Qy = qy,
@@ -392,6 +398,12 @@ namespace NOReplay
         public float Tas;
         public bool HasThrottle;
         public float Throttle;
+        public bool HasRpm;
+        public float Rpm;
+        public bool HasJetRpm;
+        public float JetRpm;
+        public bool HasTurbineRpm;
+        public float TurbineRpm;
 
         public ReplaySample Clone() => this;
     }

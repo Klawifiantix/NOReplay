@@ -19,6 +19,7 @@ namespace NOReplay
         static Type? _acType;
         static Type? _engType;
         static FieldInfo? _fAcEngines;
+        static FieldInfo? _fAcEngineStates;
         static FieldInfo? _fTjetSrc;
         static FieldInfo? _fTjetRpm;
         static FieldInfo? _fTjetMax;
@@ -553,6 +554,7 @@ namespace NOReplay
             if (_drive == null) _drive = transform;
             if (_ordnance)
             {
+                DisableMissileSim();
                 SetGhostVisible(true);
                 return;
             }
@@ -1028,8 +1030,8 @@ namespace NOReplay
                 end = Track.Samples[Track.Samples.Count - 1].Time;
             if (end < 0f || t < end) return;
             _boomed = true;
-            // Plugin.Log?.LogInfo("Boom-Trigger " + (Track.Name ?? name)
-            //     + " removed=" + end.ToString("0.00") + " t=" + t.ToString("0.00"));
+            StopOrdnanceAudio();
+            Plugin.ReleaseCameraIfOn(gameObject);
             PlayWarheadBoom(transform.position);
             SetGhostVisible(false);
         }
@@ -1070,6 +1072,7 @@ namespace NOReplay
         void LateUpdate()
         {
             if (Track == null) return;
+            NoteSpoolClock(Plugin.Clock.Time);
             if (!IsTrackAlive())
             {
                 float end = Track.RemovedAt;
@@ -1080,9 +1083,8 @@ namespace NOReplay
                     _boomed = true;
                     if (_ordnance && !IsFlareTrack())
                     {
-                        // Plugin.Log?.LogInfo("Boom-Trigger " + (Track.Name ?? name)
-                        //     + " removed=" + Track.RemovedAt.ToString("0.00")
-                        //     + " t=" + Plugin.Clock.Time.ToString("0.00"));
+                        StopOrdnanceAudio();
+                        Plugin.ReleaseCameraIfOn(gameObject);
                         PlayWarheadBoom(transform.position);
                     }
                     else if (!_ordnance)
@@ -1091,10 +1093,15 @@ namespace NOReplay
                 HaltGuns(false);
                 if (_visible)
                 {
-                    Plugin.ReleaseCameraIfOn(gameObject);
-                    StopOrdnanceAudio();
+                    if (!(_boomed && _ordnance))
+                    {
+                        Plugin.ReleaseCameraIfOn(gameObject);
+                        StopOrdnanceAudio();
+                    }
                     SetGhostVisible(false);
                 }
+                if (_air && !_neutral)
+                    WindDownPowerplant();
                 if (!_ordnance) TickStructural(false);
                 return;
             }

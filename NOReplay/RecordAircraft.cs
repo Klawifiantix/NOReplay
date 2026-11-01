@@ -104,6 +104,7 @@ namespace NOReplay
 
             UpdatePose();
             UpdateAircraft();
+            RepeatPoseIfStill();
             UpdateState();
             UpdateTargets();
             Engine.invokeWriterUpdate(this);

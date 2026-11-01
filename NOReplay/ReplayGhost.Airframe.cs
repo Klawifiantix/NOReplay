@@ -248,9 +248,24 @@ namespace NOReplay
             return Time.unscaledDeltaTime * Mathf.Abs(Plugin.Clock.Speed);
         }
 
+        // RotorShaft.startupProgress climbs at about 0.03/s until the rotor is near
+        // nominal, so a ground start is on the order of ten seconds. The look-ahead
+        // ramp uses the same window so RPM is near nominal as the wheels leave.
+        const float GroundSpoolSeconds = 12f;
+        struct GroundDeparture
+        {
+            public float From;
+            public float Lift;
+        }
+        readonly List<GroundDeparture> _departures = new List<GroundDeparture>();
+        bool _departuresReady;
+        float _throttleCueAt = -1f;
+        float _spoolSlope = 0.09f;
+        bool _wasFlying;
+
         bool ParkedOnGround()
         {
-            if (_spdMs > 2.5f) return false;
+            if (_spdMs > 3.5f) return false;
             var hits = Physics.RaycastAll(transform.position + Vector3.up * 2f, Vector3.down, 8f, ~0, QueryTriggerInteraction.Ignore);
             float best = 99f;
             for (int i = 0; i < hits.Length; i++)
@@ -263,15 +278,118 @@ namespace NOReplay
             return best < 5.5f;
         }
 
+        bool TrackIsStill(float now)
+        {
+            if (Track == null || !Track.TrySample(now, out var a)) return _spdMs < 2.5f;
+            if (!Track.TrySample(now - 0.45f, out var b)) return _spdMs < 2.5f;
+            float dt = a.Time - b.Time;
+            if (dt < 0.05f) return _spdMs < 2.5f;
+            float dx = a.X - b.X;
+            float dy = a.Y - b.Y;
+            float dz = a.Z - b.Z;
+            float spd = Mathf.Sqrt(dx * dx + dy * dy + dz * dz) / dt;
+            return spd < 3.2f && _spdMs < 4.5f;
+        }
+
+        void EnsureDepartures()
+        {
+            if (_departuresReady) return;
+            _departuresReady = true;
+            var samples = Track?.Samples;
+            if (samples == null || samples.Count < 2) return;
+            bool sitting = false;
+            float sitSince = 0f;
+            float sitY = 0f;
+            for (int i = 1; i < samples.Count; i++)
+            {
+                var prev = samples[i - 1];
+                var s = samples[i];
+                float dt = s.Time - prev.Time;
+                if (dt < 0.02f) continue;
+                float dx = s.X - prev.X;
+                float dy = s.Y - prev.Y;
+                float dz = s.Z - prev.Z;
+                float spd = Mathf.Sqrt(dx * dx + dy * dy + dz * dz) / dt;
+                if (spd < 2.4f)
+                {
+                    if (!sitting)
+                    {
+                        sitting = true;
+                        sitSince = prev.Time;
+                        sitY = s.Y;
+                    }
+                    else if (s.Y < sitY)
+                        sitY = s.Y;
+                    continue;
+                }
+                if (!sitting) continue;
+                bool climbed = s.Y > sitY + 2.5f;
+                bool rolling = spd > 4.5f;
+                if (s.Time - sitSince >= 1f && (climbed || rolling))
+                {
+                    float lift = s.Time;
+                    float from = Mathf.Max(sitSince, lift - GroundSpoolSeconds);
+                    if (lift - from < 0.4f) from = lift - 0.4f;
+                    _departures.Add(new GroundDeparture { From = from, Lift = lift });
+                    sitting = false;
+                }
+            }
+        }
+
+        float LookaheadRamp(float now)
+        {
+            EnsureDepartures();
+            for (int i = 0; i < _departures.Count; i++)
+            {
+                var d = _departures[i];
+                if (now > d.Lift + 1.5f) continue;
+                float span = Mathf.Max(0.4f, d.Lift - d.From);
+                _spoolSlope = Mathf.Max(_spoolSlope, 1.15f / span);
+                if (now >= d.Lift) return 1f;
+                if (now <= d.From) return 0f;
+                return Mathf.Clamp01((now - d.From) / span);
+            }
+            return 0f;
+        }
+
+        float ThrottleRamp(ReplaySample s, float now)
+        {
+            if (_throttleCueAt >= 0f)
+            {
+                _spoolSlope = Mathf.Max(_spoolSlope, 1.15f / GroundSpoolSeconds);
+                return Mathf.Clamp01((now - _throttleCueAt) / GroundSpoolSeconds);
+            }
+            if (!s.HasThrottle || Track == null) return 0f;
+            if (!Track.TrySample(Mathf.Max(0f, now - 1.5f), out var prev) || !prev.HasThrottle) return 0f;
+            if (s.Throttle <= prev.Throttle + 0.12f || s.Throttle < 0.18f) return 0f;
+            _throttleCueAt = now;
+            _spoolSlope = Mathf.Max(_spoolSlope, 1.15f / GroundSpoolSeconds);
+            return 0.02f;
+        }
+
         float GovernTarget(ReplaySample s, bool alive)
         {
             if (!alive) return 0f;
             if (s.HasRpm) return Mathf.Clamp(s.Rpm, 0f, 1.35f);
-            bool parked = ParkedOnGround();
-            if (parked) _governStill += PowerDt();
-            else _governStill = 0f;
-            if (_governStill > 3.5f || (_snapSpool && parked)) return 0f;
-            return 1f;
+            float now = Plugin.Clock.Time;
+            bool still = TrackIsStill(now);
+            if (!still)
+            {
+                if (_spdMs > 5f) _wasFlying = true;
+                _governStill = 0f;
+                _throttleCueAt = -1f;
+                return 1f;
+            }
+            _governStill += PowerDt();
+            _spoolSlope = 0.09f;
+            float ramp = Mathf.Max(LookaheadRamp(now), ThrottleRamp(s, now));
+            bool keepAfterLanding = _wasFlying && _governStill < 5.5f;
+            if (ramp > 0.02f)
+                return keepAfterLanding ? 1f : ramp;
+            if (keepAfterLanding) return 1f;
+            if (ParkedOnGround() && _governStill >= 5.5f) return 0f;
+            if (!ParkedOnGround()) return _wasFlying ? 1f : 0f;
+            return 0f;
         }
 
         float StepGovern(ReplaySample s, bool alive)
@@ -281,7 +399,8 @@ namespace NOReplay
             if (alive) _wasPowerAlive = true;
             if (_governRpm < 0f)
             {
-                _governRpm = (s.HasRpm || (alive && _spdMs > 12f && target > 0.5f)) ? target : 0f;
+                bool hot = s.HasRpm || (alive && _spdMs > 12f) || target > 0.9f;
+                _governRpm = hot ? target : 0f;
                 return _governRpm;
             }
             if (born || _snapSpool)
@@ -291,7 +410,9 @@ namespace NOReplay
             }
             float dt = PowerDt();
             if (dt <= 0f) return _governRpm;
-            float rate = target >= _governRpm ? (_governRpm < 0.5f ? 0.12f : 0.28f) : 0.065f;
+            float rate = target >= _governRpm
+                ? Mathf.Max(_governRpm < 0.45f ? 0.09f : 0.22f, _spoolSlope)
+                : 0.055f;
             if (alive && s.HasRpm) rate = Mathf.Max(rate, 1.2f);
             _governRpm = Mathf.MoveTowards(_governRpm, target, rate * dt);
             return _governRpm;
@@ -356,7 +477,7 @@ namespace NOReplay
             return ratio;
         }
 
-        float StepTurbineRatio(Component c, ReplaySample s, bool alive)
+        float StepTurbineRatio(Component c, ReplaySample s, bool alive, float govern)
         {
             float max = 3000f;
             if (ReadFit(_fEngMaxPublic, c) is float mx && mx > 10f) max = mx;
@@ -365,10 +486,18 @@ namespace NOReplay
                 float m2 = CompNum(c, "maxRPM", 0f);
                 if (m2 > 10f) max = m2;
             }
+            int id = c.GetInstanceID();
+            if (alive && !s.HasTurbineRpm)
+            {
+                float ratio = Mathf.Clamp(govern, 0f, 1.35f);
+                _spoolRpm[id] = ratio * max;
+                WriteFit(_fRpm, c, ratio * max);
+                return ratio;
+            }
             float min = CompNum(c, "minRPM", 1000f);
             float spoolUp = CompNum(c, "spoolUpTime", 8f);
             if (spoolUp < 0.25f) spoolUp = 8f;
-            bool running = alive && _governStill < 3.5f;
+            bool running = alive;
             float target = max;
             if (!alive)
             {
@@ -380,7 +509,6 @@ namespace NOReplay
                 running = true;
                 target = Mathf.Clamp(s.TurbineRpm, 0f, 1.2f) * max;
             }
-            int id = c.GetInstanceID();
             if (!_spoolRpm.TryGetValue(id, out float rpm))
                 rpm = (s.HasTurbineRpm || (alive && _spdMs > 8f)) ? target : 0f;
             if (_snapSpool)
@@ -390,7 +518,9 @@ namespace NOReplay
                 float dt = PowerDt();
                 if (dt > 0f)
                 {
-                    if (running)
+                    if (running && s.HasTurbineRpm)
+                        rpm = Mathf.MoveTowards(rpm, target, max * Mathf.Max(0.35f, 1f / Mathf.Max(spoolUp, 0.25f)) * dt);
+                    else if (running)
                     {
                         float num = rpm < min ? spoolUp * 2f : spoolUp;
                         rpm = Mathf.Lerp(rpm, target, Mathf.Clamp01(dt / Mathf.Max(num, 0.05f)));
@@ -606,7 +736,7 @@ namespace NOReplay
                     break;
                 case "TurbineEngine":
                     if (c is Behaviour tb) tb.enabled = false;
-                    DriveTurbineEngineAudio(c, StepTurbineRatio(c, s, alive), throttle);
+                    DriveTurbineEngineAudio(c, StepTurbineRatio(c, s, alive, govern), throttle);
                     break;
                 case "DuctedFan":
                     DriveFanAudio(c, FanAudioRatio(c, govern, throttle, s, alive), throttle);

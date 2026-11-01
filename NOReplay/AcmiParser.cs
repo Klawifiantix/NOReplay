@@ -109,6 +109,7 @@ namespace NOReplay
                     : new ReplaySample();
                 sample.Time = time;
                 bool hasPose = false;
+                bool telemetry = false;
 
                 foreach (var part in rest.Split(','))
                 {
@@ -266,6 +267,7 @@ namespace NOReplay
                         {
                             sample.HasGear = true;
                             sample.Gear = g;
+                            telemetry = true;
                         }
                     }
                     else if (key.Equals("Throttle", StringComparison.OrdinalIgnoreCase))
@@ -274,6 +276,7 @@ namespace NOReplay
                         {
                             sample.HasThrottle = true;
                             sample.Throttle = th;
+                            telemetry = true;
                         }
                     }
                     else if (key.Equals("RpmRatio", StringComparison.OrdinalIgnoreCase)
@@ -282,6 +285,7 @@ namespace NOReplay
                     {
                         if (float.TryParse(val.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var rpm))
                         {
+                            telemetry = true;
                             if (key.Equals("JetRpm", StringComparison.OrdinalIgnoreCase))
                             {
                                 sample.HasJetRpm = true;
@@ -306,6 +310,7 @@ namespace NOReplay
                         {
                             sample.HasTas = true;
                             sample.Tas = tas;
+                            telemetry = true;
                         }
                     }
                 }
@@ -322,6 +327,17 @@ namespace NOReplay
                             prevPose.Qx, prevPose.Qy, prevPose.Qz, prevPose.Qw,
                             ref sample.Qx, ref sample.Qy, ref sample.Qz, ref sample.Qw);
                     }
+                    if (obj.SpawnAt < 0f) obj.SpawnAt = time;
+                    if (sample.Time > doc.Duration)
+                        doc.Duration = sample.Time;
+                    obj.Samples.Add(sample);
+                    state[objId] = sample;
+                }
+                else if (telemetry && state.ContainsKey(objId))
+                {
+                    // RPM and throttle while the aircraft is sitting still have no new
+                    // position. Keep them, on the last pose, so a ground start is audible.
+                    sample.Time = time;
                     if (obj.SpawnAt < 0f) obj.SpawnAt = time;
                     if (sample.Time > doc.Duration)
                         doc.Duration = sample.Time;

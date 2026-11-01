@@ -12,6 +12,15 @@ namespace NOReplay.OrientationTests
             RollWrapsShort();
             SignFlipStaysPut();
             UnityYaw90();
+            LevelFlightHasNoAoa();
+            NoseUpIsPositiveAoa();
+            NoseDownIsNegativeAoa();
+            WingVaporUsesAoaCurve();
+            ContrailUsesAltitudeBand();
+            ReplayGatesKillVapor();
+            GLoadMatchesAircraft();
+            OpacityFadesBothWays();
+            SpeedOfSoundFloor();
             WheelRollsWithTheNose();
             ReverseRollsBackward();
             PivotSplitsTheSides();
@@ -96,6 +105,85 @@ namespace NOReplay.OrientationTests
             Check(GroundRoll.IsSeek(-2f, 0f, 0f), "a rewind jump is a seek");
             Check(GroundRoll.IsSeek(0f, 401f, 0f), "a 20m teleport is a seek");
             Check(GroundRoll.IsSeek(0f, 1f, 40f), "a large yaw step is a seek");
+        }
+
+        static void LevelFlightHasNoAoa()
+        {
+            float a = VaporMath.AngleOnAxis(0f, 0f, 1f, 0f, 0f, 1f, 1f, 0f, 0f);
+            Check(MathF.Abs(a) < 0.01f, "level AoA " + a.ToString("0.00"));
+        }
+
+        static void NoseUpIsPositiveAoa()
+        {
+            float s = 0.70710678f;
+            float a = VaporMath.AngleOnAxis(0f, 0f, 1f, 0f, -s, s, 1f, 0f, 0f);
+            Check(MathF.Abs(a - 45f) < 0.05f, "nose-up AoA " + a.ToString("0.00") + " expected 45");
+        }
+
+        static void NoseDownIsNegativeAoa()
+        {
+            float s = 0.70710678f;
+            float a = VaporMath.AngleOnAxis(0f, 0f, 1f, 0f, s, s, 1f, 0f, 0f);
+            Check(MathF.Abs(a + 45f) < 0.05f, "nose-down AoA " + a.ToString("0.00") + " expected -45");
+        }
+
+        static void WingVaporUsesAoaCurve()
+        {
+            Check(VaporMath.WingCondensation(12f, 8f, 2f, 200f, 20f, false, false), "AoA above curve");
+            Check(!VaporMath.WingCondensation(4f, 8f, 2f, 200f, 20f, false, false), "AoA under curve");
+            Check(!VaporMath.WingCondensation(12f, 8f, 0.5f, 200f, 20f, false, false), "detail cutoff");
+            Check(!VaporMath.WingCondensation(-12f, 8f, 0.4f, 200f, 20f, false, false), "detail below cutoff");
+            Check(VaporMath.WingCondensation(-12f, 8f, 0.51f, 200f, 20f, false, false), "negative AoA counts");
+        }
+
+        static void ContrailUsesAltitudeBand()
+        {
+            Check(VaporMath.EngineContrail(8000f, 7500f, 12500f, 200f, 20f, false, false), "inside band");
+            Check(!VaporMath.EngineContrail(7500f, 7500f, 12500f, 200f, 20f, false, false), "min exclusive");
+            Check(!VaporMath.EngineContrail(12500f, 7500f, 12500f, 200f, 20f, false, false), "max exclusive");
+            Check(!VaporMath.EngineContrail(4000f, 7500f, 12500f, 250f, 20f, false, false), "below band");
+            Check(VaporMath.EngineContrail(9000f, 7500f, 12500f, 200f, 20f, false, false) , "contrail ignores detail");
+        }
+
+        static void ReplayGatesKillVapor()
+        {
+            Check(!VaporMath.WingCondensation(20f, 5f, 10f, 200f, 20f, true, false), "paused wing");
+            Check(!VaporMath.WingCondensation(20f, 5f, 10f, 200f, 20f, false, true), "ground wing");
+            Check(!VaporMath.WingCondensation(20f, 5f, 10f, 10f, 20f, false, false), "slow wing");
+            Check(!VaporMath.EngineContrail(9000f, 7500f, 12500f, 200f, 20f, true, false), "paused contrail");
+            Check(!VaporMath.EngineContrail(9000f, 7500f, 12500f, 200f, 20f, false, true), "ground contrail");
+            Check(!VaporMath.EngineContrail(9000f, 7500f, 12500f, 10f, 20f, false, false), "slow contrail");
+        }
+
+        static void GLoadMatchesAircraft()
+        {
+            float g = VaporMath.GLoad(0f, 9.81f, 0f, 0f, 0f, 0f, 1f);
+            Check(MathF.Abs(g - 1f) < 0.001f, "1g step " + g.ToString("0.000"));
+            float steady = VaporMath.GLoad(100f, 0f, 0f, 100f, 0f, 0f, 0.3f);
+            Check(steady == 0f, "steady g " + steady.ToString("0.000"));
+            float zeroDt = VaporMath.GLoad(1f, 0f, 0f, 0f, 0f, 0f, 0f);
+            Check(zeroDt == 0f, "zero dt");
+        }
+
+        static void OpacityFadesBothWays()
+        {
+            float up = VaporMath.StepOpacity(-0.5f, true, 0.02f);
+            Check(MathF.Abs(up - (-0.48f)) < 0.0001f, "fade in " + up.ToString("0.000"));
+            float down = VaporMath.StepOpacity(1f, false, 0.02f);
+            Check(MathF.Abs(down - 0.98f) < 0.0001f, "fade out " + down.ToString("0.000"));
+            Check(VaporMath.FadeStillVisible(false, -0.4f), "still fading");
+            Check(!VaporMath.FadeStillVisible(false, -0.5f), "fade done");
+            Check(VaporMath.FadeStillVisible(true, -0.5f), "active emits");
+            float rate = VaporMath.EmitRate(10f, 10f, 20f);
+            Check(MathF.Abs(rate - 5f) < 0.001f, "half rate " + rate.ToString("0.00"));
+        }
+
+        static void SpeedOfSoundFloor()
+        {
+            Check(MathF.Abs(VaporMath.SpeedOfSound(0f) - 340f) < 0.01f, "sos sea");
+            Check(MathF.Abs(VaporMath.SpeedOfSound(20000f) - 290f) < 0.01f, "sos floor");
+            float sos = VaporMath.SpeedOfSound(4000f);
+            Check(MathF.Abs(sos - 320f) < 0.01f, "sos 4km " + sos.ToString("0.0"));
         }
 
         static float YawOf(float x, float y, float z, float w)

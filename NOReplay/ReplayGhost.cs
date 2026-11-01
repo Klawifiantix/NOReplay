@@ -526,6 +526,7 @@ namespace NOReplay
         void OnDestroy()
         {
             ClearStructural();
+            ReleaseWheelMaterials();
             DestroyDownwashTransforms();
             ReleaseGunVisuals();
             if (_trail != null)

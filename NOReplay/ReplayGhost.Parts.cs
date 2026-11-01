@@ -27,6 +27,8 @@ namespace NOReplay
 
         const float DebrisLife = 14f;
         const float FxLife = 8f;
+        const float PartFxLife = 30f;
+        const float BreakFxRange = 5000f;
         const float PartJump = 2f;
         const int DebrisCap = 24;
 
@@ -38,12 +40,41 @@ namespace NOReplay
         static FieldInfo? _segRenderer;
         static FieldInfo? _breakEffects;
         static FieldInfo? _rotorDamageIndex;
+        static FieldInfo? _damageFxList;
+        static FieldInfo? _fuelFire;
+        static FieldInfo? _fuelLeak;
+        static FieldInfo? _fuelBall;
+        static FieldInfo? _fuelPart;
+        static FieldInfo? _turbineFail;
+        static FieldInfo? _turbineFailXf;
+        static FieldInfo? _turbineCrit;
+        static FieldInfo? _jetNozzles;
+        static FieldInfo? _jetCrit;
+        static FieldInfo? _nozzleFail;
+        static FieldInfo? _nozzleThrust;
+        static FieldInfo? _nozzlePart;
+        static FieldInfo? _attachInfo;
+        static FieldInfo? _attachParent;
+        static FieldInfo? _fStopCulled;
         static bool _fxFields;
 
         sealed class FallingBit
         {
             public GameObject Go = null!;
             public float Time;
+            public float Life;
+            public bool IsFx;
+            public bool Grounded;
+            public bool ParticlesPaused;
+            public bool Frozen;
+            public GameObject? Host;
+            public Transform? Anchor;
+            public Vector3 LocalPos;
+            public Quaternion LocalRot;
+            public Rigidbody? Drive;
+            public Vector3 HeldVel;
+            public Vector3 HeldAng;
+            public float Born;
         }
 
         bool RendererForcedOff(Renderer r)
@@ -123,7 +154,13 @@ namespace NOReplay
 
         void TickStructural(bool allowSpawn)
         {
-            if (Track == null) return;
+            if (!_air && !_ship && !_ordnance)
+                TickWheels();
+            if (Track == null)
+            {
+                SyncBreakFx();
+                return;
+            }
             TrimBits(_bits);
             TrimBits(_fxBits);
             var events = Track.PartBreaks;
@@ -137,6 +174,7 @@ namespace NOReplay
                     _structEpoch++;
                 }
                 _structPrev = now;
+                SyncBreakFx();
                 return;
             }
             int count = ReplayDocument.CountAtOrBefore(events, now);
@@ -157,6 +195,7 @@ namespace NOReplay
                 _structEpoch++;
             }
             _structPrev = now;
+            SyncBreakFx();
         }
 
         void ApplyPartVisibility(ReplayObject[] events, int count)
@@ -262,9 +301,10 @@ namespace NOReplay
                 if (part == null) continue;
                 Vector3 p = part.transform.position;
                 Quaternion q = part.transform.rotation;
-                SpawnPartEffects(part, p, q, when);
+                GameObject? debris = null;
                 if (!IsFragment(ev))
-                    SpawnPartDebris(part, when, BreakVelocity(ev, p));
+                    debris = SpawnPartDebris(part, when, BreakVelocity(ev, p));
+                SpawnPartEffects(part, p, q, when, debris, !IsFragment(ev));
             }
         }
 
@@ -280,15 +320,303 @@ namespace NOReplay
             return vel;
         }
 
-        void SpawnPartEffects(UnitPart part, Vector3 pos, Quaternion rot, float when)
+        void SpawnPartEffects(UnitPart part, Vector3 pos, Quaternion rot, float when, GameObject? debris, bool detached)
+        {
+            if (!BreakFxNear(pos)) return;
+            BindFxFields();
+            var seen = new HashSet<int>();
+            if (_disintegrateFx?.GetValue(part) is GameObject[] fx)
+            {
+                for (int i = 0; i < fx.Length; i++)
+                    PlaceBreakFx(fx[i], part, pos, rot, when, debris, seen);
+            }
+            PlaceDamageEffects(part, pos, rot, when, debris, seen);
+            if (!detached) return;
+            PlaceFuelEffects(part, pos, rot, when, debris, seen);
+            PlaceEngineFailures(part, pos, rot, when, debris, seen);
+        }
+
+        void PlaceBreakFx(GameObject? prefab, UnitPart part, Vector3 pos, Quaternion rot, float when, GameObject? debris, HashSet<int> seen)
+        {
+            if (prefab == null || !seen.Add(prefab.GetInstanceID())) return;
+            if (PrefabRidesPart(prefab))
+            {
+                if (debris != null)
+                {
+                    SpawnFallFx(prefab, pos, rot, when, debris);
+                    var stump = StumpAnchor(part);
+                    if (stump != null)
+                        SpawnHeldFx(prefab, pos, rot, when, stump, PartFxLife);
+                }
+                else
+                    SpawnHeldFx(prefab, pos, rot, when, part.transform, PartFxLife);
+                return;
+            }
+            SpawnHeldFx(prefab, pos, rot, when, null, FxLife);
+        }
+
+        void PlaceDamageEffects(UnitPart part, Vector3 pos, Quaternion rot, float when, GameObject? debris, HashSet<int> seen)
+        {
+            if (_damageFxList?.GetValue(part) is not System.Collections.IEnumerable effects) return;
+            foreach (var item in effects)
+            {
+                if (item is DamageEffect effect)
+                    PlaceBreakFx(effect.prefab, part, pos, rot, when, debris, seen);
+            }
+        }
+
+        void PlaceFuelEffects(UnitPart part, Vector3 pos, Quaternion rot, float when, GameObject? debris, HashSet<int> seen)
+        {
+            var tanks = part.GetComponentsInChildren<FuelTank>(true);
+            for (int i = 0; i < tanks.Length; i++)
+            {
+                var tank = tanks[i];
+                if (tank == null || !FuelTankOnPart(tank, part)) continue;
+                // Detach always ruptures the tank. leakEffect is the spray, fireEffect the flame.
+                // Neither is guaranteed to carry DamageParticles, so both are parented by hand.
+                PlaceRidingFx(FieldGo(_fuelLeak, tank), part, pos, rot, when, debris, seen);
+                PlaceRidingFx(FieldGo(_fuelFire, tank), part, pos, rot, when, debris, seen);
+                PlaceBreakFx(FieldGo(_fuelBall, tank), part, pos, rot, when, debris, seen);
+            }
+        }
+
+        void PlaceRidingFx(GameObject? prefab, UnitPart part, Vector3 pos, Quaternion rot, float when, GameObject? debris, HashSet<int> seen)
+        {
+            if (prefab == null || !seen.Add(prefab.GetInstanceID())) return;
+            if (debris != null)
+            {
+                SpawnFallFx(prefab, pos, rot, when, debris);
+                var stump = StumpAnchor(part);
+                if (stump != null)
+                    SpawnHeldFx(prefab, pos, rot, when, stump, PartFxLife);
+            }
+            else
+                SpawnHeldFx(prefab, pos, rot, when, part.transform, PartFxLife);
+        }
+
+        void PlaceEngineFailures(UnitPart part, Vector3 pos, Quaternion rot, float when, GameObject? debris, HashSet<int> seen)
+        {
+            var turbines = GetComponentsInChildren<TurbineEngine>(true);
+            for (int i = 0; i < turbines.Length; i++)
+            {
+                var eng = turbines[i];
+                if (eng == null || !PartListed(_turbineCrit, eng, part)) continue;
+                var prefab = FieldGo(_turbineFail, eng);
+                var anchor = _turbineFailXf?.GetValue(eng) as Transform;
+                PlaceEngineFx(prefab, anchor, part, pos, rot, when, debris, seen);
+            }
+            var jets = GetComponentsInChildren<Turbojet>(true);
+            var nozzles = GetComponentsInChildren<JetNozzle>(true);
+            for (int n = 0; n < nozzles.Length; n++)
+            {
+                var nozzle = nozzles[n];
+                if (nozzle == null) continue;
+                bool own = _nozzlePart?.GetValue(nozzle) is UnitPart up && PartHits(up, part);
+                bool owned = own || JetOwnsBroken(jets, nozzle, part);
+                if (!owned) continue;
+                var prefab = FieldGo(_nozzleFail, nozzle);
+                var anchor = _nozzleThrust?.GetValue(nozzle) as Transform;
+                PlaceEngineFx(prefab, anchor, part, pos, rot, when, debris, seen);
+            }
+        }
+
+        void PlaceEngineFx(GameObject? prefab, Transform? anchor, UnitPart part, Vector3 pos, Quaternion rot, float when, GameObject? debris, HashSet<int> seen)
+        {
+            if (prefab == null || !seen.Add(prefab.GetInstanceID())) return;
+            bool fell = anchor != null && (anchor == part.transform || anchor.IsChildOf(part.transform));
+            Vector3 at = anchor != null ? anchor.position : pos;
+            Quaternion facing = anchor != null ? anchor.rotation : rot;
+            if (fell && debris != null)
+            {
+                SpawnFallFx(prefab, at, facing, when, debris);
+                var stump = StumpAnchor(part);
+                if (stump != null && stump != anchor)
+                    SpawnHeldFx(prefab, pos, rot, when, stump, PartFxLife);
+            }
+            else if (anchor != null)
+                SpawnHeldFx(prefab, at, facing, when, anchor, PartFxLife);
+            else if (debris != null)
+                SpawnFallFx(prefab, pos, rot, when, debris);
+            else
+                SpawnHeldFx(prefab, pos, rot, when, null, FxLife);
+        }
+
+        bool JetOwnsBroken(Turbojet[] jets, JetNozzle nozzle, UnitPart part)
+        {
+            for (int i = 0; i < jets.Length; i++)
+            {
+                var jet = jets[i];
+                if (jet == null || !PartListed(_jetCrit, jet, part)) continue;
+                if (_jetNozzles?.GetValue(jet) is not Array nozzles) continue;
+                for (int n = 0; n < nozzles.Length; n++)
+                {
+                    if (ReferenceEquals(nozzles.GetValue(n), nozzle))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        static bool PartListed(FieldInfo? field, Component host, UnitPart part)
+        {
+            if (field?.GetValue(host) is not Array arr) return false;
+            for (int i = 0; i < arr.Length; i++)
+            {
+                if (arr.GetValue(i) is UnitPart up && PartHits(up, part))
+                    return true;
+            }
+            return false;
+        }
+
+        static bool PartHits(UnitPart candidate, UnitPart broken)
+        {
+            if (candidate == null || broken == null) return false;
+            if (candidate == broken) return true;
+            // The listed part rode out on the piece that broke off.
+            return candidate.transform.IsChildOf(broken.transform);
+        }
+
+        static bool FuelTankOnPart(FuelTank tank, UnitPart part)
         {
             BindFxFields();
-            if (_disintegrateFx?.GetValue(part) is not GameObject[] fx) return;
-            for (int i = 0; i < fx.Length; i++)
+            if (_fuelPart?.GetValue(tank) is UnitPart up && up != null)
+                return PartHits(up, part);
+            return tank.transform == part.transform || tank.transform.IsChildOf(part.transform);
+        }
+
+        static GameObject? FieldGo(FieldInfo? field, Component host)
+        {
+            try { return field?.GetValue(host) as GameObject; }
+            catch { return null; }
+        }
+
+        static bool PrefabRidesPart(GameObject prefab)
+        {
+            if (prefab.GetComponentInChildren<DamageParticles>(true) != null) return true;
+            if (prefab.GetComponentInChildren<TrailRenderer>(true) != null) return true;
+            if (prefab.GetComponentInChildren<TrailEmitter>(true) != null) return true;
+            return false;
+        }
+
+        Transform? StumpAnchor(UnitPart part)
+        {
+            var parent = ReadParentPart(part);
+            if (parent != null && parent.transform != part.transform)
+                return parent.transform;
+            var up = part.transform.parent;
+            if (up != null && up != transform && up != part.transform)
+                return up;
+            return null;
+        }
+
+        static UnitPart? ReadParentPart(UnitPart part)
+        {
+            BindFxFields();
+            if (_attachInfo == null) return null;
+            object? info;
+            try { info = _attachInfo.GetValue(part); }
+            catch { return null; }
+            if (info == null) return null;
+            if (_attachParent == null)
+                _attachParent = info.GetType().GetField("parentPart",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            try { return _attachParent?.GetValue(info) as UnitPart; }
+            catch { return null; }
+        }
+
+        bool BreakFxNear(Vector3 pos)
+        {
+            var cam = Camera.main;
+            if (cam == null) return true;
+            return (pos - cam.transform.position).sqrMagnitude <= BreakFxRange * BreakFxRange;
+        }
+
+        void SpawnFallFx(GameObject prefab, Vector3 pos, Quaternion rot, float when, GameObject debris)
+        {
+            var body = debris.GetComponent<Rigidbody>();
+            var go = SpawnInactive(prefab);
+            if (go == null) return;
+            go.name = "NOReplay_PartFx";
+            // Parent while the debris body is still dynamic, so DamageParticles.Awake
+            // follows that body instead of starting the 1.5s cull timer.
+            go.transform.SetParent(debris.transform, false);
+            go.SetActive(true);
+            go.transform.SetPositionAndRotation(pos, rot);
+            NeutralizeFx(go);
+            PlayParticles(go);
+            ArmTrail(go, body);
+            _fxBits.Add(new FallingBit
             {
-                if (fx[i] != null)
-                    SpawnFx(fx[i], pos, rot, when);
+                Go = go,
+                Time = when,
+                Life = PartFxLife,
+                IsFx = true,
+                Host = debris,
+                Born = Time.time
+            });
+        }
+
+        void SpawnHeldFx(GameObject prefab, Vector3 pos, Quaternion rot, float when, Transform? anchor, float life)
+        {
+            var go = SpawnInactive(prefab);
+            if (go == null) return;
+            var holder = new GameObject(anchor != null ? "NOReplay_StumpFx" : "NOReplay_BreakFx");
+            holder.transform.SetPositionAndRotation(pos, rot);
+            var rb = holder.AddComponent<Rigidbody>();
+            rb.useGravity = false;
+            rb.mass = 1f;
+            rb.isKinematic = false;
+            rb.detectCollisions = false;
+            go.name = "NOReplay_PartFx";
+            go.transform.SetParent(holder.transform, false);
+            go.SetActive(true);
+            go.transform.localPosition = Vector3.zero;
+            go.transform.localRotation = Quaternion.identity;
+            rb.isKinematic = true;
+            if (anchor != null)
+                holder.transform.SetParent(anchor, true);
+            NeutralizeFx(holder);
+            PlayParticles(holder);
+            var bit = new FallingBit
+            {
+                Go = holder,
+                Time = when,
+                Life = life,
+                IsFx = true,
+                Born = Time.time
+            };
+            if (anchor != null)
+            {
+                bit.Anchor = anchor;
+                bit.LocalPos = anchor.InverseTransformPoint(holder.transform.position);
+                bit.LocalRot = Quaternion.Inverse(anchor.rotation) * holder.transform.rotation;
             }
+            _fxBits.Add(bit);
+        }
+
+        static GameObject? SpawnInactive(GameObject prefab)
+        {
+            var dormant = new GameObject("NOReplay_Dormant");
+            dormant.SetActive(false);
+            GameObject go;
+            try { go = UnityEngine.Object.Instantiate(prefab, dormant.transform); }
+            catch
+            {
+                UnityEngine.Object.Destroy(dormant);
+                return null;
+            }
+            // A kinematic body on the prefab would hide the debris body from Awake.
+            var bodies = go.GetComponentsInChildren<Rigidbody>(true);
+            for (int i = bodies.Length - 1; i >= 0; i--)
+            {
+                if (bodies[i] == null) continue;
+                try { UnityEngine.Object.DestroyImmediate(bodies[i]); }
+                catch { }
+            }
+            go.SetActive(false);
+            go.transform.SetParent(null, false);
+            UnityEngine.Object.Destroy(dormant);
+            return go;
         }
 
         void SpawnBreakEffects(Unit unit, ReplayObject ev, Vector3 pos, Quaternion rot, float when)
@@ -308,15 +636,259 @@ namespace NOReplay
 
         void SpawnFx(GameObject prefab, Vector3 pos, Quaternion rot, float when)
         {
-            GameObject go;
-            try { go = UnityEngine.Object.Instantiate(prefab, pos, rot); }
-            catch { return; }
-            go.name = "NOReplay_PartFx";
-            go.transform.SetParent(null, true);
-            NeutralizeFx(go);
-            PlayParticles(go);
-            UnityEngine.Object.Destroy(go, FxLife);
-            _fxBits.Add(new FallingBit { Go = go, Time = when });
+            if (!BreakFxNear(pos)) return;
+            SpawnHeldFx(prefab, pos, rot, when, null, FxLife);
+        }
+
+        static void ArmTrail(GameObject go, Rigidbody? body)
+        {
+            if (body == null) return;
+            var trails = go.GetComponentsInChildren<TrailEmitter>(true);
+            for (int i = 0; i < trails.Length; i++)
+            {
+                var trail = trails[i];
+                if (trail == null) continue;
+                trail.rb = body;
+                trail.StartTrail();
+            }
+        }
+
+        void SyncBreakFx()
+        {
+            bool paused = Plugin.Clock != null && Plugin.Clock.Paused;
+            float now = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+            float sea = SeaY();
+            for (int i = _bits.Count - 1; i >= 0; i--)
+            {
+                var bit = _bits[i];
+                if (bit.Go == null)
+                {
+                    _bits.RemoveAt(i);
+                    continue;
+                }
+                if (bit.Life > 0f && now > bit.Time + bit.Life)
+                {
+                    ReleaseHost(bit.Go);
+                    UnityEngine.Object.Destroy(bit.Go);
+                    _bits.RemoveAt(i);
+                    continue;
+                }
+                if (bit.Drive == null) continue;
+                if (paused)
+                {
+                    if (!bit.Frozen && !bit.Drive.isKinematic)
+                    {
+                        bit.HeldVel = bit.Drive.velocity;
+                        bit.HeldAng = bit.Drive.angularVelocity;
+                        bit.Drive.velocity = Vector3.zero;
+                        bit.Drive.angularVelocity = Vector3.zero;
+                        bit.Drive.isKinematic = true;
+                        bit.Frozen = true;
+                    }
+                }
+                else if (bit.Frozen)
+                {
+                    bit.Drive.isKinematic = false;
+                    bit.Drive.velocity = bit.HeldVel;
+                    bit.Drive.angularVelocity = bit.HeldAng;
+                    bit.Frozen = false;
+                }
+            }
+            for (int i = _fxBits.Count - 1; i >= 0; i--)
+            {
+                var bit = _fxBits[i];
+                if (bit.Go == null)
+                {
+                    _fxBits.RemoveAt(i);
+                    continue;
+                }
+                float life = bit.Life > 0f ? bit.Life : FxLife;
+                if (now > bit.Time + life)
+                {
+                    UnityEngine.Object.Destroy(bit.Go);
+                    _fxBits.RemoveAt(i);
+                    continue;
+                }
+                if (!bit.Grounded && ShouldGroundFx(bit, sea))
+                    GroundFx(bit);
+                if (!bit.Grounded && bit.Anchor != null)
+                    StickToAnchor(bit);
+                if (!paused && now > bit.Time + 2f && FxSpent(bit.Go))
+                {
+                    UnityEngine.Object.Destroy(bit.Go);
+                    _fxBits.RemoveAt(i);
+                    continue;
+                }
+                if (paused)
+                {
+                    if (!bit.ParticlesPaused)
+                    {
+                        SetFxPaused(bit.Go, true);
+                        bit.ParticlesPaused = true;
+                    }
+                }
+                else if (bit.ParticlesPaused && !bit.Grounded)
+                {
+                    SetFxPaused(bit.Go, false);
+                    bit.ParticlesPaused = false;
+                }
+            }
+        }
+
+        void ReleaseHost(GameObject host)
+        {
+            for (int i = 0; i < _fxBits.Count; i++)
+            {
+                var fx = _fxBits[i];
+                if (fx.Host != host || fx.Go == null) continue;
+                if (!fx.Grounded)
+                    GroundFx(fx);
+                fx.Host = null;
+            }
+        }
+
+        static void StickToAnchor(FallingBit bit)
+        {
+            if (bit.Go == null || bit.Anchor == null) return;
+            bit.Go.transform.SetPositionAndRotation(
+                bit.Anchor.TransformPoint(bit.LocalPos),
+                bit.Anchor.rotation * bit.LocalRot);
+        }
+
+        static PropertyInfo? _pParticleCount;
+
+        static bool FxSpent(GameObject go)
+        {
+            var pt = ParticleType();
+            if (pt == null) return false;
+            _pParticleCount ??= pt.GetProperty("particleCount");
+            BindParticleRefl();
+            var raw = go.GetComponentsInChildren(pt, true);
+            for (int i = 0; i < raw.Length; i++)
+            {
+                var ps = raw[i];
+                if (ps == null) continue;
+                try
+                {
+                    if (_pPsIsPlaying?.GetValue(ps) is bool playing && playing) return false;
+                    if (_pParticleCount?.GetValue(ps) is int n && n > 0) return false;
+                }
+                catch { return false; }
+            }
+            var ribbons = go.GetComponentsInChildren<TrailRenderer>(true);
+            for (int i = 0; i < ribbons.Length; i++)
+            {
+                if (ribbons[i] != null && ribbons[i].positionCount > 0) return false;
+            }
+            var emitters = go.GetComponentsInChildren<TrailEmitter>(true);
+            for (int i = 0; i < emitters.Length; i++)
+            {
+                if (emitters[i] != null && emitters[i].enabled && emitters[i].rb != null)
+                    return false;
+            }
+            return raw.Length > 0 || ribbons.Length > 0;
+        }
+
+        static float SeaY()
+        {
+            try { return Datum.LocalSeaY; }
+            catch { return 0f; }
+        }
+
+        static bool ShouldGroundFx(FallingBit bit, float sea)
+        {
+            if (bit.Host == null || Time.time < bit.Born + 0.15f) return false;
+            var sink = bit.Host.GetComponent<ReplayDebrisSink>();
+            if (sink != null && sink.Hit) return true;
+            return bit.Go != null && bit.Go.transform.position.y < sea - 0.5f;
+        }
+
+        void GroundFx(FallingBit bit)
+        {
+            bit.Grounded = true;
+            bit.Anchor = null;
+            if (bit.Go == null) return;
+            // Stay parented to our own holder. DamageParticles.ParentObjectCulled
+            // reparents the effect to the world and we would lose the reference.
+            bit.Go.transform.SetParent(null, true);
+            bool wet = bit.Go.transform.position.y < SeaY() - 0.5f;
+            bool stop = wet;
+            if (!wet && bit.Host != null)
+            {
+                var sink = bit.Host.GetComponent<ReplayDebrisSink>();
+                if (sink != null && sink.Hit)
+                    bit.Go.transform.position = sink.Point + Vector3.up * 0.15f;
+            }
+            BindFxFields();
+            var dps = bit.Go.GetComponentsInChildren<DamageParticles>(true);
+            for (int i = 0; i < dps.Length; i++)
+            {
+                if (dps[i] == null) continue;
+                try
+                {
+                    if (_fStopCulled?.GetValue(dps[i]) is bool flag && flag)
+                        stop = true;
+                }
+                catch { }
+            }
+            var emitters = bit.Go.GetComponentsInChildren<TrailEmitter>(true);
+            for (int i = 0; i < emitters.Length; i++)
+            {
+                if (emitters[i] == null) continue;
+                try { emitters[i].StopTrail(); }
+                catch { }
+            }
+            var ribbons = bit.Go.GetComponentsInChildren<TrailRenderer>(true);
+            for (int i = 0; i < ribbons.Length; i++)
+            {
+                if (ribbons[i] != null) ribbons[i].emitting = false;
+            }
+            if (stop)
+                StopFxParticles(bit.Go);
+        }
+
+        static void SetFxPaused(GameObject go, bool paused)
+        {
+            var pt = ParticleType();
+            if (pt != null)
+            {
+                var raw = go.GetComponentsInChildren(pt, true);
+                var arr = new Component[raw.Length];
+                for (int i = 0; i < raw.Length; i++)
+                    arr[i] = raw[i];
+                if (paused)
+                    PauseParticleSystems(arr);
+                else
+                {
+                    for (int i = 0; i < arr.Length; i++)
+                        PlayParticleSystem(arr[i]);
+                }
+            }
+            var emitters = go.GetComponentsInChildren<TrailEmitter>(true);
+            for (int i = 0; i < emitters.Length; i++)
+            {
+                var emitter = emitters[i];
+                if (emitter == null) continue;
+                if (!paused && emitter.rb == null) continue;
+                emitter.enabled = !paused;
+            }
+            var sources = go.GetComponentsInChildren<AudioSource>(true);
+            for (int i = 0; i < sources.Length; i++)
+            {
+                var src = sources[i];
+                if (src == null) continue;
+                if (paused) src.Pause();
+                else src.UnPause();
+            }
+        }
+
+        static void StopFxParticles(GameObject go)
+        {
+            var pt = ParticleType();
+            if (pt == null) return;
+            var raw = go.GetComponentsInChildren(pt, true);
+            for (int i = 0; i < raw.Length; i++)
+                StopParticleSystem(raw[i], false);
         }
 
         static void NeutralizeFx(GameObject go)
@@ -342,9 +914,9 @@ namespace NOReplay
                 if (cols[i] != null) cols[i].enabled = false;
         }
 
-        void SpawnPartDebris(UnitPart part, float when, Vector3 vel)
+        GameObject? SpawnPartDebris(UnitPart part, float when, Vector3 vel)
         {
-            if (_bits.Count >= DebrisCap) return;
+            if (_bits.Count >= DebrisCap) return null;
             var skip = DisintegrateIds(part);
             var root = new GameObject("NOReplay_Debris");
             root.transform.SetPositionAndRotation(part.transform.position, part.transform.rotation);
@@ -352,9 +924,9 @@ namespace NOReplay
             if (copied == 0)
             {
                 UnityEngine.Object.Destroy(root);
-                return;
+                return null;
             }
-            FinishDebris(root, when, vel, part.mass > 0.1f ? part.mass : 40f);
+            return FinishDebris(root, when, vel, part.mass > 0.1f ? part.mass : 40f);
         }
 
         void SpawnMeshDebris(Transform? seg, Renderer? rend, float when, Vector3 vel, float mass)
@@ -373,8 +945,9 @@ namespace NOReplay
             FinishDebris(root, when, vel, mass);
         }
 
-        void FinishDebris(GameObject root, float when, Vector3 vel, float mass)
+        GameObject FinishDebris(GameObject root, float when, Vector3 vel, float mass)
         {
+            root.AddComponent<ReplayDebrisSink>();
             var sphere = root.AddComponent<SphereCollider>();
             var rends = root.GetComponentsInChildren<Renderer>(true);
             if (rends.Length > 0)
@@ -395,8 +968,15 @@ namespace NOReplay
             rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             rb.velocity = vel;
             rb.angularVelocity = UnityEngine.Random.insideUnitSphere * 2.5f;
-            UnityEngine.Object.Destroy(root, DebrisLife);
-            _bits.Add(new FallingBit { Go = root, Time = when });
+            _bits.Add(new FallingBit
+            {
+                Go = root,
+                Time = when,
+                Life = DebrisLife,
+                Drive = rb,
+                Born = Time.time
+            });
+            return root;
         }
 
         static int CopyMeshes(Transform src, Transform dst, HashSet<int>? skip, int cap)
@@ -680,7 +1260,26 @@ namespace NOReplay
             var flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
             _disintegrate = typeof(UnitPart).GetField("disintegrateObjects", flags);
             _disintegrateFx = typeof(UnitPart).GetField("disintegrationEffects", flags);
+            _damageFxList = typeof(UnitPart).GetField("damageEffects", flags);
             _fireDamage = typeof(DamageParticles).GetField("fireDamage", flags);
+            _fStopCulled = typeof(DamageParticles).GetField("stopWhenParentCulled", flags);
+            _attachInfo = typeof(UnitPart).GetField("attachInfo", flags);
+            var fuel = typeof(FuelTank);
+            _fuelFire = fuel.GetField("fireEffect", flags);
+            _fuelLeak = fuel.GetField("leakEffect", flags);
+            _fuelBall = fuel.GetField("fireball", flags);
+            _fuelPart = fuel.GetField("part", flags);
+            var turbine = typeof(TurbineEngine);
+            _turbineFail = turbine.GetField("failureEffect", flags);
+            _turbineFailXf = turbine.GetField("failureTransform", flags);
+            _turbineCrit = turbine.GetField("criticalParts", flags);
+            var jet = typeof(Turbojet);
+            _jetNozzles = jet.GetField("nozzles", flags);
+            _jetCrit = jet.GetField("criticalParts", flags);
+            var nozzle = typeof(JetNozzle);
+            _nozzleFail = nozzle.GetField("failureEffect", flags);
+            _nozzleThrust = nozzle.GetField("thrustTransform", flags);
+            _nozzlePart = nozzle.GetField("part", flags);
         }
     }
 }

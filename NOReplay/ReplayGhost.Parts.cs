@@ -158,7 +158,7 @@ namespace NOReplay
                 TickWheels();
             if (Track == null)
             {
-                SyncBreakFx();
+                if (AirframeFx()) SyncBreakFx();
                 return;
             }
             TrimBits(_bits);
@@ -174,7 +174,7 @@ namespace NOReplay
                     _structEpoch++;
                 }
                 _structPrev = now;
-                SyncBreakFx();
+                if (AirframeFx()) SyncBreakFx();
                 return;
             }
             int count = ReplayDocument.CountAtOrBefore(events, now);
@@ -195,7 +195,23 @@ namespace NOReplay
                 _structEpoch++;
             }
             _structPrev = now;
-            SyncBreakFx();
+            if (AirframeFx()) SyncBreakFx();
+        }
+
+        bool _airframeKnown;
+        bool _airframe;
+
+        // Part-break fire that follows a falling piece is only for Aircraft.
+        // Ground vehicles, ships and buildings keep the old world-space burst.
+        bool AirframeFx()
+        {
+            if (_ordnance) return false;
+            if (_airframeKnown) return _airframe;
+            var unit = StructureUnit();
+            if (unit == null) return false;
+            _airframeKnown = true;
+            _airframe = unit is Aircraft;
+            return _airframe;
         }
 
         void ApplyPartVisibility(ReplayObject[] events, int count)
@@ -301,6 +317,13 @@ namespace NOReplay
                 if (part == null) continue;
                 Vector3 p = part.transform.position;
                 Quaternion q = part.transform.rotation;
+                if (!AirframeFx())
+                {
+                    SpawnLegacyPartEffects(part, p, q, when);
+                    if (!IsFragment(ev))
+                        SpawnPartDebris(part, when, BreakVelocity(ev, p));
+                    continue;
+                }
                 GameObject? debris = null;
                 if (!IsFragment(ev))
                     debris = SpawnPartDebris(part, when, BreakVelocity(ev, p));
@@ -318,6 +341,17 @@ namespace NOReplay
                 vel += away.normalized * 6f;
             vel += UnityEngine.Random.insideUnitSphere * 1.5f;
             return vel;
+        }
+
+        void SpawnLegacyPartEffects(UnitPart part, Vector3 pos, Quaternion rot, float when)
+        {
+            BindFxFields();
+            if (_disintegrateFx?.GetValue(part) is not GameObject[] fx) return;
+            for (int i = 0; i < fx.Length; i++)
+            {
+                if (fx[i] != null)
+                    SpawnFx(fx[i], pos, rot, when);
+            }
         }
 
         void SpawnPartEffects(UnitPart part, Vector3 pos, Quaternion rot, float when, GameObject? debris, bool detached)
@@ -352,7 +386,9 @@ namespace NOReplay
                     SpawnHeldFx(prefab, pos, rot, when, part.transform, PartFxLife);
                 return;
             }
-            SpawnHeldFx(prefab, pos, rot, when, null, FxLife);
+            // Explosion flash and smoke columns stay in the world. The game only
+            // leaves a prefab on the falling part when its root is DamageParticles.
+            SpawnFx(prefab, pos, rot, when);
         }
 
         void PlaceDamageEffects(UnitPart part, Vector3 pos, Quaternion rot, float when, GameObject? debris, HashSet<int> seen)
@@ -438,7 +474,7 @@ namespace NOReplay
             else if (debris != null)
                 SpawnFallFx(prefab, pos, rot, when, debris);
             else
-                SpawnHeldFx(prefab, pos, rot, when, null, FxLife);
+                SpawnFx(prefab, pos, rot, when);
         }
 
         bool JetOwnsBroken(Turbojet[] jets, JetNozzle nozzle, UnitPart part)
@@ -492,10 +528,9 @@ namespace NOReplay
 
         static bool PrefabRidesPart(GameObject prefab)
         {
-            if (prefab.GetComponentInChildren<DamageParticles>(true) != null) return true;
-            if (prefab.GetComponentInChildren<TrailRenderer>(true) != null) return true;
-            if (prefab.GetComponentInChildren<TrailEmitter>(true) != null) return true;
-            return false;
+            // UnitPart.SpawnFragments uses TryGetComponent on the instance root.
+            // A DamageParticles child does not keep an explosion parented to the part.
+            return prefab.GetComponent<DamageParticles>() != null;
         }
 
         Transform? StumpAnchor(UnitPart part)
@@ -636,8 +671,15 @@ namespace NOReplay
 
         void SpawnFx(GameObject prefab, Vector3 pos, Quaternion rot, float when)
         {
-            if (!BreakFxNear(pos)) return;
-            SpawnHeldFx(prefab, pos, rot, when, null, FxLife);
+            GameObject go;
+            try { go = UnityEngine.Object.Instantiate(prefab, pos, rot); }
+            catch { return; }
+            go.name = "NOReplay_PartFx";
+            go.transform.SetParent(null, true);
+            NeutralizeFx(go);
+            PlayParticles(go);
+            UnityEngine.Object.Destroy(go, FxLife);
+            _fxBits.Add(new FallingBit { Go = go, Time = when });
         }
 
         static void ArmTrail(GameObject go, Rigidbody? body)
@@ -947,7 +989,9 @@ namespace NOReplay
 
         GameObject FinishDebris(GameObject root, float when, Vector3 vel, float mass)
         {
-            root.AddComponent<ReplayDebrisSink>();
+            bool air = AirframeFx();
+            if (air)
+                root.AddComponent<ReplayDebrisSink>();
             var sphere = root.AddComponent<SphereCollider>();
             var rends = root.GetComponentsInChildren<Renderer>(true);
             if (rends.Length > 0)
@@ -968,6 +1012,12 @@ namespace NOReplay
             rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             rb.velocity = vel;
             rb.angularVelocity = UnityEngine.Random.insideUnitSphere * 2.5f;
+            if (!air)
+            {
+                UnityEngine.Object.Destroy(root, DebrisLife);
+                _bits.Add(new FallingBit { Go = root, Time = when });
+                return root;
+            }
             _bits.Add(new FallingBit
             {
                 Go = root,

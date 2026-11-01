@@ -200,8 +200,11 @@ namespace NOReplay
             float y = 12f;
             GUI.Box(new Rect(x, y, w, h), "");
             string title = CurrentDoc?.Title ?? "Replay";
-            GUI.Label(new Rect(x + 10, y + 4, w - 20, 18),
-                $"{title}   {Clock.Time:0.0}/{Clock.Duration:0.0}s   x{Clock.Speed}   {(Clock.Paused ? "PAUSE" : "PLAY")}");
+            string sel = SelectionCaption();
+            string head = $"{title}   {Clock.Time:0.0}/{Clock.Duration:0.0}s   x{Clock.Speed}";
+            if (sel.Length > 0) head += "   " + sel;
+            head += "   " + (Clock.Paused ? "PAUSE" : "PLAY");
+            GUI.Label(new Rect(x + 10, y + 4, w - 20, 18), head);
             float slider = Clock.Duration <= 0f ? 0f : Clock.Time / Clock.Duration;
             float next = GUI.HorizontalSlider(new Rect(x + 10, y + 24, w - 20, 16), slider, 0f, 1f);
             if (Math.Abs(next - slider) > 0.0001f)

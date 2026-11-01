@@ -16,13 +16,9 @@ namespace NOReplay
         static bool _ownOrbit;
         static bool _lookLock;
         static float _orbYaw, _orbPitch, _orbDist = 40f;
-        static float _markR = 14f;
         static Vector3 _clickCamPos;
         static bool _clickCamPosOk;
         static string? _selErr;
-        static GameObject? _markerGo;
-        static LineRenderer? _markerLine;
-        static Material? _markerMat;
         static Vector3 _prevMouse;
         static bool _prevMouseOk;
         static object? _inputPlayer;
@@ -71,8 +67,6 @@ namespace NOReplay
                 Log.LogInfo("lock off");
             }
             _selected = rg;
-            _markR = MarkerRadius(rg);
-            EnsureMarker();
             if (GameIsOrbiting(rg))
             {
                 _ownOrbit = false;
@@ -102,7 +96,7 @@ namespace NOReplay
             {
                 if (_selected == null)
                 {
-                    if (_ownOrbit || _lookLock || _markerGo != null) ClearReplaySelection(true);
+                    if (_ownOrbit || _lookLock) ClearReplaySelection(true);
                     return;
                 }
                 if (!Alive(_selected))
@@ -174,7 +168,6 @@ namespace NOReplay
             _selected = null;
             _ownOrbit = false;
             _lookLock = false;
-            HideMarker();
             if (wasLock) Log.LogInfo("lock off");
             if (!lost || !had) return;
             Log.LogInfo(string.IsNullOrEmpty(label) ? "target lost" : "target lost " + label);
@@ -273,7 +266,7 @@ namespace NOReplay
             var cam = Cam();
             if (cam == null) return;
             Vector3 target = AimPoint(rg);
-            float dist = Mathf.Clamp(_markR * 2.2f, 30f, 180f);
+            float dist = Mathf.Clamp(JumpDistance(rg), 30f, 180f);
             Vector3 pos = target + new Vector3(0f, dist * 0.35f, -dist);
             Vector3 dir = target - pos;
             if (dir.sqrMagnitude < 1f) dir = Vector3.forward;
@@ -416,73 +409,6 @@ namespace NOReplay
                 _orbDist = Mathf.Clamp(_orbDist * (1f - scroll * 0.18f), 6f, 8000f);
         }
 
-        void LateUpdate()
-        {
-            if (CurrentDoc == null)
-            {
-                if (_markerGo != null) HideMarker();
-                return;
-            }
-            try { UpdateMarker(); }
-            catch { }
-        }
-
-        static void EnsureMarker()
-        {
-            if (_markerLine != null) return;
-            var go = new GameObject("NOReplay_Select");
-            go.hideFlags = HideFlags.HideAndDontSave;
-            _markerGo = go;
-            var line = go.AddComponent<LineRenderer>();
-            _markerLine = line;
-            line.useWorldSpace = true;
-            line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            line.receiveShadows = false;
-            line.positionCount = 0;
-            line.widthMultiplier = 2f;
-            var sh = Shader.Find("Universal Render Pipeline/Unlit")
-                ?? Shader.Find("Unlit/Color")
-                ?? Shader.Find("Sprites/Default");
-            if (sh == null) return;
-            var col = new Color(1f, 0.86f, 0.15f, 1f);
-            var mat = new Material(sh) { hideFlags = HideFlags.HideAndDontSave };
-            mat.color = col;
-            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", col);
-            if (mat.HasProperty("_Color")) mat.SetColor("_Color", col);
-            _markerMat = mat;
-            line.sharedMaterial = mat;
-            line.startColor = col;
-            line.endColor = col;
-        }
-
-        static void UpdateMarker()
-        {
-            if (_markerLine == null || !Alive(_selected))
-            {
-                if (_markerLine != null) _markerLine.positionCount = 0;
-                return;
-            }
-            Vector3 c = AimPoint(_selected!);
-            float r = _markR;
-            _markerLine.widthMultiplier = Mathf.Clamp(r * 0.08f, 1.2f, 6f);
-            const int n = 28;
-            _markerLine.positionCount = n + 1;
-            for (int i = 0; i <= n; i++)
-            {
-                float a = i * (Mathf.PI * 2f / n);
-                _markerLine.SetPosition(i, c + new Vector3(Mathf.Cos(a) * r, 2f, Mathf.Sin(a) * r));
-            }
-        }
-
-        static void HideMarker()
-        {
-            if (_markerGo != null) UnityEngine.Object.Destroy(_markerGo);
-            if (_markerMat != null) UnityEngine.Object.Destroy(_markerMat);
-            _markerGo = null;
-            _markerLine = null;
-            _markerMat = null;
-        }
-
         static bool Alive(ReplayGhost? rg)
         {
             if (rg == null) return false;
@@ -556,37 +482,56 @@ namespace NOReplay
             return null;
         }
 
+        internal static string SelectionCaption()
+        {
+            if (!Alive(_selected) || _selected == null) return "";
+            string name;
+            try { name = LabelOf(_selected); }
+            catch { return ""; }
+            if (string.IsNullOrEmpty(name)) return "";
+            return _lookLock ? name + "  [F]" : name;
+        }
+
         static string LabelOf(ReplayGhost rg)
         {
             try
             {
                 var t = rg.Track;
-                string? s = null;
-                if (t != null)
-                {
-                    if (!string.IsNullOrEmpty(t.Pilot)) s = t.Pilot;
-                    else if (!string.IsNullOrEmpty(t.CallSign)) s = t.CallSign;
-                    else if (!string.IsNullOrEmpty(t.Name)) s = t.Name;
-                    else if (!string.IsNullOrEmpty(t.Type)) s = t.Type;
-                }
-                if (string.IsNullOrEmpty(s)) s = rg.name;
-                return string.IsNullOrEmpty(s) ? "unit" : s;
+                if (t == null) return string.IsNullOrEmpty(rg.name) ? "unit" : rg.name;
+                string? who = t.Pilot;
+                if (string.IsNullOrEmpty(who))
+                    who = PlayerNameFromCallSign(t.CallSign);
+                string type = t.Name ?? "";
+                if (string.IsNullOrEmpty(type)) type = TailOf(t.Type);
+                if (string.IsNullOrEmpty(who))
+                    return string.IsNullOrEmpty(type) ? "unit" : type;
+                if (string.IsNullOrEmpty(type)) return who;
+                if (type.IndexOf(who, StringComparison.OrdinalIgnoreCase) >= 0) return type;
+                return type + "  " + who;
             }
             catch { return "unit"; }
         }
 
-        static float MarkerRadius(ReplayGhost rg)
+        static string TailOf(string? type)
+        {
+            if (string.IsNullOrEmpty(type)) return "";
+            int plus = type.LastIndexOf('+');
+            if (plus >= 0 && plus < type.Length - 1) return type.Substring(plus + 1);
+            return type;
+        }
+
+        static float JumpDistance(ReplayGhost rg)
         {
             var go = rg.gameObject;
-            if (go == null) return 14f;
+            if (go == null) return 40f;
             var unit = FindUnitOn(go);
             if (unit != null)
             {
                 var f = unit.GetType().GetField("maxRadius", Inst);
                 if (f?.GetValue(unit) is float rad && rad > 2f)
-                    return Mathf.Clamp(rad * 1.35f, 8f, 120f);
+                    return rad * 2.2f;
             }
-            return 14f;
+            return 40f;
         }
 
         static Vector3 AimPoint(ReplayGhost rg)

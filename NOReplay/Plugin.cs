@@ -139,6 +139,7 @@ namespace NOReplay
         private void OnDestroy()
         {
             ClearReplaySelection(false);
+            RestoreReplayKeys();
             SceneManager.sceneUnloaded -= OnSceneUnloaded;
             Harmony?.UnpatchSelf();
             Log.Close();
@@ -154,6 +155,7 @@ namespace NOReplay
         void EndReplay(string why)
         {
             ClearReplaySelection(false);
+            RestoreReplayKeys();
             _replayLive = false;
             _seenWorld = false;
             _timelineHidden = false;
@@ -189,8 +191,12 @@ namespace NOReplay
                 if (Input.GetKeyDown(KeyCode.LeftArrow)) Clock.Seek(Clock.Time - 5f);
                 if (Input.GetKeyDown(KeyCode.RightArrow)) Clock.Seek(Clock.Time + 5f);
                 if (Input.GetKeyDown(KeyCode.F10)) _timelineHidden = !_timelineHidden;
-                if (Input.GetKeyDown(KeyCode.T) && !ReplayTextFocused())
-                    ToggleTrails();
+                EnsureReplayKeysMuted();
+                if (!ReplayTextFocused())
+                {
+                    if (Input.GetKeyDown(KeyCode.T)) ToggleTrails();
+                    if (Input.GetKeyDown(KeyCode.F)) ToggleLookLock();
+                }
                 if (_holdClock)
                 {
                     Clock.Paused = true;

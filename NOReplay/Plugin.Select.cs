@@ -1,4 +1,6 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
@@ -12,6 +14,7 @@ namespace NOReplay
 
         static ReplayGhost? _selected;
         static bool _ownOrbit;
+        static bool _lookLock;
         static float _orbYaw, _orbPitch, _orbDist = 40f;
         static float _markR = 14f;
         static Vector3 _clickCamPos;
@@ -28,6 +31,9 @@ namespace NOReplay
         static FieldInfo? _invertField;
         static FieldInfo? _panField;
         static FieldInfo? _tiltField;
+        static readonly List<object> _mutedKeys = new List<object>();
+        static bool _keysMuted;
+        static int _muteTries;
 
         static void NoteClickCamera()
         {
@@ -58,6 +64,11 @@ namespace NOReplay
             {
                 if (_selected == rg) ClearReplaySelection(false);
                 return;
+            }
+            if (_lookLock)
+            {
+                _lookLock = false;
+                Log.LogInfo("lock off");
             }
             _selected = rg;
             _markR = MarkerRadius(rg);
@@ -91,7 +102,7 @@ namespace NOReplay
             {
                 if (_selected == null)
                 {
-                    if (_ownOrbit || _markerGo != null) ClearReplaySelection(true);
+                    if (_ownOrbit || _lookLock || _markerGo != null) ClearReplaySelection(true);
                     return;
                 }
                 if (!Alive(_selected))
@@ -101,6 +112,8 @@ namespace NOReplay
                     else ClearReplaySelection(true);
                     return;
                 }
+                if (_lookLock && GameIsOrbiting(_selected))
+                    LeaveFollowKeepPose();
                 if (_ownOrbit && !ReplayTextFocused() && FlyMoveHeld())
                     ExitOwnOrbit();
             }
@@ -122,18 +135,47 @@ namespace NOReplay
             if (cam != null) SyncFreeAngles(cam, cam.transform.rotation);
         }
 
+        static void ToggleLookLock()
+        {
+            if (!Alive(_selected) || _selected == null) return;
+            if (_lookLock)
+            {
+                _lookLock = false;
+                var cam = Cam();
+                if (cam != null) SyncFreeAngles(cam, cam.transform.rotation);
+                Log.LogInfo("lock off");
+                return;
+            }
+            _lookLock = true;
+            _ownOrbit = false;
+            LeaveFollowKeepPose();
+            Log.LogInfo("lock on " + LabelOf(_selected));
+        }
+
         static void ClearReplaySelection(bool lost)
         {
-            bool had = _selected != null || _ownOrbit;
+            bool had = _selected != null || _ownOrbit || _lookLock;
+            bool wasLock = _lookLock;
             string label = "";
             if (_selected != null)
             {
                 try { label = LabelOf(_selected); }
                 catch { label = ""; }
             }
+            if (wasLock)
+            {
+                try
+                {
+                    var cam = Cam();
+                    if (cam != null) SyncFreeAngles(cam, cam.transform.rotation);
+                }
+                catch { }
+            }
             _selected = null;
             _ownOrbit = false;
+            _lookLock = false;
             HideMarker();
+            if (wasLock) Log.LogInfo("lock off");
             if (!lost || !had) return;
             Log.LogInfo(string.IsNullOrEmpty(label) ? "target lost" : "target lost " + label);
         }
@@ -268,8 +310,18 @@ namespace NOReplay
 
         static void AfterFreeCamera()
         {
-            if (CurrentDoc == null || !_ownOrbit || !Alive(_selected)) return;
-            try { ApplyOwnOrbit(); }
+            if (CurrentDoc == null) return;
+            try
+            {
+                if (_lookLock && Alive(_selected) && _selected != null)
+                {
+                    var cam = Cam();
+                    if (cam != null) AimAt(cam, AimPoint(_selected!));
+                    return;
+                }
+                if (_ownOrbit && Alive(_selected))
+                    ApplyOwnOrbit();
+            }
             catch (Exception ex)
             {
                 if (_selErr != ex.Message)
@@ -277,8 +329,22 @@ namespace NOReplay
                     _selErr = ex.Message;
                     Log.LogWarning("Kamera-Ziel: " + ex.Message);
                 }
+                if (_lookLock) Log.LogInfo("lock off");
+                _lookLock = false;
                 _ownOrbit = false;
             }
+        }
+
+        static void AimAt(Component cam, Vector3 point)
+        {
+            Vector3 dir = point - cam.transform.position;
+            if (dir.sqrMagnitude < 0.25f) return;
+            if (Mathf.Abs(dir.y) > dir.magnitude * 0.995f)
+                dir += Vector3.forward * 0.05f;
+            Vector3 e = Quaternion.LookRotation(dir, Vector3.up).eulerAngles;
+            float pitch = e.x > 180f ? e.x - 360f : e.x;
+            cam.transform.rotation = Quaternion.Euler(pitch, e.y, 0f);
+            SetFreeAngles(cam, pitch, e.y);
         }
 
         static void ApplyOwnOrbit()
@@ -628,6 +694,173 @@ namespace NOReplay
                 _tiltField?.SetValue(free, pitch);
             }
             catch { }
+        }
+
+        static void EnsureReplayKeysMuted()
+        {
+            if (_keysMuted || CurrentDoc == null) return;
+            try
+            {
+                int n = MuteReplayKeys();
+                if (n < 0) return;
+                _keysMuted = true;
+                Log.LogInfo("Replay-Tasten F/T stumm x" + n);
+            }
+            catch (Exception ex)
+            {
+                _keysMuted = true;
+                Log.LogWarning("Replay-Tasten: " + ex.Message);
+            }
+        }
+
+        static void RestoreReplayKeys()
+        {
+            for (int i = 0; i < _mutedKeys.Count; i++)
+            {
+                try { WriteEnabled(_mutedKeys[i], true); }
+                catch { }
+            }
+            _mutedKeys.Clear();
+            _keysMuted = false;
+            _muteTries = 0;
+        }
+
+        // F and T are replay keys. Turn off keyboard bindings that use them so the
+        // game action does not fire as well. Other devices keep their bindings.
+        static int MuteReplayKeys()
+        {
+            var gm = FindGameType("GameManager");
+            var player = gm?.GetField("playerInput", Stat)?.GetValue(null);
+            if (player == null) return -1;
+            var controllers = player.GetType().GetProperty("controllers", Inst)?.GetValue(player);
+            var maps = controllers?.GetType().GetProperty("maps", Inst)?.GetValue(controllers);
+            if (maps == null) return -1;
+            var all = AllMaps(maps);
+            if (all == null) return -1;
+            _muteTries++;
+            bool sawKeyboard = false;
+            int n = 0;
+            foreach (var map in all)
+            {
+                if (map == null) continue;
+                string kind = map.GetType().GetProperty("controllerType", Inst)?.GetValue(map)?.ToString() ?? "";
+                if (kind.IndexOf("Keyboard", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                sawKeyboard = true;
+                var elems = ElementMaps(map);
+                if (elems == null) continue;
+                foreach (var el in elems)
+                {
+                    if (el == null || !IsKeyFT(el)) continue;
+                    if (!ReadEnabled(el, out bool on) || !on) continue;
+                    if (!WriteEnabled(el, false)) continue;
+                    _mutedKeys.Add(el);
+                    n++;
+                }
+            }
+            if (!sawKeyboard && _muteTries < 120) return -1;
+            return n;
+        }
+
+        static bool IsKeyFT(object el)
+        {
+            try
+            {
+                var t = el.GetType();
+                string a = t.GetProperty("keyCode", Inst)?.GetValue(el)?.ToString() ?? "";
+                string b = t.GetProperty("keyboardKeyCode", Inst)?.GetValue(el)?.ToString() ?? "";
+                return a == "F" || a == "T" || b == "F" || b == "T";
+            }
+            catch { return false; }
+        }
+
+        static bool ReadEnabled(object el, out bool on)
+        {
+            on = false;
+            var p = el.GetType().GetProperty("enabled", Inst);
+            if (p == null || p.PropertyType != typeof(bool) || !p.CanRead) return false;
+            try
+            {
+                on = p.GetValue(el) is bool b && b;
+                return true;
+            }
+            catch { return false; }
+        }
+
+        static bool WriteEnabled(object el, bool on)
+        {
+            var p = el.GetType().GetProperty("enabled", Inst);
+            if (p == null || !p.CanWrite || p.PropertyType != typeof(bool)) return false;
+            try { p.SetValue(el, on); return true; }
+            catch { return false; }
+        }
+
+        static IEnumerable? AllMaps(object maps)
+        {
+            var flags = Inst;
+            foreach (var m in maps.GetType().GetMethods(flags))
+            {
+                if (m.Name != "GetAllMaps" || m.IsGenericMethod) continue;
+                var ps = m.GetParameters();
+                if (ps.Length != 0) continue;
+                if (!typeof(IEnumerable).IsAssignableFrom(m.ReturnType)) continue;
+                try { return m.Invoke(maps, null) as IEnumerable; }
+                catch { return null; }
+            }
+            foreach (var m in maps.GetType().GetMethods(flags))
+            {
+                if (m.Name != "GetAllMaps" || m.IsGenericMethod) continue;
+                var ps = m.GetParameters();
+                if (ps.Length != 1 || !ps[0].ParameterType.IsGenericType) continue;
+                try
+                {
+                    var list = Activator.CreateInstance(ps[0].ParameterType);
+                    if (list == null) continue;
+                    m.Invoke(maps, new[] { list });
+                    return list as IEnumerable;
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        static IEnumerable? ElementMaps(object map)
+        {
+            var t = map.GetType();
+            var prop = t.GetProperty("ElementMaps", Inst);
+            if (prop != null && typeof(IEnumerable).IsAssignableFrom(prop.PropertyType))
+            {
+                try
+                {
+                    if (prop.GetValue(map) is IEnumerable en) return en;
+                }
+                catch { }
+            }
+            foreach (var m in t.GetMethods(Inst))
+            {
+                if (m.Name != "GetElementMaps" || m.IsGenericMethod) continue;
+                var ps = m.GetParameters();
+                if (ps.Length == 0)
+                {
+                    try
+                    {
+                        var v = m.Invoke(map, null);
+                        if (v is IEnumerable en) return en;
+                    }
+                    catch { }
+                }
+                else if (ps.Length == 1 && ps[0].ParameterType.IsGenericType)
+                {
+                    try
+                    {
+                        var list = Activator.CreateInstance(ps[0].ParameterType);
+                        if (list == null) continue;
+                        m.Invoke(map, new[] { list });
+                        if (list is IEnumerable en) return en;
+                    }
+                    catch { }
+                }
+            }
+            return null;
         }
     }
 }

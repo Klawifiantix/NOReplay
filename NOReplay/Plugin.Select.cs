@@ -1,0 +1,633 @@
+using System;
+using System.Reflection;
+using HarmonyLib;
+using UnityEngine;
+
+namespace NOReplay
+{
+    public partial class Plugin
+    {
+        static readonly BindingFlags Inst = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        static readonly BindingFlags Stat = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+
+        static ReplayGhost? _selected;
+        static bool _ownOrbit;
+        static float _orbYaw, _orbPitch, _orbDist = 40f;
+        static float _markR = 14f;
+        static Vector3 _clickCamPos;
+        static bool _clickCamPosOk;
+        static string? _selErr;
+        static GameObject? _markerGo;
+        static LineRenderer? _markerLine;
+        static Material? _markerMat;
+        static Vector3 _prevMouse;
+        static bool _prevMouseOk;
+        static object? _inputPlayer;
+        static MethodInfo? _getAxis;
+        static FieldInfo? _sensField;
+        static FieldInfo? _invertField;
+        static FieldInfo? _panField;
+        static FieldInfo? _tiltField;
+
+        static void NoteClickCamera()
+        {
+            _clickCamPosOk = false;
+            try
+            {
+                var cam = Cam();
+                if (cam == null) return;
+                _clickCamPos = cam.transform.position;
+                _clickCamPosOk = true;
+            }
+            catch { _clickCamPosOk = false; }
+        }
+
+        static void TrySelectFromMapClick(object icon)
+        {
+            if (CurrentDoc == null || icon == null) return;
+            if (icon is not Component c) return;
+            object? unit = null;
+            try
+            {
+                unit = c.GetType().GetProperty("unit", Inst)?.GetValue(c);
+            }
+            catch { return; }
+            if (unit is not Component uc) return;
+            if (!TryPick(uc, out var rg)) return;
+            if (!IconSelected(icon))
+            {
+                if (_selected == rg) ClearReplaySelection(false);
+                return;
+            }
+            _selected = rg;
+            _markR = MarkerRadius(rg);
+            EnsureMarker();
+            if (GameIsOrbiting(rg))
+            {
+                _ownOrbit = false;
+                Log.LogInfo("select " + LabelOf(rg));
+                return;
+            }
+            bool moved = false;
+            var cam = Cam();
+            if (_clickCamPosOk && cam != null)
+                moved = (cam.transform.position - _clickCamPos).sqrMagnitude > 0.25f;
+            if (!moved)
+            {
+                LeaveFollowKeepPose();
+                JumpNear(rg);
+            }
+            else
+                LeaveFollowKeepPose();
+            _ownOrbit = true;
+            SeedOwnOrbit(rg);
+            Log.LogInfo("select " + LabelOf(rg) + " fallback-orbit");
+        }
+
+        static void TickReplaySelection()
+        {
+            if (CurrentDoc == null) return;
+            try
+            {
+                if (_selected == null)
+                {
+                    if (_ownOrbit || _markerGo != null) ClearReplaySelection(true);
+                    return;
+                }
+                if (!Alive(_selected))
+                {
+                    var go = _selected.gameObject;
+                    if (go != null) ReleaseFollowedCamera(go);
+                    else ClearReplaySelection(true);
+                    return;
+                }
+                if (_ownOrbit && !ReplayTextFocused() && FlyMoveHeld())
+                    ExitOwnOrbit();
+            }
+            catch (Exception ex)
+            {
+                if (_selErr != ex.Message)
+                {
+                    _selErr = ex.Message;
+                    Log.LogWarning("Auswahl: " + ex.Message);
+                }
+                _ownOrbit = false;
+            }
+        }
+
+        static void ExitOwnOrbit()
+        {
+            _ownOrbit = false;
+            var cam = Cam();
+            if (cam != null) SyncFreeAngles(cam, cam.transform.rotation);
+        }
+
+        static void ClearReplaySelection(bool lost)
+        {
+            bool had = _selected != null || _ownOrbit;
+            string label = "";
+            if (_selected != null)
+            {
+                try { label = LabelOf(_selected); }
+                catch { label = ""; }
+            }
+            _selected = null;
+            _ownOrbit = false;
+            HideMarker();
+            if (!lost || !had) return;
+            Log.LogInfo(string.IsNullOrEmpty(label) ? "target lost" : "target lost " + label);
+        }
+
+        static void ReleaseFollowedCamera(GameObject go)
+        {
+            if (go == null) return;
+            bool ours = SelectionMatches(go);
+            var camType = FindGameType("CameraStateManager");
+            if (camType == null)
+            {
+                if (ours) ClearReplaySelection(true);
+                return;
+            }
+            var follow = camType.GetField("followingUnit", Inst);
+            var set = camType.GetMethod("SetFollowingUnit", Inst);
+            if (follow == null || set == null)
+            {
+                if (ours) ClearReplaySelection(true);
+                return;
+            }
+            try
+            {
+                foreach (var cam in Resources.FindObjectsOfTypeAll(camType))
+                {
+                    if (cam is not Component cc) continue;
+                    var u = follow.GetValue(cam) as Component;
+                    if (u == null || u.transform == null) continue;
+                    var ut = u.transform;
+                    if (u.gameObject != go && !ut.IsChildOf(go.transform) && !go.transform.IsChildOf(ut))
+                        continue;
+                    if (ours) KeepPose(cc, () => set.Invoke(cam, new object[] { null }));
+                    else
+                    {
+                        try { set.Invoke(cam, new object[] { null }); }
+                        catch (Exception ex) { Log.LogWarning("Kamera lösen: " + ex.Message); }
+                    }
+                    break;
+                }
+            }
+            catch (Exception ex) { Log.LogWarning("Kamera lösen: " + ex.Message); }
+            if (ours)
+            {
+                try
+                {
+                    var cam = Cam();
+                    if (cam != null && cam.transform != null && go.transform != null
+                        && cam.transform.IsChildOf(go.transform))
+                        LeaveFollowKeepPose();
+                }
+                catch (Exception ex) { Log.LogWarning("Kamera lösen: " + ex.Message); }
+                ClearReplaySelection(true);
+            }
+        }
+
+        static void LeaveFollowKeepPose()
+        {
+            var cam = Cam();
+            if (cam == null) return;
+            var free = cam.GetType().GetField("freeState", Inst)?.GetValue(cam);
+            var cur = cam.GetType().GetProperty("currentState", Inst)?.GetValue(cam);
+            var followed = cam.GetType().GetField("followingUnit", Inst)?.GetValue(cam);
+            bool inFree = free != null && ReferenceEquals(cur, free);
+            if (inFree && followed == null)
+            {
+                SyncFreeAngles(cam, cam.transform.rotation);
+                return;
+            }
+            var set = cam.GetType().GetMethod("SetFollowingUnit", Inst);
+            KeepPose(cam, () => set?.Invoke(cam, new object[] { null }));
+        }
+
+        // SetFollowingUnit(null) drops the parent and may turn the camera toward the old unit.
+        // Put the pose back so a lost target does not move the view.
+        static void KeepPose(Component cam, Action change)
+        {
+            var tr = cam.transform;
+            Vector3 p = tr.position;
+            Quaternion r = tr.rotation;
+            try { change(); }
+            catch (Exception ex) { Log.LogWarning("Kamera: " + ex.Message); }
+            try
+            {
+                if (cam == null) return;
+                tr.SetParent(null, true);
+                tr.SetPositionAndRotation(p, r);
+                ZeroVelocity(cam);
+                SyncFreeAngles(cam, r);
+            }
+            catch (Exception ex) { Log.LogWarning("Kamera-Pose: " + ex.Message); }
+        }
+
+        static void JumpNear(ReplayGhost rg)
+        {
+            var cam = Cam();
+            if (cam == null) return;
+            Vector3 target = AimPoint(rg);
+            float dist = Mathf.Clamp(_markR * 2.2f, 30f, 180f);
+            Vector3 pos = target + new Vector3(0f, dist * 0.35f, -dist);
+            Vector3 dir = target - pos;
+            if (dir.sqrMagnitude < 1f) dir = Vector3.forward;
+            var tr = cam.transform;
+            tr.SetParent(null, true);
+            tr.SetPositionAndRotation(pos, Quaternion.LookRotation(dir, Vector3.up));
+            ZeroVelocity(cam);
+        }
+
+        static void SeedOwnOrbit(ReplayGhost rg)
+        {
+            var cam = Cam();
+            Vector3 target = AimPoint(rg);
+            Vector3 off = cam != null ? cam.transform.position - target : new Vector3(0f, 20f, -40f);
+            if (off.sqrMagnitude < 25f) off = new Vector3(0f, 15f, -40f);
+            float dist = off.magnitude;
+            _orbDist = Mathf.Clamp(dist, 6f, 8000f);
+            _orbYaw = Mathf.Atan2(off.x, off.z) * Mathf.Rad2Deg;
+            _orbPitch = Mathf.Clamp(Mathf.Asin(Mathf.Clamp(off.y / dist, -1f, 1f)) * Mathf.Rad2Deg, -85f, 85f);
+        }
+
+        static void PatchFreeCamera()
+        {
+            var t = FindGameType("CameraFreeState");
+            var m = t?.GetMethod("UpdateState", Inst);
+            if (m == null)
+            {
+                Log.LogWarning("CameraFreeState.UpdateState fehlt");
+                return;
+            }
+            Harmony.Patch(m, postfix: new HarmonyMethod(typeof(Plugin), nameof(AfterFreeCamera)));
+            Log.LogInfo("Free-Look-Patch");
+        }
+
+        static void AfterFreeCamera()
+        {
+            if (CurrentDoc == null || !_ownOrbit || !Alive(_selected)) return;
+            try { ApplyOwnOrbit(); }
+            catch (Exception ex)
+            {
+                if (_selErr != ex.Message)
+                {
+                    _selErr = ex.Message;
+                    Log.LogWarning("Kamera-Ziel: " + ex.Message);
+                }
+                _ownOrbit = false;
+            }
+        }
+
+        static void ApplyOwnOrbit()
+        {
+            var rg = _selected;
+            if (!Alive(rg)) return;
+            if (GameIsOrbiting(rg))
+            {
+                _ownOrbit = false;
+                return;
+            }
+            var cam = Cam();
+            if (cam == null) return;
+            OrbitInput();
+            Vector3 target = AimPoint(rg);
+            float pr = _orbPitch * Mathf.Deg2Rad;
+            float yr = _orbYaw * Mathf.Deg2Rad;
+            float cp = Mathf.Cos(pr);
+            Vector3 off = new Vector3(Mathf.Sin(yr) * cp, Mathf.Sin(pr), Mathf.Cos(yr) * cp) * _orbDist;
+            if (off.sqrMagnitude < 1f) off = new Vector3(0f, 0f, -_orbDist);
+            Vector3 pos = target + off;
+            Vector3 dir = target - pos;
+            if (dir.sqrMagnitude < 0.01f) dir = Vector3.forward;
+            Vector3 e = Quaternion.LookRotation(dir, Vector3.up).eulerAngles;
+            float pitch = e.x > 180f ? e.x - 360f : e.x;
+            var tr = cam.transform;
+            tr.SetParent(null, true);
+            tr.SetPositionAndRotation(pos, Quaternion.Euler(pitch, e.y, 0f));
+            ZeroVelocity(cam);
+            SetFreeAngles(cam, pitch, e.y);
+        }
+
+        static void OrbitInput()
+        {
+            if (Cursor.visible || ReplayTextFocused())
+            {
+                _prevMouseOk = false;
+                return;
+            }
+            float dt = Time.unscaledDeltaTime;
+            if (dt <= 0f) dt = 0.016f;
+            if (TryAxis("Pan View", out float pan) && TryAxis("Tilt View", out float tilt))
+            {
+                float fov = 60f;
+                var lens = Cam()?.GetComponent<Camera>();
+                if (lens != null) fov = lens.fieldOfView;
+                float s = Mathf.Min(fov / 20f, 1f) * 90f * ViewSens() * dt;
+                _orbYaw += pan * s;
+                _orbPitch = Mathf.Clamp(_orbPitch + tilt * s * PitchSign(), -85f, 85f);
+                if (TryAxis("Zoom View", out float zoom))
+                {
+                    zoom = Mathf.Clamp(zoom, -3f, 3f);
+                    _orbDist = Mathf.Clamp(_orbDist * (1f - zoom * 0.2f), 6f, 8000f);
+                }
+                return;
+            }
+            var now = Input.mousePosition;
+            if (_prevMouseOk)
+            {
+                _orbYaw += (now.x - _prevMouse.x) * 0.22f;
+                _orbPitch = Mathf.Clamp(_orbPitch + (now.y - _prevMouse.y) * 0.16f * PitchSign(), -85f, 85f);
+            }
+            _prevMouse = now;
+            _prevMouseOk = true;
+            float scroll = Input.mouseScrollDelta.y;
+            if (Mathf.Abs(scroll) > 10f) scroll /= 120f;
+            scroll = Mathf.Clamp(scroll, -4f, 4f);
+            if (Mathf.Abs(scroll) > 0.01f)
+                _orbDist = Mathf.Clamp(_orbDist * (1f - scroll * 0.18f), 6f, 8000f);
+        }
+
+        void LateUpdate()
+        {
+            if (CurrentDoc == null)
+            {
+                if (_markerGo != null) HideMarker();
+                return;
+            }
+            try { UpdateMarker(); }
+            catch { }
+        }
+
+        static void EnsureMarker()
+        {
+            if (_markerLine != null) return;
+            var go = new GameObject("NOReplay_Select");
+            go.hideFlags = HideFlags.HideAndDontSave;
+            _markerGo = go;
+            var line = go.AddComponent<LineRenderer>();
+            _markerLine = line;
+            line.useWorldSpace = true;
+            line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            line.receiveShadows = false;
+            line.positionCount = 0;
+            line.widthMultiplier = 2f;
+            var sh = Shader.Find("Universal Render Pipeline/Unlit")
+                ?? Shader.Find("Unlit/Color")
+                ?? Shader.Find("Sprites/Default");
+            if (sh == null) return;
+            var col = new Color(1f, 0.86f, 0.15f, 1f);
+            var mat = new Material(sh) { hideFlags = HideFlags.HideAndDontSave };
+            mat.color = col;
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", col);
+            if (mat.HasProperty("_Color")) mat.SetColor("_Color", col);
+            _markerMat = mat;
+            line.sharedMaterial = mat;
+            line.startColor = col;
+            line.endColor = col;
+        }
+
+        static void UpdateMarker()
+        {
+            if (_markerLine == null || !Alive(_selected))
+            {
+                if (_markerLine != null) _markerLine.positionCount = 0;
+                return;
+            }
+            Vector3 c = AimPoint(_selected!);
+            float r = _markR;
+            _markerLine.widthMultiplier = Mathf.Clamp(r * 0.08f, 1.2f, 6f);
+            const int n = 28;
+            _markerLine.positionCount = n + 1;
+            for (int i = 0; i <= n; i++)
+            {
+                float a = i * (Mathf.PI * 2f / n);
+                _markerLine.SetPosition(i, c + new Vector3(Mathf.Cos(a) * r, 2f, Mathf.Sin(a) * r));
+            }
+        }
+
+        static void HideMarker()
+        {
+            if (_markerGo != null) UnityEngine.Object.Destroy(_markerGo);
+            if (_markerMat != null) UnityEngine.Object.Destroy(_markerMat);
+            _markerGo = null;
+            _markerLine = null;
+            _markerMat = null;
+        }
+
+        static bool Alive(ReplayGhost? rg)
+        {
+            if (rg == null) return false;
+            try { return rg.IsTrackAlive(); }
+            catch { return false; }
+        }
+
+        static bool SelectionMatches(GameObject go)
+        {
+            if (go == null || _selected == null) return false;
+            GameObject sg;
+            try { sg = _selected.gameObject; }
+            catch { return false; }
+            if (sg == null) return false;
+            if (sg == go) return true;
+            try
+            {
+                return sg.transform.IsChildOf(go.transform) || go.transform.IsChildOf(sg.transform);
+            }
+            catch { return false; }
+        }
+
+        static bool TryPick(Component uc, out ReplayGhost rg)
+        {
+            var found = uc.GetComponent<ReplayGhost>()
+                ?? uc.GetComponentInParent<ReplayGhost>()
+                ?? uc.GetComponentInChildren<ReplayGhost>(true);
+            if (found == null || !Alive(found))
+            {
+                rg = null!;
+                return false;
+            }
+            rg = found!;
+            return true;
+        }
+
+        static bool GameIsOrbiting(ReplayGhost? rg)
+        {
+            if (rg == null) return false;
+            var cam = Cam();
+            if (cam == null) return false;
+            var t = cam.GetType();
+            var fu = t.GetField("followingUnit", Inst)?.GetValue(cam) as Component;
+            if (fu == null || fu.transform == null || rg.transform == null) return false;
+            var gt = rg.transform;
+            bool same = fu.gameObject == rg.gameObject
+                || fu.transform.IsChildOf(gt)
+                || gt.IsChildOf(fu.transform);
+            if (!same) return false;
+            var orbit = t.GetField("orbitState", Inst)?.GetValue(cam);
+            var cur = t.GetProperty("currentState", Inst)?.GetValue(cam);
+            return orbit != null && ReferenceEquals(cur, orbit);
+        }
+
+        static bool IconSelected(object icon)
+        {
+            var f = FieldIn(icon.GetType(), "isSelected");
+            if (f == null) return true;
+            try { return f.GetValue(icon) is bool on && on; }
+            catch { return true; }
+        }
+
+        static FieldInfo? FieldIn(Type t, string name)
+        {
+            while (t != null)
+            {
+                var f = t.GetField(name, Inst | BindingFlags.DeclaredOnly);
+                if (f != null) return f;
+                t = t.BaseType;
+            }
+            return null;
+        }
+
+        static string LabelOf(ReplayGhost rg)
+        {
+            try
+            {
+                var t = rg.Track;
+                string? s = null;
+                if (t != null)
+                {
+                    if (!string.IsNullOrEmpty(t.Pilot)) s = t.Pilot;
+                    else if (!string.IsNullOrEmpty(t.CallSign)) s = t.CallSign;
+                    else if (!string.IsNullOrEmpty(t.Name)) s = t.Name;
+                    else if (!string.IsNullOrEmpty(t.Type)) s = t.Type;
+                }
+                if (string.IsNullOrEmpty(s)) s = rg.name;
+                return string.IsNullOrEmpty(s) ? "unit" : s;
+            }
+            catch { return "unit"; }
+        }
+
+        static float MarkerRadius(ReplayGhost rg)
+        {
+            var go = rg.gameObject;
+            if (go == null) return 14f;
+            var unit = FindUnitOn(go);
+            if (unit != null)
+            {
+                var f = unit.GetType().GetField("maxRadius", Inst);
+                if (f?.GetValue(unit) is float rad && rad > 2f)
+                    return Mathf.Clamp(rad * 1.35f, 8f, 120f);
+            }
+            return 14f;
+        }
+
+        static Vector3 AimPoint(ReplayGhost rg)
+        {
+            var tr = rg.transform;
+            return tr != null ? tr.position : Vector3.zero;
+        }
+
+        static Component? Cam()
+        {
+            CacheListener();
+            if (_camMgr == null || _camMgr.gameObject == null)
+            {
+                _listenFrame = -1;
+                CacheListener();
+            }
+            return _camMgr;
+        }
+
+        static bool FlyMoveHeld()
+        {
+            if (Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.A)
+                || Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.D))
+                return true;
+            if (TryAxis("Move Longitudinal", out float lon) && Mathf.Abs(lon) > 0.1f) return true;
+            if (TryAxis("Move Lateral", out float lat) && Mathf.Abs(lat) > 0.1f) return true;
+            return false;
+        }
+
+        static bool TryAxis(string name, out float value)
+        {
+            value = 0f;
+            if (_getAxis == null || _inputPlayer == null)
+            {
+                var gm = FindGameType("GameManager");
+                var player = gm?.GetField("playerInput", Stat)?.GetValue(null);
+                if (player == null) return false;
+                var method = player.GetType().GetMethod("GetAxis", new[] { typeof(string) });
+                if (method == null) return false;
+                _inputPlayer = player;
+                _getAxis = method;
+            }
+            try
+            {
+                var v = _getAxis.Invoke(_inputPlayer, new object[] { name });
+                if (v is not float f) return false;
+                value = f;
+                return true;
+            }
+            catch { return false; }
+        }
+
+        static float ViewSens()
+        {
+            CacheView();
+            if (_sensField?.GetValue(null) is float s && s > 0.01f) return s;
+            return 1f;
+        }
+
+        static float PitchSign()
+        {
+            CacheView();
+            if (_invertField?.GetValue(null) is bool inv && inv) return -1f;
+            return 1f;
+        }
+
+        static void CacheView()
+        {
+            if (_sensField != null) return;
+            var t = FindGameType("PlayerSettings");
+            if (t == null) return;
+            _sensField = t.GetField("viewSensitivity", Stat);
+            _invertField = t.GetField("viewInvertPitch", Stat);
+        }
+
+        static void ZeroVelocity(Component cam)
+        {
+            try
+            {
+                cam.GetType().GetField("cameraVelocity", Inst)?.SetValue(cam, Vector3.zero);
+            }
+            catch { }
+        }
+
+        static void SyncFreeAngles(Component cam, Quaternion rot)
+        {
+            Vector3 e = rot.eulerAngles;
+            float pitch = e.x > 180f ? e.x - 360f : e.x;
+            SetFreeAngles(cam, pitch, e.y);
+        }
+
+        static void SetFreeAngles(Component cam, float pitch, float yaw)
+        {
+            var free = cam.GetType().GetField("freeState", Inst)?.GetValue(cam);
+            if (free == null) return;
+            if (_panField == null || _tiltField == null)
+            {
+                var ft = free.GetType();
+                _panField = ft.GetField("panView", Inst);
+                _tiltField = ft.GetField("tiltView", Inst);
+            }
+            try
+            {
+                _panField?.SetValue(free, yaw);
+                _tiltField?.SetValue(free, pitch);
+            }
+            catch { }
+        }
+    }
+}

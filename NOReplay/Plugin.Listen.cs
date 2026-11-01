@@ -35,6 +35,8 @@ namespace NOReplay
             BlockFireMethods();
             BlockLaserSim();
             BlockDeadMapClicks();
+            try { PatchFreeCamera(); }
+            catch (Exception ex) { Log.LogWarning("Free-Look-Patch: " + ex.Message); }
             BlockFollowOrdnance();
             BlockMissileDeath();
             BlockMissileFlight();
@@ -458,10 +460,17 @@ namespace NOReplay
         static bool PrefixMapClick(object __instance)
         {
             _mapClickFollow = true;
+            NoteClickCamera();
             return SkipDeadMapIcon(__instance);
         }
 
-        static void PostfixMapClick() => _mapClickFollow = false;
+        static void PostfixMapClick(object __instance)
+        {
+            try { TrySelectFromMapClick(__instance); }
+            catch (Exception ex) { Log.LogWarning("Auswahl: " + ex.Message); }
+            _mapClickFollow = false;
+            _clickCamPosOk = false;
+        }
 
         static bool SkipDeadMapIcon(object __instance)
         {

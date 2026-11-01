@@ -138,6 +138,7 @@ namespace NOReplay
 
         private void OnDestroy()
         {
+            ClearReplaySelection(false);
             SceneManager.sceneUnloaded -= OnSceneUnloaded;
             Harmony?.UnpatchSelf();
             Log.Close();
@@ -152,6 +153,7 @@ namespace NOReplay
 
         void EndReplay(string why)
         {
+            ClearReplaySelection(false);
             _replayLive = false;
             _seenWorld = false;
             _timelineHidden = false;
@@ -208,6 +210,7 @@ namespace NOReplay
                     ReplayStaticHandler.StartFor(CurrentDoc);
                 }
                 TickMissileBooms();
+                TickReplaySelection();
                 TickTrails();
                 WarmOrdnance();
                 ShellReplay.Tick(CurrentDoc, Clock.Time);

@@ -20,6 +20,9 @@ namespace NOReplay
         public const string PluginName = "NO Replay";
         public const string PluginVersion = "0.1.1";
 
+        /// <summary>Hearing range for missile motor and flight audio. Farther than this, a Play() is dropped.</summary>
+        internal const float OrdMaxAudioDist = 900f;
+
         internal static ReplayLog Log = new ReplayLog();
         internal static Harmony Harmony = null!;
         internal static ReplayDocument? CurrentDoc;
@@ -200,6 +203,7 @@ namespace NOReplay
                 }
                 TickGhostSpawns();
                 TickGhostSleep();
+                ApplyOrdnanceSeeks();
                 if (!_staticHandlerStarted && InGameWorld() && Time.timeSinceLevelLoad > 2f)
                 {
                     _staticHandlerStarted = true;
@@ -222,6 +226,50 @@ namespace NOReplay
         }
 
         float _panelAt;
+
+        int _ordSeekSerial;
+
+        static readonly List<ReplayGhost> _ordRespawn = new List<ReplayGhost>();
+
+        internal static void QueueOrdnanceRespawn(ReplayGhost rg)
+        {
+            if (rg != null && !_ordRespawn.Contains(rg))
+                _ordRespawn.Add(rg);
+        }
+
+        static void FlushOrdnanceRespawn()
+        {
+            if (_ordRespawn.Count == 0) return;
+            for (int i = 0; i < _ordRespawn.Count; i++)
+            {
+                var rg = _ordRespawn[i];
+                if (rg == null) continue;
+                var track = rg.Track;
+                var go = rg.gameObject;
+                ReleaseCameraIfOn(go);
+                _ghosts.Remove(go);
+                _ghostComps.Remove(rg);
+                if (track != null && !_pendingAir.Contains(track))
+                    _pendingAir.Add(track);
+                if (go != null)
+                    UnityEngine.Object.Destroy(go);
+            }
+            _ordRespawn.Clear();
+        }
+
+        void ApplyOrdnanceSeeks()
+        {
+            if (Clock.SeekSerial == _ordSeekSerial) return;
+            _ordSeekSerial = Clock.SeekSerial;
+            float t = Clock.Time;
+            for (int i = 0; i < _ghostComps.Count; i++)
+            {
+                var rg = _ghostComps[i];
+                if (rg == null || !rg.IsOrdnancePublic) continue;
+                rg.OnReplaySeek(t);
+            }
+            FlushOrdnanceRespawn();
+        }
 
         void TickMissileBooms()
         {
@@ -318,6 +366,7 @@ namespace NOReplay
                 if (!on)
                 {
                     rg.ForceWreck();
+                    rg.NoteOrdnanceAsleep();
                     ReleaseCameraIfOn(go);
                 }
                 go.SetActive(on);

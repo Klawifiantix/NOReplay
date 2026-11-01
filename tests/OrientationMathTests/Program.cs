@@ -25,6 +25,13 @@ namespace NOReplay.OrientationTests
             ReverseRollsBackward();
             PivotSplitsTheSides();
             SeekIgnoresATimelineJump();
+            MissileLaunchPlaysIgnition();
+            MissileFlybySkipsIgnition();
+            MissileBurnoutIsWhooshOnly();
+            MissileSeekAndReentry();
+            SeekBackBeforeLaunchThenPlay();
+            SeekForwardIntoTheBurn();
+            MotorLoopOffsetSkipsTheHead();
             if (_failed > 0)
             {
                 Console.Error.WriteLine("FAILED " + _failed);
@@ -105,6 +112,125 @@ namespace NOReplay.OrientationTests
             Check(GroundRoll.IsSeek(-2f, 0f, 0f), "a rewind jump is a seek");
             Check(GroundRoll.IsSeek(0f, 401f, 0f), "a 20m teleport is a seek");
             Check(GroundRoll.IsSeek(0f, 1f, 40f), "a large yaw step is a seek");
+        }
+
+        static MissileMotorAudio.Stage[] Motor(float delay, float burn)
+        {
+            return new[] { new MissileMotorAudio.Stage(delay, burn) };
+        }
+
+        static void MissileLaunchPlaysIgnition()
+        {
+            var stages = Motor(0.4f, 6f);
+            var atLaunch = MissileMotorAudio.At(0.1f, stages, -1, -1);
+            Check(atLaunch.Ignition && atLaunch.Motor == MissileMotorAudio.MotorStart.Silent, "delay plays startup, not the motor yet");
+            Check(atLaunch.Flight && !atLaunch.SnapFlight, "whoosh ramps in from the launch");
+
+            var justLit = MissileMotorAudio.At(0.5f, stages, -1, -1);
+            Check(justLit.Ignition, "startup still allowed just after the delay");
+            Check(justLit.Motor == MissileMotorAudio.MotorStart.FromHead, "motor clip starts at the head when the burn begins");
+
+            var dry = MissileMotorAudio.At(0f, Motor(0f, 5f), -1, -1);
+            Check(!dry.Ignition, "no delay means the game never plays startupSource");
+            Check(dry.Motor == MissileMotorAudio.MotorStart.FromHead, "delay 0 still starts audioSources at the head");
+        }
+
+        static void MissileFlybySkipsIgnition()
+        {
+            var stages = Motor(0.4f, 8f);
+            var past = MissileMotorAudio.At(3f, stages, -1, -1);
+            Check(!past.Ignition, "a flyby past the window does not start startupSource");
+            Check(past.Motor == MissileMotorAudio.MotorStart.Offset, "the motor loop joins past the ignition head");
+            Check(past.Flight && past.SnapFlight, "the whoosh is already at speed");
+            Check(past.SinceActivate > 2f, "offset is measured from motor light");
+
+            var again = MissileMotorAudio.At(0.5f, stages, 0, 0);
+            Check(!again.Ignition, "leaving and re-entering does not replay startup");
+            Check(again.Motor == MissileMotorAudio.MotorStart.Offset, "re-entry does not restart the clip head");
+        }
+
+        static void MissileBurnoutIsWhooshOnly()
+        {
+            var stages = new[]
+            {
+                new MissileMotorAudio.Stage(0.2f, 3f),
+                MissileMotorAudio.FromFuel(0.3f, 4f, 1f),
+                MissileMotorAudio.FromFuel(1f, 5f, 0f),
+            };
+            // Stage 0 ends at 3.2. Stage 1 delay 0.3 then burn 4, ends at 7.5. Spent stage adds nothing.
+            var delay2 = MissileMotorAudio.At(3.3f, stages, -1, -1);
+            Check(delay2.Stage == 1 && delay2.Ignition && delay2.Motor == MissileMotorAudio.MotorStart.Silent,
+                "second stage startup only while its own delay is open");
+            var lit2 = MissileMotorAudio.At(3.6f, stages, -1, -1);
+            Check(lit2.Stage == 1 && lit2.Motor == MissileMotorAudio.MotorStart.FromHead, "second stage lights from the head");
+            var coast = MissileMotorAudio.At(6f, stages, 1, 1);
+            Check(coast.Stage == 1 && !coast.Ignition && coast.Motor == MissileMotorAudio.MotorStart.Offset, "second stage mid-burn is the loop");
+            var done = MissileMotorAudio.At(8f, stages, -1, -1);
+            Check(done.Stage < 0 && done.Motor == MissileMotorAudio.MotorStart.Silent && !done.Ignition && done.Flight,
+                "after burnout only the whoosh remains");
+            var none = MissileMotorAudio.At(4f, Array.Empty<MissileMotorAudio.Stage>(), -1, -1);
+            Check(none.Flight && none.Motor == MissileMotorAudio.MotorStart.Silent && !none.Ignition, "a bomb has no motor");
+        }
+
+        static void MissileSeekAndReentry()
+        {
+            var stages = Motor(0.4f, 6f);
+            int ignition = 0;
+            int head = 0;
+            MissileMotorAudio.OnSeek(0.05f, stages, ref ignition, ref head);
+            Check(ignition < 0 && head < 0, "seeking onto the launch arms ignition again");
+            MissileMotorAudio.OnSeek(4f, stages, ref ignition, ref head);
+            Check(ignition == 0 && head == 0, "seeking into the flight suppresses ignition");
+            var cue = MissileMotorAudio.At(4f, stages, ignition, head);
+            Check(!cue.Ignition && cue.Motor == MissileMotorAudio.MotorStart.Offset, "the seek lands on the sustain");
+            float shot = MissileMotorAudio.OneShotTime(5f, 6f);
+            Check(shot < 0f, "a finished one-shot stays finished");
+            Check(MathF.Abs(MissileMotorAudio.OneShotTime(5f, 1.2f) - 1.2f) < 0.001f, "a long clip continues from the burn clock");
+        }
+
+        static void SeekBackBeforeLaunchThenPlay()
+        {
+            var stages = Motor(0.4f, 6f);
+            const float launch = 10f;
+            const float removed = 25f;
+            int ignition = 0;
+            int head = 0;
+            MissileMotorAudio.ResetGates(ref ignition, ref head);
+            var before = MissileMotorAudio.AfterSeek(launch - 2f, launch, removed, stages);
+            Check(!before.Ignition && before.Motor == MissileMotorAudio.MotorStart.Silent && !before.Flight,
+                "before launch is silence, gates cleared");
+            var launchCue = MissileMotorAudio.At(0.1f, stages, ignition, head);
+            Check(launchCue.Ignition && launchCue.Flight, "the same missile ignites again when the clock reaches the launch");
+            Check(launchCue.Motor == MissileMotorAudio.MotorStart.Silent, "the motor waits out its delay");
+        }
+
+        static void SeekForwardIntoTheBurn()
+        {
+            var stages = Motor(0.4f, 6f);
+            const float launch = 10f;
+            const float removed = 25f;
+            int ignition = 0;
+            int head = 0;
+            MissileMotorAudio.ResetGates(ref ignition, ref head);
+            var mid = MissileMotorAudio.AfterSeek(launch + 4f, launch, removed, stages);
+            Check(!mid.Ignition && mid.Motor == MissileMotorAudio.MotorStart.Offset && mid.Flight,
+                "a forward seek into the burn is the sustain, not the ignition");
+            var coast = MissileMotorAudio.AfterSeek(launch + 8f, launch, removed, stages);
+            Check(!coast.Ignition && coast.Motor == MissileMotorAudio.MotorStart.Silent && coast.Flight,
+                "a seek after burnout is the whoosh only");
+            var dead = MissileMotorAudio.AfterSeek(removed + 1f, launch, removed, stages);
+            Check(!dead.Ignition && dead.Motor == MissileMotorAudio.MotorStart.Silent && !dead.Flight,
+                "a seek after detonation is silence");
+        }
+
+        static void MotorLoopOffsetSkipsTheHead()
+        {
+            float first = MissileMotorAudio.LoopOffset(4f, 1);
+            float second = MissileMotorAudio.LoopOffset(4f, 2);
+            Check(first >= MissileMotorAudio.LoopHeadSkip && first < 4f, "offset clears the clip head");
+            Check(second >= MissileMotorAudio.LoopHeadSkip && second < 4f, "another salt stays in range");
+            Check(MathF.Abs(first - MissileMotorAudio.LoopOffset(4f, 1)) < 0.0001f, "the same missile keeps the same phase");
+            Check(MissileMotorAudio.LoopOffset(0.2f, 3) == 0f, "a short one-shot is not treated as a loop");
         }
 
         static void LevelFlightHasNoAoa()

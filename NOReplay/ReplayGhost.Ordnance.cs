@@ -37,13 +37,6 @@ namespace NOReplay
             => Plugin.AudioNearWorld(world, maxM);
 
 
-        static int _missileVoices;
-        static int _nextVoiceSeq;
-        static float _nextStartupAt;
-        static readonly System.Collections.Generic.List<ReplayGhost> _voiceHolders = new();
-        int _voiceSeq;
-        float _nextVoiceTry;
-        object? _flightSrc;
         object? _detonateClip;
 
         GameObject? _spawnedWreck;
@@ -54,10 +47,7 @@ namespace NOReplay
             _ordAudioOn = false;
             _ordVoiceHeld = false;
             if (_ordnance && IsTrackAlive())
-            {
-                _bornAt = Time.unscaledTime;
                 IgniteMissileFx();
-            }
             if (!_ordnance && IsTrackAlive())
             {
                 _boomed = false;
@@ -88,14 +78,17 @@ namespace NOReplay
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             if (missile != null && mt != null)
             {
-                ActivateMotorVisuals(missile, mt, flags);
-                ApplyMissileAudio(missile, mt);
+                try
+                {
+                    var fxTr = mt.GetField("effectsTransform", flags)?.GetValue(missile) as Transform;
+                    if (fxTr != null) fxTr.gameObject.SetActive(true);
+                }
+                catch { }
             }
             var pt = Type.GetType("UnityEngine.ParticleSystem, UnityEngine.ParticleSystemModule")
                      ?? Plugin.FindGameType("ParticleSystem");
             if (pt != null)
             {
-                var clear = pt.GetMethod("Clear", new[] { typeof(bool) });
                 var play = pt.GetMethod("Play", new[] { typeof(bool) });
                 foreach (var ps in GetComponentsInChildren(pt, true))
                 {
@@ -110,11 +103,11 @@ namespace NOReplay
 
         struct MissileAudioFields
         {
-            public FieldInfo? Speed, MaxPitch, PitchRange, BasePitch, Flight, Motors;
+            public FieldInfo? Speed, MaxPitch, PitchRange, BasePitch, Flight, Motors, Detonate, Booster;
         }
         struct MotorAudioFields
         {
-            public FieldInfo? Startup, Sources;
+            public FieldInfo? Startup, Sources, Delay, Burn, Fuel, Particles, Lights, Trails;
         }
         static readonly Dictionary<Type, MissileAudioFields> _missileAudio = new();
         static readonly Dictionary<Type, MotorAudioFields> _motorAudio = new();
@@ -132,6 +125,8 @@ namespace NOReplay
                 BasePitch = mt.GetField("basePitch", flags),
                 Flight = mt.GetField("flightSound", flags),
                 Motors = mt.GetField("motors", flags),
+                Detonate = mt.GetField("nearbyDetonationClip", flags),
+                Booster = mt.GetField("boosterIsAttached", flags),
             };
             _missileAudio[mt] = bind;
             return bind;
@@ -145,347 +140,23 @@ namespace NOReplay
             {
                 Startup = t.GetField("startupSource", flags),
                 Sources = t.GetField("audioSources", flags),
+                Delay = t.GetField("delayTimer", flags),
+                Burn = t.GetField("burnTime", flags),
+                Fuel = t.GetField("fuelMass", flags),
+                Particles = t.GetField("particleSystems", flags),
+                Lights = t.GetField("lights", flags),
+                Trails = t.GetField("trailEmitters", flags),
             };
             _motorAudio[t] = bind;
             return bind;
         }
 
-        void LateOrdnanceAudio(ReplaySample s)
-        {
-            if (!_ordnance || _boomed) return;
-            if (!NearMe(500f)) return;
-            var mt = Plugin.FindGameType("Missile");
-            object? missile = mt != null ? (GetComponent(mt) ?? GetComponentInChildren(mt, true)) : null;
-            if (missile == null || mt == null) return;
-            if (!_ordVoiceHeld)
-                ApplyMissileAudio(missile, mt);
-            DriveMissileAudio(missile, mt, s);
-        }
-
-        void DriveMissileAudio(object missile, Type mt, ReplaySample s)
-        {
-            var bind = MissileAudioOf(mt);
-            float spd = 0f;
-            try
-            {
-                if (bind.Speed?.GetValue(missile) is float sf) spd = sf;
-            }
-            catch { }
-            float fromTrack = 0f;
-            if (s.HasTas && s.Tas > 1f)
-                fromTrack = s.Tas > 40f ? s.Tas / 1.94384f : s.Tas;
-            if (fromTrack < 1f && _ordPrevT >= 0f)
-            {
-                float dt = Plugin.Clock.Time - _ordPrevT;
-                if (dt > 0.01f)
-                {
-                    float dx = s.X - _ordPrevX;
-                    float dy = s.Y - _ordPrevY;
-                    float dz = s.Z - _ordPrevZ;
-                    fromTrack = Mathf.Sqrt(dx * dx + dy * dy + dz * dz) / dt;
-                }
-            }
-            _ordPrevX = s.X;
-            _ordPrevY = s.Y;
-            _ordPrevZ = s.Z;
-            _ordPrevT = Plugin.Clock.Time;
-            if (fromTrack > spd) spd = fromTrack;
-            try { bind.Speed?.SetValue(missile, spd); } catch { }
-            float maxPitch = 340f;
-            float pitchRange = 1f;
-            float basePitch = 0.5f;
-            try
-            {
-                if (bind.MaxPitch?.GetValue(missile) is float m) maxPitch = m;
-                if (bind.PitchRange?.GetValue(missile) is float p) pitchRange = p;
-                if (bind.BasePitch?.GetValue(missile) is float b) basePitch = b;
-            }
-            catch { }
-            float num = Mathf.Clamp01((-50f + spd) / Mathf.Max(maxPitch, 1f));
-            object? flight = null;
-            try { flight = bind.Flight?.GetValue(missile); } catch { }
-            if (flight != null)
-            {
-                var audio = PropsFor(flight.GetType());
-                audio.Mute?.SetValue(flight, false);
-                float vol = 0f;
-                try { if (audio.Volume?.GetValue(flight) is float v) vol = v; } catch { }
-                audio.Volume?.SetValue(flight, vol < num ? Mathf.Min(num, vol + Time.deltaTime) : num);
-                audio.Pitch?.SetValue(flight, pitchRange * num + basePitch);
-                bool playing = false;
-                try { playing = audio.IsPlaying?.GetValue(flight) is bool on && on; } catch { }
-                if (!playing) audio.Play?.Invoke(flight, null);
-            }
-            try
-            {
-                var motors = bind.Motors?.GetValue(missile) as Array;
-                if (motors == null) return;
-                foreach (var motor in motors)
-                {
-                    if (motor == null) continue;
-                    var motorFields = MotorAudioOf(motor.GetType());
-                    var start = motorFields.Startup?.GetValue(motor);
-                    if (start != null && !_startupPlayed)
-                    {
-                        var st = PropsFor(start.GetType());
-                        st.Mute?.SetValue(start, false);
-                        bool sp = false;
-                        try { sp = st.IsPlaying?.GetValue(start) is bool b && b; } catch { }
-                        if (!sp) st.Play?.Invoke(start, null);
-                        _startupPlayed = true;
-                    }
-                    if (!_startupPlayed) continue;
-                    var srcs = motorFields.Sources?.GetValue(motor) as Array;
-                    if (srcs == null) continue;
-                    foreach (var src in srcs)
-                    {
-                        if (src == null || ReferenceEquals(src, start)) continue;
-                        var st = PropsFor(src.GetType());
-                        st.Mute?.SetValue(src, false);
-                        bool playing = false;
-                        try { playing = st.IsPlaying?.GetValue(src) is bool pb && pb; } catch { }
-                        if (!playing) st.Play?.Invoke(src, null);
-                    }
-                }
-            }
-            catch { }
-        }
-
-        bool _startupPlayed;
-        float _bornAt;
-
-        static void PlayPs(object? ps)
-        {
-            if (ps == null) return;
-            try
-            {
-                var t = ps.GetType();
-                if (ps is Behaviour b) b.enabled = true;
-                t.GetMethod("Clear", new[] { typeof(bool) })?.Invoke(ps, new object[] { true });
-                var play = t.GetMethod("Play", new[] { typeof(bool) })
-                           ?? t.GetMethod("Play", Type.EmptyTypes);
-                if (play != null)
-                    play.Invoke(ps, play.GetParameters().Length == 1 ? new object[] { true } : null);
-            }
-            catch { }
-        }
-
-        void ActivateMotorVisuals(object missile, Type mt, BindingFlags flags)
-        {
-            try
-            {
-                var fxTr = mt.GetField("effectsTransform", flags)?.GetValue(missile) as Transform;
-                if (fxTr != null)
-                {
-                    fxTr.gameObject.SetActive(true);
-                    PlayParticles(fxTr.gameObject);
-                }
-            }
-            catch { }
-            try
-            {
-                var motors = mt.GetField("motors", flags)?.GetValue(missile) as Array;
-                if (motors == null) return;
-                foreach (var motor in motors)
-                {
-                    if (motor == null) continue;
-                    var tt = motor.GetType();
-                    var parts = tt.GetField("particleSystems", flags)?.GetValue(motor) as Array;
-                    if (parts != null)
-                    {
-                        foreach (var p in parts)
-                            PlayPs(p);
-                    }
-                    var lights = tt.GetField("lights", flags)?.GetValue(motor) as Array;
-                    if (lights != null)
-                    {
-                        foreach (var l in lights)
-                        {
-                            if (l is Behaviour lb) lb.enabled = true;
-                            else
-                            {
-                                try { l?.GetType().GetProperty("enabled")?.SetValue(l, true); } catch { }
-                            }
-                        }
-                    }
-                    var trails = tt.GetField("trailEmitters", flags)?.GetValue(motor) as Array;
-                    if (trails != null)
-                    {
-                        foreach (var tr in trails)
-                        {
-                            if (tr == null) continue;
-                            try
-                            {
-                                if (tr is Behaviour tb) tb.enabled = true;
-                                tr.GetType().GetMethod("StartTrail", flags)?.Invoke(tr, null);
-                            }
-                            catch { }
-                        }
-                    }
-                }
-            }
-            catch { }
-        }
-
-        static int _ownerFrame = -1;
-        static int _ownerId;
-
-        bool OwnerFollowed()
-        {
-            string? parent = Track?.ParentId;
-            if (string.IsNullOrEmpty(parent)) return false;
-            if (_ownerFrame != Time.frameCount)
-            {
-                _ownerFrame = Time.frameCount;
-                _ownerId = 0;
-                var follow = Plugin.FollowedObject();
-                var fg = follow != null ? follow.GetComponentInParent<ReplayGhost>() : null;
-                if (fg != null && fg.Track != null && int.TryParse(fg.Track.Id, System.Globalization.NumberStyles.HexNumber, null, out var id))
-                    _ownerId = id;
-            }
-            return int.TryParse(parent, System.Globalization.NumberStyles.HexNumber, null, out var mine) && mine == _ownerId && _ownerId != 0;
-        }
-
-        bool TryClaimMissileVoice()
-        {
-            if (_ordVoiceHeld) return true;
-            _ordVoiceHeld = true;
-            return true;
-        }
-
-        void ApplyMissileAudio(object missile, Type mt)
-        {
-            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            bool near = Plugin.IsFollowed(gameObject) || NearMe(900f) || OwnerFollowed();
-            if (!near)
-            {
-                return;
-            }
-            if (_ordVoiceHeld) return;
-            if (!TryClaimMissileVoice()) return;
-            try { _flightSrc = mt.GetField("flightSound", flags)?.GetValue(missile); } catch { }
-            try { _detonateClip = mt.GetField("nearbyDetonationClip", flags)?.GetValue(missile); } catch { }
-            try
-            {
-                var motors = mt.GetField("motors", flags)?.GetValue(missile) as Array;
-                if (motors != null)
-                {
-                    foreach (var motor in motors)
-                    {
-                        if (motor == null) continue;
-                        var tt = motor.GetType();
-                        var start = tt.GetField("startupSource", flags)?.GetValue(motor);
-                        // Launch sound only at actual launch, not when flying past later.
-                        float age = Time.unscaledTime - _bornAt;
-                        if (start != null && !_startupPlayed && age < 1.5f)
-                        {
-                            start.GetType().GetProperty("mute")?.SetValue(start, false);
-                            start.GetType().GetMethod("Play", Type.EmptyTypes)?.Invoke(start, null);
-                            _startupPlayed = true;
-                        }
-                        var srcs = tt.GetField("audioSources", flags)?.GetValue(motor) as Array;
-                        if (srcs == null) continue;
-                        foreach (var s in srcs)
-                        {
-                            if (s == null) continue;
-                            // Prefab decides loop/volume/distance. Just ensure it plays.
-                            var st = s.GetType();
-                            st.GetProperty("mute")?.SetValue(s, false);
-                            bool playing = false;
-                            try { playing = st.GetProperty("isPlaying")?.GetValue(s) is bool b && b; } catch { }
-                            if (!playing) st.GetMethod("Play", Type.EmptyTypes)?.Invoke(s, null);
-                        }
-                    }
-                }
-            }
-            catch { }
-            if (_flightSrc != null)
-            {
-                var ft = _flightSrc.GetType();
-                ft.GetProperty("mute")?.SetValue(_flightSrc, false);
-                bool fp = false;
-                try { fp = ft.GetProperty("isPlaying")?.GetValue(_flightSrc) is bool b && b; } catch { }
-                if (!fp) ft.GetMethod("Play", Type.EmptyTypes)?.Invoke(_flightSrc, null);
-            }
-        }
-
-        static void PlaySrc(object? src, float vol, bool loop, bool restart = true)
-        {
-            if (src == null) return;
-            var t = src.GetType();
-            try
-            {
-                t.GetProperty("enabled")?.SetValue(src, true);
-                t.GetProperty("spatialBlend")?.SetValue(src, 1f);
-                t.GetProperty("dopplerLevel")?.SetValue(src, 0f);
-                t.GetProperty("minDistance")?.SetValue(src, 8f);
-                t.GetProperty("maxDistance")?.SetValue(src, 1200f);
-                t.GetProperty("rolloffMode")?.SetValue(src, 0);
-                t.GetProperty("priority")?.SetValue(src, 200);
-                t.GetProperty("volume")?.SetValue(src, vol);
-                t.GetProperty("loop")?.SetValue(src, loop);
-                bool playing = false;
-                try { playing = t.GetProperty("isPlaying")?.GetValue(src) is bool b && b; } catch { }
-                if (playing && !restart && loop) return;
-                if (playing && !restart && !loop)
-                    return;
-                t.GetMethod("Play", Type.EmptyTypes)?.Invoke(src, null);
-            }
-            catch { }
-        }
-
-        void PlayOrdnanceAudio()
-        {
-            if (_ordAudioOn) return;
-            if (!NearMe(500f)) return;
-            var at = Type.GetType("UnityEngine.AudioSource, UnityEngine.AudioModule")
-                     ?? Plugin.FindGameType("AudioSource");
-            if (at == null) return;
-            var play = at.GetMethod("Play", Type.EmptyTypes);
-            var loop = at.GetProperty("loop");
-            var en = at.GetProperty("enabled");
-            var clip = at.GetProperty("clip");
-            foreach (var c in GetComponentsInChildren(at, true))
-            {
-                if (c == null) continue;
-                try
-                {
-                    en?.SetValue(c, true);
-                    at.GetProperty("spatialBlend")?.SetValue(c, 1f);
-                    at.GetProperty("dopplerLevel")?.SetValue(c, 0f);
-                    at.GetProperty("minDistance")?.SetValue(c, 25f);
-                    at.GetProperty("maxDistance")?.SetValue(c, 450f);
-                    at.GetProperty("rolloffMode")?.SetValue(c, 0);
-                    at.GetProperty("priority")?.SetValue(c, 200);
-                    var cl = clip?.GetValue(c);
-                    string cn = ((cl != null ? cl.ToString() : "") + " " + c.name).ToLowerInvariant();
-                    bool launch = cn.IndexOf("launch") >= 0 || cn.IndexOf("fire") >= 0
-                               || cn.IndexOf("shot") >= 0 || cn.IndexOf("eject") >= 0;
-                    if (!launch)
-                        loop?.SetValue(c, true);
-                    play?.Invoke(c, null);
-                }
-                catch { }
-            }
-            _ordAudioOn = true;
-        }
 
         void StopOrdnanceAudio()
         {
             _ordVoiceHeld = false;
             _ordAudioOn = false;
-            var at = Type.GetType("UnityEngine.AudioSource, UnityEngine.AudioModule")
-                     ?? Plugin.FindGameType("AudioSource");
-            if (at != null)
-            {
-                var stop = at.GetMethod("Stop", Type.EmptyTypes);
-                foreach (var c in GetComponentsInChildren(at, true))
-                {
-                    if (c == null) continue;
-                    try { stop?.Invoke(c, null); } catch { }
-                }
-            }
-            _ordAudioOn = false;
+            StopMotorAndFlight();
         }
 
         static Type? ParticleType()
@@ -580,43 +251,17 @@ namespace NOReplay
 
         void PlayWarheadBoom(Vector3 pos)
         {
+            CacheFlightClip();
             Plugin.Log?.LogInfo("Boom " + gameObject.name + " at " + pos);
             var mt = Plugin.FindGameType("Missile");
             object? missile = mt != null ? (GetComponent(mt) ?? GetComponentInChildren(mt, true)) : null;
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             if (missile != null && mt != null)
             {
-                try
-                {
-                    var motors = mt.GetField("motors", flags)?.GetValue(missile) as Array;
-                    if (motors != null)
-                    {
-                        foreach (var motor in motors)
-                        {
-                            if (motor == null) continue;
-                            try { motor.GetType().GetMethod("Burnout", flags)?.Invoke(motor, new object[] { true }); } catch { }
-                        }
-                    }
-                }
-                catch { }
-                try
-                {
-                    bool hearBoom = Plugin.AudioNearWorld(pos, 700f);
-                    var flight = mt.GetField("flightSound", flags)?.GetValue(missile);
-                    var clip = mt.GetField("nearbyDetonationClip", flags)?.GetValue(missile);
-                    if (hearBoom && flight != null && clip != null)
-                    {
-                        var ft = flight.GetType();
-                        ft.GetMethod("Stop", Type.EmptyTypes)?.Invoke(flight, null);
-                        ft.GetProperty("clip")?.SetValue(flight, clip);
-                        ft.GetProperty("pitch")?.SetValue(flight, 1f);
-                        ft.GetProperty("volume")?.SetValue(flight, 1f);
-                        ft.GetProperty("loop")?.SetValue(flight, false);
-                        ft.GetProperty("mute")?.SetValue(flight, false);
-                        ft.GetMethod("Play", Type.EmptyTypes)?.Invoke(flight, null);
-                    }
-                }
-                catch { }
+                // Do not call Motor.Burnout or Motor.Destruct. Burnout(true) stops every
+                // motor source, and Destruct parents a fresh effect under the ghost.
+                // The flight clip is left alone so a later seek can play the whoosh again.
+                StopMotorAndFlight();
             }
             GameObject? fx = null;
             if (missile != null && mt != null)
@@ -640,25 +285,13 @@ namespace NOReplay
                     }
                 }
                 catch { }
-                try
+                if (!_boomShotPlayed)
                 {
-                    var motors = mt.GetField("motors", flags)?.GetValue(missile) as Array;
-                    if (motors != null)
-                    {
-                        foreach (var motor in motors)
-                        {
-                            if (motor == null) continue;
-                            try { motor.GetType().GetMethod("Burnout", flags)?.Invoke(motor, new object[] { true }); } catch { }
-                            try { motor.GetType().GetMethod("Destruct", flags)?.Invoke(motor, new object[] { missile }); } catch { }
-                        }
-                    }
-                }
-                catch { }
-                if (_detonateClip == null)
-                {
+                    _boomShotPlayed = true;
                     try
                     {
-                        _detonateClip = mt.GetField("nearbyDetonationClip", flags)?.GetValue(missile);
+                        if (_detonateClip == null)
+                            _detonateClip = mt.GetField("nearbyDetonationClip", flags)?.GetValue(missile);
                         PlayDetachedShot(_detonateClip, pos);
                     }
                     catch { }

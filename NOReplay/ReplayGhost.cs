@@ -556,6 +556,7 @@ namespace NOReplay
             if (_ordnance)
             {
                 DisableMissileSim();
+                CacheFlightClip();
                 SetGhostVisible(true);
                 return;
             }
@@ -1077,6 +1078,7 @@ namespace NOReplay
             NoteSpoolClock(Plugin.Clock.Time);
             if (!IsTrackAlive())
             {
+                if (_ordnance) _ordWasAlive = false;
                 float end = Track.RemovedAt;
                 if (end < 0f && Track.Samples.Count > 0)
                     end = Track.Samples[Track.Samples.Count - 1].Time;
@@ -1105,9 +1107,16 @@ namespace NOReplay
                 if (_air && !_neutral)
                     WindDownPowerplant();
                 if (!_ordnance) TickStructural(false);
+                if (_ordnance && !IsFlareTrack() && !DetonatedAt(Plugin.Clock.Time) && OrdnanceAudioDirty())
+                    ArmOrdnanceAudio();
                 return;
             }
             _boomed = false;
+            if (_ordnance && !_ordWasAlive)
+            {
+                _ordWasAlive = true;
+                ArmOrdnanceAudio();
+            }
             if (IsFlareTrack())
             {
                 SetGhostVisible(true);
@@ -1188,12 +1197,7 @@ namespace NOReplay
             if (rewound)
             {
                 if (_ordnance)
-                {
-                    StopOrdnanceAudio();
-                    _startupPlayed = false;
-                    _nextVoiceTry = 0f;
                     _ordPrevT = -1f;
-                }
                 else
                 {
                     StopSurfaceFx(true);
@@ -1251,7 +1255,7 @@ namespace NOReplay
             }
 
             if (_ordnance && _visible && !_ordAudioOn) IgniteMissileFx();
-            if (_ordnance) LateOrdnanceAudio(s);
+            if (_ordnance) TickOrdnanceAudio(s);
 
             Velocities[GetInstanceID()] = _velMs;
             if (_air && gameObject == Plugin._ghost)

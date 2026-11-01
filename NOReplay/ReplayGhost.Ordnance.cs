@@ -251,6 +251,7 @@ namespace NOReplay
 
         void PlayWarheadBoom(Vector3 pos)
         {
+            CacheFlightClip();
             Plugin.Log?.LogInfo("Boom " + gameObject.name + " at " + pos);
             var mt = Plugin.FindGameType("Missile");
             object? missile = mt != null ? (GetComponent(mt) ?? GetComponentInChildren(mt, true)) : null;
@@ -325,11 +326,13 @@ namespace NOReplay
                     }
                 }
                 catch { }
-                if (_detonateClip == null)
+                if (!_boomShotPlayed)
                 {
+                    _boomShotPlayed = true;
                     try
                     {
-                        _detonateClip = mt.GetField("nearbyDetonationClip", flags)?.GetValue(missile);
+                        if (_detonateClip == null)
+                            _detonateClip = mt.GetField("nearbyDetonationClip", flags)?.GetValue(missile);
                         PlayDetachedShot(_detonateClip, pos);
                     }
                     catch { }

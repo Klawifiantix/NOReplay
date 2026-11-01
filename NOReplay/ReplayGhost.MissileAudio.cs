@@ -24,6 +24,8 @@ namespace NOReplay
         bool _ordHeard;
         bool _ordPaused;
         bool _resumeAudio;
+        bool _ordWasAlive;
+        bool _boomShotPlayed;
         AudioSource? _flightAudio;
         AudioClip? _flightClip;
         bool _flightClipSaved;
@@ -45,29 +47,16 @@ namespace NOReplay
             float now = Plugin.Clock.Time;
             float launch = OrdnanceBorn();
             float age = now - launch;
-            float prevClock = _ordAudioClock;
             _ordAudioClock = now;
 
             var mt = Plugin.FindGameType("Missile");
             object? missile = mt != null ? (GetComponent(mt) ?? GetComponentInChildren(mt, true)) : null;
             if (missile == null || mt == null) return;
             EnsureMotorSlots(missile, mt);
-
-            bool backward = prevClock >= 0f && now + 0.05f < prevClock;
-            bool jumped = prevClock >= 0f && Mathf.Abs(now - prevClock) > 1f;
-            bool intoIgnition = false;
-            if (backward)
+            if (age < 0f)
             {
-                float prevAge = prevClock - launch;
-                var was = MissileMotorAudio.At(prevAge, _motorStages, -1, -1);
-                var nowCue = MissileMotorAudio.At(age, _motorStages, -1, -1);
-                intoIgnition = nowCue.Ignition && !was.Ignition;
-            }
-            if (jumped || intoIgnition)
-            {
-                MissileMotorAudio.OnSeek(age, _motorStages, ref _ignitionStage, ref _headStage);
                 StopMotorAndFlight();
-                _ordPrevT = -1f;
+                return;
             }
 
             var cue = MissileMotorAudio.At(age, _motorStages, _ignitionStage, _headStage);
@@ -96,6 +85,89 @@ namespace NOReplay
             DriveFlight(missile, mt, s, cue);
             DriveMotorSources(cue);
             _ordHeard = true;
+        }
+
+        bool OrdnanceAudioDirty()
+        {
+            if (_ordHeard || _ordPaused || _boomShotPlayed) return true;
+            if (_ignitionStage >= 0 || _headStage >= 0) return true;
+            return _flightAudio != null && _boomClip != null && _flightAudio.clip == _boomClip;
+        }
+
+        internal void NoteOrdnanceAsleep()
+        {
+            if (!_ordnance) return;
+            _ordWasAlive = false;
+        }
+
+        internal void OnReplaySeek(float time)
+        {
+            if (!_ordnance || IsFlareTrack()) return;
+            ArmOrdnanceAudio();
+            bool alive = IsTrackAlive();
+            _boomed = !alive && DetonatedAt(time);
+            if (!alive) _ordWasAlive = false;
+            if (gameObject.activeSelf != alive)
+                gameObject.SetActive(alive);
+        }
+
+        bool DetonatedAt(float time)
+        {
+            if (Track == null) return false;
+            float end = Track.RemovedAt;
+            if (end < 0f && Track.Samples != null && Track.Samples.Count > 0)
+                end = Track.Samples[Track.Samples.Count - 1].Time;
+            return end >= 0f && time >= end;
+        }
+
+        void ArmOrdnanceAudio()
+        {
+            MissileMotorAudio.ResetGates(ref _ignitionStage, ref _headStage);
+            _visualStage = int.MinValue;
+            _ordHeard = false;
+            _ordPaused = false;
+            _resumeAudio = false;
+            _ordAudioClock = -1f;
+            _ordPrevT = -1f;
+            _boomShotPlayed = false;
+            CacheFlightClip();
+            RestoreFlightClip();
+            var sources = GetComponentsInChildren<AudioSource>(true);
+            for (int i = 0; i < sources.Length; i++)
+            {
+                var src = sources[i];
+                if (src == null) continue;
+                src.enabled = true;
+                src.mute = false;
+                src.playOnAwake = false;
+                src.Stop();
+            }
+        }
+
+        internal void CacheFlightClip()
+        {
+            var mt = Plugin.FindGameType("Missile");
+            object? missile = mt != null ? (GetComponent(mt) ?? GetComponentInChildren(mt, true)) : null;
+            if (missile == null || mt == null) return;
+            var bind = MissileAudioOf(mt);
+            try { if (_flightAudio == null) _flightAudio = bind.Flight?.GetValue(missile) as AudioSource; } catch { }
+            try
+            {
+                var clip = bind.Detonate?.GetValue(missile);
+                if (_detonateClip == null) _detonateClip = clip;
+                if (_boomClip == null) _boomClip = clip as AudioClip;
+            }
+            catch { }
+            RememberFlightClip();
+        }
+
+        void RestoreFlightClip()
+        {
+            if (_flightAudio == null || !_flightClipSaved || _flightClip == null) return;
+            _flightAudio.clip = _flightClip;
+            _flightAudio.loop = true;
+            _flightAudio.mute = false;
+            _flightAudio.enabled = true;
         }
 
         void EnsureMotorSlots(object missile, Type mt)

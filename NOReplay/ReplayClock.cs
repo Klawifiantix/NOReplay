@@ -20,12 +20,16 @@ namespace NOReplay
         public bool WentBack;
         bool _reverseCleared;
 
+        /// <summary>Increments on every timeline jump, forward or back. Playback ticks do not.</summary>
+        public int SeekSerial;
+
         public void Seek(float t)
         {
             float max = Duration > 0f ? Duration : 0f;
             if (t < 0f) t = 0f;
             if (t > max) t = max;
             if (t < Time - 0.02f) WentBack = true;
+            if (t > Time + 0.02f || t < Time - 0.02f) SeekSerial++;
             Time = t;
         }
 

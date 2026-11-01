@@ -203,6 +203,7 @@ namespace NOReplay
                 }
                 TickGhostSpawns();
                 TickGhostSleep();
+                ApplyOrdnanceSeeks();
                 if (!_staticHandlerStarted && InGameWorld() && Time.timeSinceLevelLoad > 2f)
                 {
                     _staticHandlerStarted = true;
@@ -225,6 +226,21 @@ namespace NOReplay
         }
 
         float _panelAt;
+
+        int _ordSeekSerial = -1;
+
+        void ApplyOrdnanceSeeks()
+        {
+            if (Clock.SeekSerial == _ordSeekSerial) return;
+            _ordSeekSerial = Clock.SeekSerial;
+            float t = Clock.Time;
+            for (int i = 0; i < _ghostComps.Count; i++)
+            {
+                var rg = _ghostComps[i];
+                if (rg == null || !rg.IsOrdnancePublic) continue;
+                rg.OnReplaySeek(t);
+            }
+        }
 
         void TickMissileBooms()
         {
@@ -321,6 +337,7 @@ namespace NOReplay
                 if (!on)
                 {
                     rg.ForceWreck();
+                    rg.NoteOrdnanceAsleep();
                     ReleaseCameraIfOn(go);
                 }
                 go.SetActive(on);

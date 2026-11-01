@@ -20,6 +20,8 @@ namespace NOReplay.OrientationTests
             MissileFlybySkipsIgnition();
             MissileBurnoutIsWhooshOnly();
             MissileSeekAndReentry();
+            SeekBackBeforeLaunchThenPlay();
+            SeekForwardIntoTheBurn();
             MotorLoopOffsetSkipsTheHead();
             if (_failed > 0)
             {
@@ -175,6 +177,41 @@ namespace NOReplay.OrientationTests
             float shot = MissileMotorAudio.OneShotTime(5f, 6f);
             Check(shot < 0f, "a finished one-shot stays finished");
             Check(MathF.Abs(MissileMotorAudio.OneShotTime(5f, 1.2f) - 1.2f) < 0.001f, "a long clip continues from the burn clock");
+        }
+
+        static void SeekBackBeforeLaunchThenPlay()
+        {
+            var stages = Motor(0.4f, 6f);
+            const float launch = 10f;
+            const float removed = 25f;
+            int ignition = 0;
+            int head = 0;
+            MissileMotorAudio.ResetGates(ref ignition, ref head);
+            var before = MissileMotorAudio.AfterSeek(launch - 2f, launch, removed, stages);
+            Check(!before.Ignition && before.Motor == MissileMotorAudio.MotorStart.Silent && !before.Flight,
+                "before launch is silence, gates cleared");
+            var launchCue = MissileMotorAudio.At(0.1f, stages, ignition, head);
+            Check(launchCue.Ignition && launchCue.Flight, "the same missile ignites again when the clock reaches the launch");
+            Check(launchCue.Motor == MissileMotorAudio.MotorStart.Silent, "the motor waits out its delay");
+        }
+
+        static void SeekForwardIntoTheBurn()
+        {
+            var stages = Motor(0.4f, 6f);
+            const float launch = 10f;
+            const float removed = 25f;
+            int ignition = 0;
+            int head = 0;
+            MissileMotorAudio.ResetGates(ref ignition, ref head);
+            var mid = MissileMotorAudio.AfterSeek(launch + 4f, launch, removed, stages);
+            Check(!mid.Ignition && mid.Motor == MissileMotorAudio.MotorStart.Offset && mid.Flight,
+                "a forward seek into the burn is the sustain, not the ignition");
+            var coast = MissileMotorAudio.AfterSeek(launch + 8f, launch, removed, stages);
+            Check(!coast.Ignition && coast.Motor == MissileMotorAudio.MotorStart.Silent && coast.Flight,
+                "a seek after burnout is the whoosh only");
+            var dead = MissileMotorAudio.AfterSeek(removed + 1f, launch, removed, stages);
+            Check(!dead.Ignition && dead.Motor == MissileMotorAudio.MotorStart.Silent && !dead.Flight,
+                "a seek after detonation is silence");
         }
 
         static void MotorLoopOffsetSkipsTheHead()

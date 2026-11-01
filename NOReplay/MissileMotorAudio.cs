@@ -67,9 +67,40 @@ namespace NOReplay
         /// started. Passing that same index suppresses a second start (range re-entry).
         /// -1 means nothing has been started yet.
         /// </summary>
+        public static void ResetGates(ref int ignitionStage, ref int headStage)
+        {
+            ignitionStage = -1;
+            headStage = -1;
+        }
+
+        /// <summary>
+        /// What to play at an absolute replay time with a clean slate.
+        /// Before launch and after removal: silence. The caller keeps the sources armed
+        /// so a later time inside the launch window can start them.
+        /// </summary>
+        public static Cue AfterSeek(float time, float launch, float removed, Stage[]? stages)
+        {
+            if (float.IsNaN(time)) time = 0f;
+            if (removed >= 0f && time >= removed)
+                return default;
+            if (time < launch)
+                return default;
+            return At(time - launch, stages, -1, -1);
+        }
+
         public static Cue At(float age, Stage[]? stages, int ignitionStage, int headStage)
         {
-            if (age < 0f || float.IsNaN(age)) age = 0f;
+            if (float.IsNaN(age)) age = 0f;
+            if (age < 0f)
+            {
+                return new Cue
+                {
+                    Stage = -1,
+                    Flight = false,
+                    Motor = MotorStart.Silent,
+                    Ignition = false,
+                };
+            }
             var cue = new Cue
             {
                 Stage = -1,
@@ -102,6 +133,11 @@ namespace NOReplay
         /// </summary>
         public static void OnSeek(float age, Stage[]? stages, ref int ignitionStage, ref int headStage)
         {
+            if (age < 0f || float.IsNaN(age))
+            {
+                ResetGates(ref ignitionStage, ref headStage);
+                return;
+            }
             var fresh = At(age, stages, -1, -1);
             if (fresh.Ignition)
                 ignitionStage = -1;

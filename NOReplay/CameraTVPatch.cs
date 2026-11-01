@@ -7,7 +7,7 @@ namespace NOReplay
     [HarmonyPatch]
     static class CameraTVPatch
     {
-        static Type? _camType;
+        static System.Type? _camType;
         static FieldInfo? _follow;
         static bool _ready;
         static Object? _cam;
@@ -50,7 +50,7 @@ namespace NOReplay
             try { unit = _follow.GetValue(_cam) as Component; }
             catch { return false; }
             if (unit == null) return false;
-            if (!ReferenceEquals(unit, _unit))
+            if (!object.ReferenceEquals(unit, _unit))
             {
                 _unit = unit;
                 _ghost = unit.GetComponent<ReplayGhost>();
@@ -66,11 +66,12 @@ namespace NOReplay
             _cam = null;
             _unit = null;
             _ghost = null;
+            if (_camType == null || _follow == null) return false;
             foreach (var cam in Resources.FindObjectsOfTypeAll(_camType))
             {
                 if (cam == null) continue;
                 Component? unit;
-                try { unit = _follow!.GetValue(cam) as Component; }
+                try { unit = _follow.GetValue(cam) as Component; }
                 catch { continue; }
                 if (unit == null) continue;
                 var found = unit.GetComponent<ReplayGhost>();

@@ -36,9 +36,7 @@ namespace NOReplay
                 || p.IndexOf("dust", StringComparison.Ordinal) >= 0
                 || p.IndexOf("haze", StringComparison.Ordinal) >= 0
                 || p.IndexOf("exhaust", StringComparison.Ordinal) >= 0
-                || p.IndexOf("afterburn", StringComparison.Ordinal) >= 0
-                || p.IndexOf("vapor", StringComparison.Ordinal) >= 0
-                || p.IndexOf("vortex", StringComparison.Ordinal) >= 0;
+                || p.IndexOf("afterburn", StringComparison.Ordinal) >= 0;
         }
 
         void AdoptOrphanFx()
@@ -996,6 +994,7 @@ namespace NOReplay
                 CloseAirbrakes();
                 DriveJetExhaust(false, 0f);
                 DriveDownwashThrust(false, 0f);
+                DriveWingVapor(s, true);
                 return;
             }
             Bind();
@@ -1205,6 +1204,7 @@ namespace NOReplay
                 ApplyLandingLights(gearDown);
             }
             if (_ship) DriveShipAudio(spd);
+            DriveWingVapor(s, false);
         }
 
         static Type? _surfType;

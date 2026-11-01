@@ -200,8 +200,10 @@ namespace NOReplay
             float y = 12f;
             GUI.Box(new Rect(x, y, w, h), "");
             string title = CurrentDoc?.Title ?? "Replay";
-            GUI.Label(new Rect(x + 10, y + 4, w - 20, 18),
-                $"{title}   {Clock.Time:0.0}/{Clock.Duration:0.0}s   x{Clock.Speed}   {(Clock.Paused ? "PAUSE" : "PLAY")}");
+            string sel = SelectionCaption();
+            string head = $"{title}   {Clock.Time:0.0}/{Clock.Duration:0.0}s   x{Clock.Speed}   {(Clock.Paused ? "PAUSE" : "PLAY")}";
+            if (sel.Length > 0) head += "   ||   " + sel;
+            GUI.Label(new Rect(x + 10, y + 4, w - 20, 18), head);
             float slider = Clock.Duration <= 0f ? 0f : Clock.Time / Clock.Duration;
             float next = GUI.HorizontalSlider(new Rect(x + 10, y + 24, w - 20, 16), slider, 0f, 1f);
             if (Math.Abs(next - slider) > 0.0001f)
@@ -225,7 +227,7 @@ namespace NOReplay
             if (GUI.Button(new Rect(x + 444, y + 36, 36, 18), "2x")) Clock.Speed = 2f;
             if (GUI.Button(new Rect(x + 482, y + 36, 36, 18), "4x")) Clock.Speed = 4f;
             if (GUI.Button(new Rect(x + 530, y + 36, 64, 18), TrailsOn ? "Trails: an" : "Trails: aus"))
-                TrailsOn = !TrailsOn;
+                ToggleTrails();
             float mins = TrailSeconds / 60f;
             GUI.Label(new Rect(x + 600, y + 36, 52, 18), $"{mins:0.0}m");
             float nextMin = GUI.HorizontalSlider(new Rect(x + 652, y + 40, 180, 16), mins, 0f, 10f);

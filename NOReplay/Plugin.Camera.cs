@@ -98,28 +98,7 @@ namespace NOReplay
             }
         }
 
-        internal static void ReleaseCameraIfOn(GameObject go)
-        {
-            if (go == null) return;
-            var camType = FindGameType("CameraStateManager");
-            if (camType == null) return;
-            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            var fFollow = camType.GetField("followingUnit", flags);
-            var mSet = camType.GetMethod("SetFollowingUnit", flags);
-            if (fFollow == null || mSet == null) return;
-            foreach (var cam in Resources.FindObjectsOfTypeAll(camType))
-            {
-                if (cam == null) continue;
-                var u = fFollow.GetValue(cam) as Component;
-                if (u == null) continue;
-                var ut = u.transform;
-                if (u.gameObject == go || ut.IsChildOf(go.transform) || go.transform.IsChildOf(ut))
-                {
-                    mSet.Invoke(cam, new object[] { null });
-                    break;
-                }
-            }
-        }
+        internal static void ReleaseCameraIfOn(GameObject go) => ReleaseFollowedCamera(go);
 
         static void TryFollowGhost(GameObject go)
         {

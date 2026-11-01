@@ -41,13 +41,18 @@ Timeline
 * Drag the marker to scrub. Units jump to that time. Dragging backward shows the reverse motion.
 * Speeds: -4x -2x -1x -0.5x -0.25x 0.25x 0.5x 1x 2x 4x.
 * F10 hides the timeline. F10 shows it again.
-* Trails button toggles flight paths. The slider next to it sets trail length from 0 to 10 minutes. Dead airframes lose their trail.
+* Trails button toggles flight paths. The T key does the same. The slider next to it sets trail length from 0 to 10 minutes. Dead airframes lose their trail.
 
 Camera
+* Click a unit, building, or projectile on the map. It stays selected, the camera jumps to it, and the view orbits. After PLAY or PAUSE the timeline shows || and the type name, plus the pilot or callsign when there is one. With nothing selected, the || and the name are left out.
+* WASD leaves that orbit. The camera flies free again, and the selection stays.
+* F toggles the look-at lock. While it is on, the camera flies free and turns to face the selected target. The camera does not move with the target. [F] shows after the name. F again returns to normal mouse look.
+* If the target is destroyed, detonates, despawns, or the time moves past it, the name leaves the timeline, the lock is released, and the camera stays where it is.
+* F and T do nothing while a text field is selected.
 * The normal spectator path is unchanged.
 * Orbit around a unit works. Free camera and fly-by work.
 * If the unit you are watching is destroyed, the camera is released before the unit is removed.
-* Clicking a missile follows that missile. The camera does not jump to a missile on its own.
+* The camera does not jump to a unit on its own.
 
 ---
 

@@ -553,6 +553,12 @@ namespace NOReplay
             public FieldInfo? Flame;
             public FieldInfo? Glow;
             public FieldInfo? Source;
+            public FieldInfo? ThrottleStart;
+            public FieldInfo? ThrottleEnd;
+            public FieldInfo? Smoothing;
+            public FieldInfo? FlameBrightness;
+            public FieldInfo? GlowBrightness;
+            public FieldInfo? Temperature;
         }
 
         static JetRpmBind JetRpmOf(Type t)
@@ -1041,7 +1047,7 @@ namespace NOReplay
             _snapSpool = false;
             WriteThrottle(thr);
             CloseAirbrakes();
-            DriveJetExhaust(true, thr);
+            DriveJetExhaust(alive && !Plugin.Clock.Paused, thr);
             DriveDownwashThrust(_visible && !_neutral, thr);
             if (_gears.Length > 0)
             {
@@ -1555,29 +1561,47 @@ namespace NOReplay
             _nozzlesBound = true;
         }
 
+        static FieldInfo? _fNzRpm;
+        static FieldInfo? _fNzThrust;
+        static bool _nzFields;
+
         void DriveJetExhaust(bool on, float throttle)
         {
             if (!_nozzlesBound) BindNozzles();
             if (_nozzleType == null || _nozzles.Length == 0) return;
-            throttle = on ? Mathf.Clamp01(throttle) : 0f;
-            float rpmRatio = on ? Mathf.Lerp(0.25f, 1f, throttle) : 0f;
-            float thrustRatio = throttle;
-            bool allowAb = on && throttle > 0.92f;
-            float abAmt = allowAb ? Mathf.Clamp01((throttle - 0.92f) / 0.08f) : 0f;
-            bool hear = on && !Plugin.Clock.Paused && Plugin.AudioNear(gameObject, 550f);
+            throttle = Mathf.Clamp01(throttle);
+            float rpmRatio = 0f;
+            float thrustRatio = 0f;
+            if (on)
+            {
+                if (_jetN > 0)
+                {
+                    rpmRatio = _jetAudioRatio;
+                    thrustRatio = _jetThrustRatio;
+                }
+                else
+                {
+                    rpmRatio = Mathf.Lerp(0.62f, 1f, throttle);
+                    thrustRatio = rpmRatio;
+                }
+            }
+            bool hear = on && Plugin.AudioNear(gameObject, 550f);
             var abFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            if (!_nzFields && _nozzleType != null)
+            {
+                _nzFields = true;
+                _fNzRpm = _nozzleType.GetField("rpmRatio", abFlags);
+                _fNzThrust = _nozzleType.GetField("thrustRatio", abFlags);
+            }
+            float dt = on ? PowerDt() : 0f;
             for (int i = 0; i < _nozzles.Length; i++)
             {
                 var c = _nozzles[i];
                 if (c == null) continue;
                 try
                 {
-                    _thrustArgs[0] = 0f;
-                    _thrustArgs[1] = rpmRatio;
-                    _thrustArgs[2] = thrustRatio;
-                    _thrustArgs[3] = throttle;
-                    _thrustArgs[4] = allowAb;
-                    _mThrust?.Invoke(c, _thrustArgs);
+                    try { _fNzRpm?.SetValue(c, rpmRatio); } catch { }
+                    try { _fNzThrust?.SetValue(c, thrustRatio); } catch { }
                     var haze = _fHeatHaze?.GetValue(c);
                     if (haze != null)
                     {
@@ -1589,7 +1613,7 @@ namespace NOReplay
                         }
                         _particleArgs[0] = thrustRatio;
                         _particleArgs[1] = rpmRatio;
-                        _particleArgs[2] = _spdMs;
+                        _particleArgs[2] = on ? _spdMs : 0f;
                         upd?.Invoke(haze, _particleArgs);
                     }
                     var abs = _fAfterburners?.GetValue(c) as Array;
@@ -1607,28 +1631,63 @@ namespace NOReplay
                                     Flame = at.GetField("flameRenderer", abFlags),
                                     Glow = at.GetField("nozzleGlowRenderer", abFlags),
                                     Source = at.GetField("source", abFlags),
+                                    ThrottleStart = at.GetField("throttleStart", abFlags),
+                                    ThrottleEnd = at.GetField("throttleEnd", abFlags),
+                                    Smoothing = at.GetField("smoothing", abFlags),
+                                    FlameBrightness = at.GetField("flameBrightness", abFlags),
+                                    GlowBrightness = at.GetField("nozzleGlowBrightness", abFlags),
+                                    Temperature = at.GetField("temperature", abFlags),
                                 };
                                 _abFields[at] = af;
                             }
-                            af.Amount?.SetValue(ab, abAmt);
+                            float start = 0.85f;
+                            float end = 1f;
+                            if (af.ThrottleStart?.GetValue(ab) is float ts) start = ts;
+                            if (af.ThrottleEnd?.GetValue(ab) is float te && te > start + 0.0001f) end = te;
+                            float goal = 0f;
+                            if (on && rpmRatio > 0.85f && end > start)
+                                goal = Mathf.Clamp01((throttle - start) / (end - start));
+                            float amount = 0f;
+                            if (af.Amount?.GetValue(ab) is float have) amount = have;
+                            if (!on) amount = 0f;
+                            else
+                            {
+                                float smooth = 4f;
+                                if (af.Smoothing?.GetValue(ab) is float sm && sm > 0.01f) smooth = sm;
+                                amount = Mathf.Lerp(amount, goal, Mathf.Clamp01(smooth * Mathf.Max(dt, 0f)));
+                            }
+                            af.Amount?.SetValue(ab, amount);
+                            float glowB = 1f;
+                            if (af.GlowBrightness?.GetValue(ab) is float gb && gb > 0f) glowB = gb;
+                            var glowR = af.Glow?.GetValue(ab) as Renderer;
+                            if (glowR != null)
+                            {
+                                glowR.enabled = true;
+                                if (glowR.material != null)
+                                    glowR.material.SetColor("_EmissionColor", Color.white * amount * glowB);
+                            }
                             var flame = af.Flame?.GetValue(ab) as Renderer;
                             if (flame != null)
                             {
-                                flame.enabled = abAmt > 0.01f;
-                                if (flame.material != null)
+                                bool lit = amount > 0.01f;
+                                flame.enabled = lit;
+                                if (lit && flame.material != null)
                                 {
-                                    flame.material.SetFloat("_Brightness", abAmt);
-                                    flame.material.SetFloat("_Temperature", abAmt);
+                                    float bright = 1f;
+                                    float temp = 1f;
+                                    if (af.FlameBrightness?.GetValue(ab) is float fb && fb > 0f) bright = fb;
+                                    if (af.Temperature?.GetValue(ab) is float tp) temp = tp;
+                                    flame.material.SetFloat("_Brightness", Mathf.Lerp(0f, bright, amount));
+                                    flame.material.SetFloat("_Temperature", temp * amount);
+                                    float wobble = 1f + (Mathf.PerlinNoise(Time.unscaledTime * 15f, 0.3f) - 0.5f) * 0.1f;
+                                    flame.transform.localScale = new Vector3(1f, 1f, wobble);
                                 }
                             }
-                            var glowR = af.Glow?.GetValue(ab) as Renderer;
-                            if (glowR != null) glowR.enabled = abAmt > 0.01f;
                             object? abSrc = af.Source?.GetValue(ab);
-                            if (hear && abAmt > 0.01f)
+                            if (hear && amount > 0.01f)
                             {
                                 RememberSource(abSrc);
-                                float dir = NozzleDirection(c);
-                                DriveEngineSrc(c, abSrc, null, abAmt * dir, OrigPitch(abSrc, 1f));
+                                DriveEngineSrc(c, abSrc, null, amount * NozzleDirection(c), OrigPitch(abSrc, 1f));
                             }
                             else
                                 StopEngineSrc(abSrc);

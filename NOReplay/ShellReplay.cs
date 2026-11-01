@@ -8,6 +8,7 @@ namespace NOReplay
     static class ShellReplay
     {
         static ReplayObject[] _shells = Array.Empty<ReplayObject>();
+        static int[] _shellHead = Array.Empty<int>();
         static ReplayDocument? _doc;
         static readonly List<GameObject> _pool = new List<GameObject>();
         static readonly HashSet<string> _boomed = new HashSet<string>();
@@ -27,6 +28,9 @@ namespace NOReplay
             {
                 _doc = doc;
                 _shells = Collect(doc);
+                _shellHead = new int[_shells.Length];
+                for (int h = 0; h < _shells.Length; h++)
+                    _shellHead[h] = HeadIndex(_shells[h]);
                 _boomed.Clear();
                 _burst.Clear();
                 Plugin.Log.LogInfo("Shells in ACMI: " + _shells.Length);
@@ -42,9 +46,9 @@ namespace NOReplay
             int slot = 0;
             Vector3 listen = ListenAt();
             bool haveListen = listen.sqrMagnitude > 100f;
-            if (!haveListen && Camera.main != null)
+            if (!haveListen && Plugin.MainCamera() is Camera main)
             {
-                listen = Camera.main.transform.position;
+                listen = main.transform.position;
                 haveListen = true;
             }
             for (int i = 0; i < _shells.Length && slot < 36; i++)
@@ -54,8 +58,7 @@ namespace NOReplay
                 if (o.RemovedAt >= 0f && time > o.RemovedAt + 1.2f) continue;
                 if (o.Samples.Count < 2) continue;
                 var a = o.Samples[0];
-                int i1 = 1;
-                while (i1 < o.Samples.Count - 1 && o.Samples[i1].Time - a.Time < 0.05f) i1++;
+                int i1 = _shellHead[i];
                 var p1 = o.Samples[i1];
                 var origin = Plugin.GlobalToLocal(a.X, a.Y, a.Z);
                 var hit = Plugin.GlobalToLocal(p1.X, p1.Y, p1.Z);
@@ -167,6 +170,14 @@ namespace NOReplay
                 }
             }
             best?.PulseAt(pos);
+        }
+
+        static int HeadIndex(ReplayObject o)
+        {
+            int i1 = 1;
+            var a = o.Samples[0];
+            while (i1 < o.Samples.Count - 1 && o.Samples[i1].Time - a.Time < 0.05f) i1++;
+            return i1;
         }
 
         static ReplayObject[] Collect(ReplayDocument doc)

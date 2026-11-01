@@ -45,6 +45,19 @@ namespace NOReplay
 
         static Transform? _datum;
         static bool _datumLogged;
+        static int _mainCamFrame = -1;
+        static Camera? _mainCam;
+
+        internal static Camera? MainCamera()
+        {
+            int frame = Time.frameCount;
+            if (_mainCamFrame != frame)
+            {
+                _mainCamFrame = frame;
+                _mainCam = Camera.main;
+            }
+            return _mainCam;
+        }
 
         internal static Transform? Datum
         {
@@ -399,9 +412,9 @@ namespace NOReplay
                     _dopplerSpatial = null;
                 }
             }
-            else if (Camera.main != null)
+            else if (MainCamera() is Camera main)
             {
-                _listenPos = Camera.main.transform.position;
+                _listenPos = main.transform.position;
                 _listenOk = true;
             }
         }

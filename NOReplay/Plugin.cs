@@ -38,6 +38,7 @@ namespace NOReplay
         bool _pendingOfficialStart;
         bool _timelineHidden;
         internal static bool TrailsOn;
+        internal static bool PerfLog;
         internal static float TrailSeconds = 60f;
         static bool _holdClock;
         Vector2 _pickerScroll;
@@ -122,6 +123,15 @@ namespace NOReplay
                 if (!string.IsNullOrWhiteSpace(saved) && saved != ReplayFolder.Value)
                     ReplayFolder.Value = saved;
                 _folderEdit = ReplayFolder.Value;
+                try
+                {
+                    PerfLog = Config.Bind(
+                        "Debug",
+                        "PerfLog",
+                        false,
+                        "Alle 5 Sekunden die mittlere Dauer des Replay-Updates in NOReplay.log schreiben.").Value;
+                }
+                catch { }
                 Harmony = new Harmony(PluginGuid);
                 try { InstallListenPatches(); }
                 catch (Exception ex) { Log.LogError("Listen-Patches: " + ex); }
@@ -183,6 +193,7 @@ namespace NOReplay
             TickBindGhosts();
             if (CurrentDoc != null)
             {
+                long perfStamp = PerfLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
                 if (Input.GetKeyDown(KeyCode.Space))
                 {
                     _holdClock = false;
@@ -225,6 +236,7 @@ namespace NOReplay
                 WarmOrdnance();
                 ShellReplay.Tick(CurrentDoc, Clock.Time);
                 TickPanel();
+                if (perfStamp != 0) NotePerf(perfStamp);
             }
             TickMenuButton();
             TickLeaveReplay();
@@ -236,18 +248,50 @@ namespace NOReplay
             }
         }
 
+        static long _perfTicks;
+        static int _perfFrames;
+        static float _perfLogAt;
+
+        static void NotePerf(long started)
+        {
+            _perfTicks += System.Diagnostics.Stopwatch.GetTimestamp() - started;
+            _perfFrames++;
+            if (_perfLogAt <= 0f) _perfLogAt = Time.unscaledTime + 5f;
+            if (Time.unscaledTime < _perfLogAt) return;
+            if (_perfFrames > 0)
+            {
+                double ms = _perfTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency / _perfFrames;
+                Log.LogInfo("Perf Replay-Update " + ms.ToString("0.00") + " ms/frame  n=" + _perfFrames);
+            }
+            _perfTicks = 0;
+            _perfFrames = 0;
+            _perfLogAt = Time.unscaledTime + 5f;
+        }
+
         internal static void ToggleTrails()
         {
             TrailsOn = !TrailsOn;
         }
 
+        static FieldInfo? _insideInput;
+        static Func<bool>? _insideInputGet;
+        static bool _insideInputLooked;
+
         internal static bool ReplayTextFocused()
         {
             if (GUIUtility.keyboardControl != 0) return true;
-            var checker = FindGameType("InputFieldChecker");
-            if (checker == null) return false;
-            var field = checker.GetField("InsideInputField", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-            try { return field?.GetValue(null) is bool on && on; }
+            if (!_insideInputLooked)
+            {
+                _insideInputLooked = true;
+                var checker = FindGameType("InputFieldChecker");
+                _insideInput = checker?.GetField("InsideInputField", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                if (_insideInput != null) _insideInputGet = FieldFast.StaticBoolGetter(_insideInput);
+            }
+            try
+            {
+                if (_insideInputGet != null) return _insideInputGet();
+                return _insideInput?.GetValue(null) is bool on && on;
+            }
             catch { return false; }
         }
 

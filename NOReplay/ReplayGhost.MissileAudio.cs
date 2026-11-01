@@ -24,6 +24,7 @@ namespace NOReplay
         }
 
         MotorSlot[]? _slots;
+        object? _ordMissile;
         MissileMotorAudio.Stage[] _motorStages = Array.Empty<MissileMotorAudio.Stage>();
         object? _slotsMissile;
         int _ignitionStage = -1;
@@ -61,10 +62,16 @@ namespace NOReplay
             float age = now - launch;
             _ordAudioClock = now;
 
-            var mt = Plugin.FindGameType("Missile");
-            object? missile = mt != null ? (GetComponent(mt) ?? GetComponentInChildren(mt, true)) : null;
-            if (missile == null || mt == null) return;
-            EnsureMotorSlots(missile, mt);
+            if (_ordMissile == null)
+            {
+                var mt = Plugin.FindGameType("Missile");
+                if (mt == null) return;
+                _ordMissile = GetComponent(mt) ?? GetComponentInChildren(mt, true);
+                if (_ordMissile == null) return;
+            }
+            object missile = _ordMissile;
+            var missileType = missile.GetType();
+            EnsureMotorSlots(missile, missileType);
             if (age < 0f)
             {
                 StopMotorAndFlight();
@@ -95,7 +102,7 @@ namespace NOReplay
             }
 
             LogMissilePlay(cue);
-            DriveFlight(missile, mt, s, cue);
+            DriveFlight(missile, missileType, s, cue);
             DriveMotorSources(cue);
             _ordHeard = true;
         }
@@ -462,7 +469,7 @@ namespace NOReplay
 
             var bind = MissileAudioOf(mt);
             float spd = 0f;
-            try { if (bind.Speed?.GetValue(missile) is float sf) spd = sf; } catch { }
+            try { if (TryReadFloat(bind.Speed, missile, out float sf)) spd = sf; } catch { }
             float fromTrack = 0f;
             if (s.HasTas && s.Tas > 1f)
                 fromTrack = s.Tas > 40f ? s.Tas / 1.94384f : s.Tas;
@@ -482,16 +489,16 @@ namespace NOReplay
             _ordPrevZ = s.Z;
             _ordPrevT = Plugin.Clock.Time;
             if (fromTrack > spd) spd = fromTrack;
-            try { bind.Speed?.SetValue(missile, spd); } catch { }
+            try { if (bind.Speed != null) WriteThrust(bind.Speed, missile, spd); } catch { }
 
             float maxPitch = 340f;
             float pitchRange = 1f;
             float basePitch = 0.5f;
             try
             {
-                if (bind.MaxPitch?.GetValue(missile) is float m) maxPitch = m;
-                if (bind.PitchRange?.GetValue(missile) is float p) pitchRange = p;
-                if (bind.BasePitch?.GetValue(missile) is float b) basePitch = b;
+                if (TryReadFloat(bind.MaxPitch, missile, out float m)) maxPitch = m;
+                if (TryReadFloat(bind.PitchRange, missile, out float p)) pitchRange = p;
+                if (TryReadFloat(bind.BasePitch, missile, out float b)) basePitch = b;
             }
             catch { }
             float num = Mathf.Clamp01((-50f + spd) / Mathf.Max(maxPitch, 1f));

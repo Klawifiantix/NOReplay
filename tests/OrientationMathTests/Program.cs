@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Reflection;
 
 namespace NOReplay.OrientationTests
 {
@@ -32,6 +35,11 @@ namespace NOReplay.OrientationTests
             SeekBackBeforeLaunchThenPlay();
             SeekForwardIntoTheBurn();
             MotorLoopOffsetSkipsTheHead();
+            SampleCursorMatchesBinarySearch();
+            SampleCursorSurvivesASeek();
+            AcmiPropsMatchSplit();
+            AcmiPoseMatchesTheOldReader();
+            FloatFieldDoesNotNeedSetValue();
             if (_failed > 0)
             {
                 Console.Error.WriteLine("FAILED " + _failed);
@@ -310,6 +318,200 @@ namespace NOReplay.OrientationTests
             Check(MathF.Abs(VaporMath.SpeedOfSound(20000f) - 290f) < 0.01f, "sos floor");
             float sos = VaporMath.SpeedOfSound(4000f);
             Check(MathF.Abs(sos - 320f) < 0.01f, "sos 4km " + sos.ToString("0.0"));
+        }
+
+        struct Series : SampleIndex.ISampleTimes
+        {
+            public float[] Times;
+            public int Count => Times.Length;
+            public float TimeAt(int index) => Times[index];
+        }
+
+        static int NaiveBracket(float[] times, float t)
+        {
+            int lo = 0;
+            int hi = times.Length - 1;
+            while (hi - lo > 1)
+            {
+                int mid = (lo + hi) / 2;
+                if (times[mid] <= t) lo = mid;
+                else hi = mid;
+            }
+            return lo;
+        }
+
+        static void SampleCursorMatchesBinarySearch()
+        {
+            var times = new float[400];
+            for (int i = 0; i < times.Length; i++)
+                times[i] = i * 0.1f;
+            times[20] = times[19];
+            times[21] = times[19];
+            var series = new Series { Times = times };
+            int cursor = -1;
+            var rng = new Random(7);
+            for (int n = 0; n < 2000; n++)
+            {
+                float t = (float)(rng.NextDouble() * 39.0 + 0.01);
+                int got = SampleIndex.Bracket(series, t, ref cursor);
+                int want = NaiveBracket(times, t);
+                if (got != want)
+                {
+                    Check(false, "bracket " + t.ToString("0.000") + " got " + got + " want " + want);
+                    return;
+                }
+            }
+            var list = new List<float>(times);
+            int listCursor = -1;
+            float probe = 12.34f;
+            Check(SampleIndex.Bracket(list, probe, ref listCursor) == NaiveBracket(times, probe), "list bracket");
+            Check(true, "sample cursor");
+        }
+
+        static void SampleCursorSurvivesASeek()
+        {
+            var times = new float[50];
+            for (int i = 0; i < times.Length; i++) times[i] = i;
+            var series = new Series { Times = times };
+            int cursor = -1;
+            SampleIndex.Bracket(series, 40f, ref cursor);
+            int back = SampleIndex.Bracket(series, 3.2f, ref cursor);
+            Check(back == NaiveBracket(times, 3.2f), "seek back " + back);
+            int fwd = SampleIndex.Bracket(series, 3.4f, ref cursor);
+            Check(fwd == 3, "step forward " + fwd);
+        }
+
+        static List<string> ScanProps(string text)
+        {
+            var found = new List<string>();
+            var props = new AcmiScan.Props(text);
+            while (props.MoveNext())
+                found.Add(props.Key.ToString() + "=" + props.Value.ToString());
+            return found;
+        }
+
+        static List<string> SplitProps(string text)
+        {
+            var found = new List<string>();
+            foreach (var part in text.Split(','))
+            {
+                if (part.Length == 0) continue;
+                int eq = part.IndexOf('=');
+                if (eq <= 0) continue;
+                found.Add(part.Substring(0, eq) + "=" + part.Substring(eq + 1));
+            }
+            return found;
+        }
+
+        static void AcmiPropsMatchSplit()
+        {
+            string[] lines =
+            {
+                "T=1|2|3,Name=Cricket,Throttle=0,8",
+                "Type=Air+FixedWing,Coalition=Boscali,,Pilot=Ada",
+                "=skip,Visible=0,Q=0|0|0|1",
+                "",
+                "A=1,",
+                "Gear=1,TAS=120,5,JetRpm=0.5"
+            };
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var a = ScanProps(lines[i]);
+                var b = SplitProps(lines[i]);
+                bool same = a.Count == b.Count;
+                for (int k = 0; same && k < a.Count; k++)
+                    if (a[k] != b[k]) same = false;
+                Check(same, "props " + i + " " + string.Join("|", a));
+            }
+            Check(AcmiScan.TryFloat("0,8".AsSpan(), out float folded) && MathF.Abs(folded - 0.8f) < 0.0001f, "comma float");
+            Check(!AcmiScan.TryFloat("0,8".AsSpan(), out _, false), "strict comma float");
+        }
+
+        static bool LegacyPose(string val, out AcmiScan.Pose pose)
+        {
+            pose = default;
+            var bits = val.Split('|');
+            if (bits.Length < 3) return false;
+            bool any = false;
+            bool Try(int i, out float v)
+            {
+                v = 0f;
+                if (i >= bits.Length || string.IsNullOrEmpty(bits[i])) return false;
+                return float.TryParse(bits[i].Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out v);
+            }
+            if (bits.Length == 3)
+            {
+                if (Try(0, out var rx)) { pose.X = rx; pose.HasX = true; any = true; }
+                if (Try(1, out var ry)) { pose.Y = ry; pose.HasY = true; any = true; }
+                if (Try(2, out var rz)) { pose.Z = rz; pose.HasZ = true; any = true; }
+                pose.Any = any;
+                return any;
+            }
+            if (Try(2, out var alt)) { pose.Y = alt; pose.HasY = true; any = true; }
+            if (bits.Length == 5)
+            {
+                if (Try(3, out var x5)) { pose.X = x5; pose.HasX = true; any = true; }
+                if (Try(4, out var z5)) { pose.Z = z5; pose.HasZ = true; any = true; }
+                pose.Any = any;
+                return any;
+            }
+            if (bits.Length > 3 && Try(3, out var roll)) { pose.Roll = roll; pose.HasRoll = true; any = true; }
+            if (bits.Length > 4 && Try(4, out var pitch)) { pose.Pitch = pitch; pose.HasPitch = true; any = true; }
+            if (bits.Length > 5 && Try(5, out var yaw)) { pose.Yaw = yaw; pose.HasYaw = true; any = true; }
+            if (bits.Length > 6 && Try(6, out var x)) { pose.X = x; pose.HasX = true; any = true; }
+            if (bits.Length > 7 && Try(7, out var z)) { pose.Z = z; pose.HasZ = true; any = true; }
+            pose.Any = any;
+            return any;
+        }
+
+        static void AcmiPoseMatchesTheOldReader()
+        {
+            string[] samples =
+            {
+                "1|2|3",
+                "1,5|2|3,25",
+                "| |100|0|5|90|10|20",
+                "a|b|c|d|e",
+                "1|2",
+                "",
+                "0|1|2|3|4|5|6|7",
+                "1|2|3|",
+                "|||",
+            };
+            for (int i = 0; i < samples.Length; i++)
+            {
+                bool oldOk = LegacyPose(samples[i], out var oldPose);
+                bool newOk = AcmiScan.ParsePose(samples[i], out var neu);
+                bool same = oldOk == newOk && oldOk == neu.Any
+                    && oldPose.HasX == neu.HasX && oldPose.HasY == neu.HasY && oldPose.HasZ == neu.HasZ
+                    && oldPose.HasRoll == neu.HasRoll && oldPose.HasPitch == neu.HasPitch && oldPose.HasYaw == neu.HasYaw
+                    && oldPose.X == neu.X && oldPose.Y == neu.Y && oldPose.Z == neu.Z
+                    && oldPose.Roll == neu.Roll && oldPose.Pitch == neu.Pitch && oldPose.Yaw == neu.Yaw;
+                Check(same, "pose " + samples[i]);
+            }
+            Check(AcmiScan.ParseQuat("0|1|0|0".AsSpan(), out float x, out float y, out float z, out float w)
+                && x == 0f && y == 1f && z == 0f && w == 0f, "quat");
+            Check(!AcmiScan.ParseQuat("0|1|0".AsSpan(), out _, out _, out _, out _), "short quat");
+        }
+
+        sealed class SpeedBox
+        {
+            public float Speed;
+            public bool On;
+        }
+
+        static void FloatFieldDoesNotNeedSetValue()
+        {
+            var box = new SpeedBox();
+            var speed = typeof(SpeedBox).GetField(nameof(SpeedBox.Speed), BindingFlags.Instance | BindingFlags.Public);
+            var on = typeof(SpeedBox).GetField(nameof(SpeedBox.On), BindingFlags.Instance | BindingFlags.Public);
+            FieldFast.SetFloat(speed!, box, 42.5f);
+            FieldFast.SetBool(on!, box, true);
+            Check(box.Speed == 42.5f && FieldFast.GetFloat(speed!, box) == 42.5f, "float field");
+            Check(box.On, "bool field");
+            for (int i = 0; i < 1000; i++)
+                FieldFast.SetFloat(speed!, box, i);
+            Check(box.Speed == 999f, "float writes stick");
         }
 
         static float YawOf(float x, float y, float z, float w)

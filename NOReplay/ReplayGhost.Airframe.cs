@@ -80,7 +80,7 @@ namespace NOReplay
                 {
                     var t = _dwTargets[i];
                     if (t.ThrustComp == null) continue;
-                    try { t.ThrustField.SetValue(t.ThrustComp, 0f); } catch { }
+                    try { WriteThrust(t.ThrustField, t.ThrustComp, 0f); } catch { }
                 }
                 StopSurfaceFx(false);
                 return;
@@ -108,7 +108,7 @@ namespace NOReplay
             {
                 var t = _dwTargets[i];
                 if (t.ThrustComp == null) continue;
-                try { t.ThrustField.SetValue(t.ThrustComp, t.MaxThrust * thrustRatio); } catch { }
+                try { WriteThrust(t.ThrustField, t.ThrustComp, t.MaxThrust * thrustRatio); } catch { }
             }
 
             for (int i = 0; i < _dwParticleSystems.Length; i++)
@@ -122,19 +122,19 @@ namespace NOReplay
                 if (tn == "DuctedFan")
                 {
                     float maxRpm = 2200f;
-                    if (ReadFit(_fFanMaxRpm, c) is float mr && mr > 10f) maxRpm = mr;
+                    if (TryReadFloat(_fFanMaxRpm, c, out float mr) && mr > 10f) maxRpm = mr;
                     WriteFit(_fFanRpm, c, maxRpm * Mathf.Clamp(thrustRatio, 0.6f, 0.95f));
                 }
                 else if (tn == "Turbofan")
                 {
                     float max = 10000f;
-                    if (ReadFit(_fTfanMax, c) is float mx && mx > 1f) max = mx;
+                    if (TryReadFloat(_fTfanMax, c, out float mx) && mx > 1f) max = mx;
                     WriteFit(_fTfanRpm, c, max * Mathf.Clamp(thrustRatio, 0.6f, 0.95f));
                 }
                 else if (tn == "PropFan")
                 {
                     float nom = 2200f;
-                    if (ReadFit(_fPropNom, c) is float n && n > 10f) nom = n;
+                    if (TryReadFloat(_fPropNom, c, out float n) && n > 10f) nom = n;
                     float ratio = Mathf.Clamp(thrustRatio, 0.6f, 0.95f);
                     WriteFit(_fPropRpm, c, nom * ratio);
                     WriteFit(_fPropRatio, c, ratio);
@@ -159,7 +159,7 @@ namespace NOReplay
             {
                 var t = _dwTargets[i];
                 if (t.ThrustComp == null) continue;
-                try { t.ThrustField.SetValue(t.ThrustComp, 0f); } catch { }
+                try { WriteThrust(t.ThrustField, t.ThrustComp, 0f); } catch { }
             }
             if (_mDwUpdateSystems != null)
             {
@@ -208,12 +208,56 @@ namespace NOReplay
             catch { return null; }
         }
 
+        static bool TryReadFloat(FieldInfo? field, object target, out float value)
+        {
+            value = 0f;
+            if (field == null || field.FieldType != typeof(float)) return false;
+            var decl = field.DeclaringType;
+            if (decl == null || !decl.IsInstanceOfType(target)) return false;
+            try
+            {
+                value = FieldFast.GetFloat(field, target);
+                return true;
+            }
+            catch { return false; }
+        }
+
+        static void WriteFit(FieldInfo? field, object target, float value)
+        {
+            var decl = field?.DeclaringType;
+            if (decl == null || !decl.IsInstanceOfType(target)) return;
+            try
+            {
+                if (field!.FieldType == typeof(float)) FieldFast.SetFloat(field, target, value);
+                else field.SetValue(target, value);
+            }
+            catch { }
+        }
+
+        static void WriteFit(FieldInfo? field, object target, bool value)
+        {
+            var decl = field?.DeclaringType;
+            if (decl == null || !decl.IsInstanceOfType(target)) return;
+            try
+            {
+                if (field!.FieldType == typeof(bool)) FieldFast.SetBool(field, target, value);
+                else field.SetValue(target, value);
+            }
+            catch { }
+        }
+
         static void WriteFit(FieldInfo? field, object target, object value)
         {
             var decl = field?.DeclaringType;
             if (decl == null || !decl.IsInstanceOfType(target)) return;
             try { field!.SetValue(target, value); }
             catch { }
+        }
+
+        static void WriteThrust(FieldInfo field, object target, float value)
+        {
+            if (field.FieldType == typeof(float)) FieldFast.SetFloat(field, target, value);
+            else field.SetValue(target, value);
         }
 
         static float Num(object? v, float fallback)
@@ -435,8 +479,8 @@ namespace NOReplay
             float max = CompNum(c, "maxRPM", 0f);
             if (max < 10f)
             {
-                if (ReadFit(_fTfanMax, c) is float mx && mx > 10f) max = mx;
-                else if (ReadFit(_fTjetMax, c) is float mx2 && mx2 > 10f) max = mx2;
+                if (TryReadFloat(_fTfanMax, c, out float mx) && mx > 10f) max = mx;
+                else if (TryReadFloat(_fTjetMax, c, out float mx2) && mx2 > 10f) max = mx2;
                 else max = 10000f;
             }
             float min = CompNum(c, "minRPM", 0f);
@@ -478,7 +522,7 @@ namespace NOReplay
         float StepTurbineRatio(Component c, ReplaySample s, bool alive, float govern)
         {
             float max = 3000f;
-            if (ReadFit(_fEngMaxPublic, c) is float mx && mx > 10f) max = mx;
+            if (TryReadFloat(_fEngMaxPublic, c, out float mx) && mx > 10f) max = mx;
             else
             {
                 float m2 = CompNum(c, "maxRPM", 0f);
@@ -669,8 +713,11 @@ namespace NOReplay
         static readonly Dictionary<Type, JetRpmBind> _jetRpm = new Dictionary<Type, JetRpmBind>();
         static readonly Dictionary<Type, FieldInfo?> _rotorHingeField = new Dictionary<Type, FieldInfo?>();
         static readonly Dictionary<Type, MethodInfo?> _hingeInit = new Dictionary<Type, MethodInfo?>();
-        static readonly object[] _hingeInitArgs = { 1f, 0f };
+        static readonly object _hingeOne = 1f;
+        static readonly object _hingeZero = 0f;
+        static readonly object[] _hingeInitArgs = { _hingeOne, _hingeZero };
         static readonly Dictionary<Type, MethodInfo?> _hazeUpdate = new Dictionary<Type, MethodInfo?>();
+        static readonly Dictionary<MethodInfo, Action<object, float, float, float>> _hazeCall = new Dictionary<MethodInfo, Action<object, float, float, float>>();
         static readonly Dictionary<Type, AbFields> _abFields = new Dictionary<Type, AbFields>();
         static readonly Dictionary<Type, MethodInfo?> _fbwByType = new Dictionary<Type, MethodInfo?>();
         static readonly Dictionary<Type, MethodInfo?> _hoverByType = new Dictionary<Type, MethodInfo?>();
@@ -873,7 +920,7 @@ namespace NOReplay
         void AnimateConstantSpeedProp(Component c, float spin, float dt)
         {
             float rpmLimit = 2000f;
-            if (ReadFit(_fCspLimit, c) is float lim && lim > 10f) rpmLimit = lim;
+            if (TryReadFloat(_fCspLimit, c, out float lim) && lim > 10f) rpmLimit = lim;
             else
             {
                 float fallback = CompNum(c, "rpmLimit", 2000f);
@@ -932,7 +979,7 @@ namespace NOReplay
         void AnimatePropFan(Component c, float spin, float dt)
         {
             float nom = 2000f;
-            if (ReadFit(_fPropNom, c) is float nr && nr > 10f) nom = nr;
+            if (TryReadFloat(_fPropNom, c, out float nr) && nr > 10f) nom = nr;
             float rpm = nom * spin;
             WriteFit(_fPropRpm, c, rpm);
             WriteFit(_fPropRatio, c, spin);
@@ -966,13 +1013,13 @@ namespace NOReplay
         void AnimateDuctedFan(Component c, float spin, float dt)
         {
             float maxRpm = 2200f;
-            if (ReadFit(_fFanMaxRpm, c) is float mr && mr > 10f) maxRpm = mr;
+            if (TryReadFloat(_fFanMaxRpm, c, out float mr) && mr > 10f) maxRpm = mr;
             float rpm = maxRpm * spin;
             WriteFit(_fFanRpm, c, rpm);
             if (!Plugin.Clock.Paused && dt > 0f && ReadFit(_fFanRotator, c) is Transform rotator && rotator != null)
                 rotator.localEulerAngles += Vector3.forward * (rpm * 6f * dt);
             float thresh = 500f;
-            if (ReadFit(_fFanRpmThreshold, c) is float rt && rt > 0f) thresh = rt;
+            if (TryReadFloat(_fFanRpmThreshold, c, out float rt) && rt > 0f) thresh = rt;
             bool fast = !Plugin.Clock.Paused && rpm >= thresh;
             var mesh = (fast ? ReadFit(_fFanFastMesh, c) : ReadFit(_fFanSlowMesh, c)) as Mesh;
             if (mesh != null && ReadFit(_fFanMeshFilter, c) is MeshFilter filter)
@@ -1062,7 +1109,7 @@ namespace NOReplay
                     if (c == null) continue;
                     if (c is Behaviour sb) sb.enabled = false;
                     float nom = 300f;
-                    if (ReadFit(_fNomRpm, c) is float f) nom = f;
+                    if (TryReadFloat(_fNomRpm, c, out float f)) nom = f;
                     WriteFit(_fStartup, c, 1f);
                     WriteFit(_fRotorUnfold, c, true);
                     // Unfold rotor hinges visually.
@@ -1087,8 +1134,8 @@ namespace NOReplay
                                     init = ht.GetMethod("Initialize");
                                     _hingeInit[ht] = init;
                                 }
-                                _hingeInitArgs[0] = 1f;
-                                _hingeInitArgs[1] = 0f;
+                                _hingeInitArgs[0] = _hingeOne;
+                                _hingeInitArgs[1] = _hingeZero;
                                 init?.Invoke(hinge, _hingeInitArgs);
                             }
                         }
@@ -1730,8 +1777,16 @@ namespace NOReplay
                 if (c == null) continue;
                 try
                 {
-                    try { _fNzRpm?.SetValue(c, rpmRatio); } catch { }
-                    try { _fNzThrust?.SetValue(c, thrustRatio); } catch { }
+                    try
+                    {
+                        if (_fNzRpm != null) WriteThrust(_fNzRpm, c, rpmRatio);
+                    }
+                    catch { }
+                    try
+                    {
+                        if (_fNzThrust != null) WriteThrust(_fNzThrust, c, thrustRatio);
+                    }
+                    catch { }
                     var haze = _fHeatHaze?.GetValue(c);
                     if (haze != null)
                     {
@@ -1741,16 +1796,23 @@ namespace NOReplay
                             upd = ht.GetMethod("UpdateParticles");
                             _hazeUpdate[ht] = upd;
                         }
-                        _particleArgs[0] = thrustRatio;
-                        _particleArgs[1] = rpmRatio;
-                        _particleArgs[2] = on ? _spdMs : 0f;
-                        upd?.Invoke(haze, _particleArgs);
+                        float spdArg = on ? _spdMs : 0f;
+                        if (upd != null && HazeCaller(upd) is Action<object, float, float, float> call)
+                            call(haze, thrustRatio, rpmRatio, spdArg);
+                        else if (upd != null)
+                        {
+                            _particleArgs[0] = thrustRatio;
+                            _particleArgs[1] = rpmRatio;
+                            _particleArgs[2] = spdArg;
+                            upd.Invoke(haze, _particleArgs);
+                        }
                     }
                     var abs = _fAfterburners?.GetValue(c) as Array;
                     if (abs != null)
                     {
-                        foreach (var ab in abs)
+                        for (int ai = 0; ai < abs.Length; ai++)
                         {
+                            var ab = abs.GetValue(ai);
                             if (ab == null) continue;
                             var at = ab.GetType();
                             if (!_abFields.TryGetValue(at, out var af))
@@ -1772,23 +1834,23 @@ namespace NOReplay
                             }
                             float start = 0.85f;
                             float end = 1f;
-                            if (af.ThrottleStart?.GetValue(ab) is float ts) start = ts;
-                            if (af.ThrottleEnd?.GetValue(ab) is float te && te > start + 0.0001f) end = te;
+                            if (TryReadFloat(af.ThrottleStart, ab, out float ts)) start = ts;
+                            if (TryReadFloat(af.ThrottleEnd, ab, out float te) && te > start + 0.0001f) end = te;
                             float goal = 0f;
                             if (on && rpmRatio > 0.85f && end > start)
                                 goal = Mathf.Clamp01((throttle - start) / (end - start));
                             float amount = 0f;
-                            if (af.Amount?.GetValue(ab) is float have) amount = have;
+                            if (TryReadFloat(af.Amount, ab, out float have)) amount = have;
                             if (!on) amount = 0f;
                             else
                             {
                                 float smooth = 4f;
-                                if (af.Smoothing?.GetValue(ab) is float sm && sm > 0.01f) smooth = sm;
+                                if (TryReadFloat(af.Smoothing, ab, out float sm) && sm > 0.01f) smooth = sm;
                                 amount = Mathf.Lerp(amount, goal, Mathf.Clamp01(smooth * Mathf.Max(dt, 0f)));
                             }
-                            af.Amount?.SetValue(ab, amount);
+                            if (af.Amount != null) WriteThrust(af.Amount, ab, amount);
                             float glowB = 1f;
-                            if (af.GlowBrightness?.GetValue(ab) is float gb && gb > 0f) glowB = gb;
+                            if (TryReadFloat(af.GlowBrightness, ab, out float gb) && gb > 0f) glowB = gb;
                             var glowR = af.Glow?.GetValue(ab) as Renderer;
                             if (glowR != null)
                             {
@@ -1805,8 +1867,8 @@ namespace NOReplay
                                 {
                                     float bright = 1f;
                                     float temp = 1f;
-                                    if (af.FlameBrightness?.GetValue(ab) is float fb && fb > 0f) bright = fb;
-                                    if (af.Temperature?.GetValue(ab) is float tp) temp = tp;
+                                    if (TryReadFloat(af.FlameBrightness, ab, out float fb) && fb > 0f) bright = fb;
+                                    if (TryReadFloat(af.Temperature, ab, out float tp)) temp = tp;
                                     flame.material.SetFloat("_Brightness", Mathf.Lerp(0f, bright, amount));
                                     flame.material.SetFloat("_Temperature", temp * amount);
                                     float wobble = 1f + (Mathf.PerlinNoise(Time.unscaledTime * 15f, 0.3f) - 0.5f) * 0.1f;
@@ -1837,9 +1899,25 @@ namespace NOReplay
             }
         }
 
+        static readonly HashSet<MethodInfo> _hazePlain = new HashSet<MethodInfo>();
+
+        static Action<object, float, float, float>? HazeCaller(MethodInfo upd)
+        {
+            if (_hazePlain.Contains(upd)) return null;
+            if (_hazeCall.TryGetValue(upd, out var call)) return call;
+            call = FieldFast.CallFloat3(upd);
+            if (call == null)
+            {
+                _hazePlain.Add(upd);
+                return null;
+            }
+            _hazeCall[upd] = call;
+            return call;
+        }
+
         float NozzleDirection(Component nozzle)
         {
-            var cam = Camera.main;
+            var cam = Plugin.MainCamera();
             if (cam == null || nozzle == null) return 1f;
             Vector3 toNozzle = nozzle.transform.position - cam.transform.position;
             if (toNozzle.sqrMagnitude < 0.01f) return 1f;

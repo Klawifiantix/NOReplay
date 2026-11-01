@@ -62,7 +62,6 @@ namespace NOReplay
             if (_trail == null) return;
             float from = t - lengthSec;
             var samples = Track.Samples;
-            GrowTrail(ref _trailRaw, samples.Count + 1);
             int rawN = 0;
             for (int i = LowerBoundTime(samples, from); i < samples.Count; i++)
             {
@@ -70,6 +69,7 @@ namespace NOReplay
                 if (s.Time > t) break;
                 var p = new Vector3(s.X, s.Y, s.Z);
                 if (float.IsNaN(p.x) || float.IsNaN(p.y) || float.IsNaN(p.z)) continue;
+                if (rawN >= _trailRaw.Length) GrowTrail(ref _trailRaw, rawN + 1);
                 _trailRaw[rawN++] = p;
             }
             bool haveHere = false;
@@ -81,6 +81,7 @@ namespace NOReplay
                 {
                     haveHere = true;
                     here = p;
+                    if (rawN >= _trailRaw.Length) GrowTrail(ref _trailRaw, rawN + 1);
                     _trailRaw[rawN++] = p;
                 }
             }
@@ -109,16 +110,31 @@ namespace NOReplay
                 HideTrail();
                 return;
             }
-            if (!TrailUnchanged(pn))
+            int first = 0;
+            bool rewrite = !_trail.enabled || _trail.positionCount != pn;
+            if (!rewrite)
             {
-                if (_trail.positionCount != pn)
-                    _trail.positionCount = pn;
-                for (int i = 0; i < pn; i++)
-                    _trail.SetPosition(i, _trailPts[i]);
-                GrowTrail(ref _trailShown, pn);
-                Array.Copy(_trailPts, _trailShown, pn);
-                _trailShownN = pn;
+                int ncmp = pn < _trailShownN ? pn : _trailShownN;
+                while (first < ncmp)
+                {
+                    var a = _trailPts[first];
+                    var b = _trailShown[first];
+                    if (a.x != b.x || a.y != b.y || a.z != b.z) break;
+                    first++;
+                }
+                if (first >= pn && _trailShownN == pn)
+                {
+                    _trail.enabled = true;
+                    return;
+                }
             }
+            if (_trail.positionCount != pn)
+                _trail.positionCount = pn;
+            for (int i = first; i < pn; i++)
+                _trail.SetPosition(i, _trailPts[i]);
+            GrowTrail(ref _trailShown, pn);
+            Array.Copy(_trailPts, _trailShown, pn);
+            _trailShownN = pn;
             _trail.enabled = true;
         }
 
@@ -156,18 +172,6 @@ namespace NOReplay
             if (t < 0f) t = 0f;
             else if (t > 1f) t = 1f;
             return outside + d * t;
-        }
-
-        bool TrailUnchanged(int n)
-        {
-            if (n != _trailShownN || _trail == null || !_trail.enabled) return false;
-            for (int i = 0; i < n; i++)
-            {
-                var a = _trailPts[i];
-                var b = _trailShown[i];
-                if (a.x != b.x || a.y != b.y || a.z != b.z) return false;
-            }
-            return true;
         }
 
         void EnsureTrail()

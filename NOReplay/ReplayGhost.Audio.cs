@@ -23,6 +23,16 @@ namespace NOReplay
             public PropertyInfo? Volume;
             public PropertyInfo? IsPlaying;
             public MethodInfo? Play;
+            public MethodInfo? Stop;
+            public Action<object, float>? WritePitch;
+            public Action<object, float>? WriteVolume;
+            public Action<object, float>? WriteSpatial;
+            public Action<object, bool>? WriteLoop;
+            public Action<object, bool>? WriteMute;
+            public Action<object, bool>? WriteEnabled;
+            public Action<object, bool>? WriteIgnorePause;
+            public Action<object, int>? WritePriority;
+            public Func<object, bool>? ReadPlaying;
         }
 
         static readonly Dictionary<Type, AudioSrcProps> _audioProps = new Dictionary<Type, AudioSrcProps>();
@@ -49,7 +59,17 @@ namespace NOReplay
                 Volume = st.GetProperty("volume"),
                 IsPlaying = st.GetProperty("isPlaying"),
                 Play = st.GetMethod("Play", Type.EmptyTypes),
+                Stop = st.GetMethod("Stop", Type.EmptyTypes),
             };
+            p.WritePitch = FieldFast.FloatPropSetter(p.Pitch);
+            p.WriteVolume = FieldFast.FloatPropSetter(p.Volume);
+            p.WriteSpatial = FieldFast.FloatPropSetter(p.SpatialBlend);
+            p.WriteLoop = FieldFast.BoolPropSetter(p.Loop);
+            p.WriteMute = FieldFast.BoolPropSetter(p.Mute);
+            p.WriteEnabled = FieldFast.BoolPropSetter(p.Enabled);
+            p.WriteIgnorePause = FieldFast.BoolPropSetter(p.IgnoreListenerPause);
+            p.WritePriority = FieldFast.IntPropSetter(p.Priority);
+            p.ReadPlaying = FieldFast.BoolPropGetter(p.IsPlaying);
             _audioProps[st] = p;
             return p;
         }
@@ -88,8 +108,9 @@ namespace NOReplay
             try
             {
                 var p = PropsFor(src.GetType());
-                p.Volume?.SetValue(src, 0f);
-                src.GetType().GetMethod("Stop", Type.EmptyTypes)?.Invoke(src, null);
+                if (p.WriteVolume != null) p.WriteVolume(src, 0f);
+                else p.Volume?.SetValue(src, 0f);
+                p.Stop?.Invoke(src, null);
             }
             catch { }
         }
@@ -110,19 +131,39 @@ namespace NOReplay
             try
             {
                 if (clip != null) p.Clip?.SetValue(src, clip);
-                p.Loop?.SetValue(src, true);
-                p.Mute?.SetValue(src, false);
-                p.Enabled?.SetValue(src, true);
-                try { p.IgnoreListenerPause?.SetValue(src, true); } catch { }
-                p.SpatialBlend?.SetValue(src, 1f);
-                p.Priority?.SetValue(src, followed ? 0 : 64);
-                p.Pitch?.SetValue(src, pitch);
-                p.Volume?.SetValue(src, vol);
-                object? playing = p.IsPlaying?.GetValue(src);
-                if (!(playing is bool on && on))
+                SetBool(p.WriteLoop, p.Loop, src, true);
+                SetBool(p.WriteMute, p.Mute, src, false);
+                SetBool(p.WriteEnabled, p.Enabled, src, true);
+                try { SetBool(p.WriteIgnorePause, p.IgnoreListenerPause, src, true); } catch { }
+                SetFloat(p.WriteSpatial, p.SpatialBlend, src, 1f);
+                SetInt(p.WritePriority, p.Priority, src, followed ? 0 : 64);
+                SetFloat(p.WritePitch, p.Pitch, src, pitch);
+                SetFloat(p.WriteVolume, p.Volume, src, vol);
+                bool playing = p.ReadPlaying != null
+                    ? p.ReadPlaying(src)
+                    : p.IsPlaying?.GetValue(src) is bool on && on;
+                if (!playing)
                     p.Play?.Invoke(src, null);
             }
             catch { }
+        }
+
+        static void SetFloat(Action<object, float>? fast, PropertyInfo? prop, object src, float value)
+        {
+            if (fast != null) fast(src, value);
+            else prop?.SetValue(src, value);
+        }
+
+        static void SetBool(Action<object, bool>? fast, PropertyInfo? prop, object src, bool value)
+        {
+            if (fast != null) fast(src, value);
+            else prop?.SetValue(src, value);
+        }
+
+        static void SetInt(Action<object, int>? fast, PropertyInfo? prop, object src, int value)
+        {
+            if (fast != null) fast(src, value);
+            else prop?.SetValue(src, value);
         }
 
         static object? FieldOn(Component c, string name)

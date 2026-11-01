@@ -8,5 +8,6 @@
   <ItemGroup>
     <Compile Include="..\..\NOReplay\OrientationMath.cs" Link="OrientationMath.cs" />
     <Compile Include="..\..\NOReplay\GroundRoll.cs" Link="GroundRoll.cs" />
+    <Compile Include="..\..\NOReplay\MissileMotorAudio.cs" Link="MissileMotorAudio.cs" />
   </ItemGroup>
 </Project>

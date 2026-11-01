@@ -316,7 +316,8 @@ namespace NOReplay
             var rg = c.GetComponentInParent<ReplayGhost>();
             CacheListener();
             if (!_listenOk) return true;
-            if (AudioNear(c.gameObject, 1400f)) return true;
+            float gate = rg != null && rg.IsOrdnancePublic ? OrdMaxAudioDist : 1400f;
+            if (AudioNear(c.gameObject, gate)) return true;
             if (rg != null && _followUnit != null)
             {
                 var ut = _followUnit.transform;

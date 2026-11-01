@@ -20,6 +20,9 @@ namespace NOReplay
         public const string PluginName = "NO Replay";
         public const string PluginVersion = "0.1.1";
 
+        /// <summary>Hearing range for missile motor and flight audio. Farther than this, a Play() is dropped.</summary>
+        internal const float OrdMaxAudioDist = 900f;
+
         internal static ReplayLog Log = new ReplayLog();
         internal static Harmony Harmony = null!;
         internal static ReplayDocument? CurrentDoc;

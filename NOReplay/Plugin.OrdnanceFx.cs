@@ -219,49 +219,33 @@ namespace NOReplay
                 rs[i].enabled = true;
                 rends++;
             }
+            SilenceOrdnanceAudio(go);
             var mt = FindGameType("Missile");
             var missile = mt != null ? go.GetComponent(mt) : null;
-            bool hear = Plugin.AudioNear(go, 900f);
             if (missile != null && mt != null)
             {
                 var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
                 try { mt.GetMethod("SetTangible", flags)?.Invoke(missile, new object[] { true }); } catch { }
-                try
-                {
-                    var flight = mt.GetField("flightSound", flags)?.GetValue(missile);
-                    if (flight != null)
-                    {
-                        var ft = flight.GetType();
-                        if (!hear)
-                        {
-                            ft.GetProperty("volume")?.SetValue(flight, 0f);
-                            ft.GetMethod("Stop", Type.EmptyTypes)?.Invoke(flight, null);
-                        }
-                        else
-                        {
-                            ft.GetProperty("mute")?.SetValue(flight, false);
-                            ft.GetProperty("loop")?.SetValue(flight, true);
-                            ft.GetProperty("volume")?.SetValue(flight, 0.7f);
-                            ft.GetProperty("spatialBlend")?.SetValue(flight, 1f);
-                            bool playing = ft.GetProperty("isPlaying")?.GetValue(flight) is bool b && b;
-                            if (!playing) ft.GetMethod("Play", Type.EmptyTypes)?.Invoke(flight, null);
-                        }
-                    }
-                }
-                catch { }
-                if (hear)
-                {
-                    var motors = mt.GetField("motors", flags)?.GetValue(missile) as Array;
-                    if (motors != null)
-                    {
-                        foreach (var motor in motors)
-                        {
-                            if (motor == null) continue;
-                            try { motor.GetType().GetMethod("Activate", flags)?.Invoke(motor, new[] { missile }); } catch { }
-                        }
-                    }
-                }
                 if (missile is Behaviour missileBeh) missileBeh.enabled = false;
+            }
+            var boost = FindGameType("VLSBooster");
+            if (boost != null)
+            {
+                var raw = go.GetComponentsInChildren(boost, true);
+                for (int i = 0; i < raw.Length; i++)
+                    if (raw[i] is Behaviour b) b.enabled = false;
+            }
+        }
+
+        static void SilenceOrdnanceAudio(GameObject go)
+        {
+            var sources = go.GetComponentsInChildren<AudioSource>(true);
+            for (int i = 0; i < sources.Length; i++)
+            {
+                var src = sources[i];
+                if (src == null) continue;
+                src.playOnAwake = false;
+                src.Stop();
             }
         }
     }

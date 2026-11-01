@@ -1187,12 +1187,7 @@ namespace NOReplay
             if (rewound)
             {
                 if (_ordnance)
-                {
-                    StopOrdnanceAudio();
-                    _startupPlayed = false;
-                    _nextVoiceTry = 0f;
                     _ordPrevT = -1f;
-                }
                 else
                 {
                     StopSurfaceFx(true);
@@ -1250,7 +1245,7 @@ namespace NOReplay
             }
 
             if (_ordnance && _visible && !_ordAudioOn) IgniteMissileFx();
-            if (_ordnance) LateOrdnanceAudio(s);
+            if (_ordnance) TickOrdnanceAudio(s);
 
             Velocities[GetInstanceID()] = _velMs;
             if (_air && gameObject == Plugin._ghost)

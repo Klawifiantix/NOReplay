@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
@@ -29,12 +28,11 @@ namespace NOReplay
             return Parse(text);
         }
 
-        static float ParseTime(string raw)
+        static float ParseTime(ReadOnlySpan<char> raw)
         {
             raw = raw.Trim();
             if (raw.Length == 0) return 0f;
-            raw = raw.Replace(',', '.');
-            float.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var t);
+            AcmiScan.TryFloat(raw, out var t);
             return t;
         }
 
@@ -45,37 +43,47 @@ namespace NOReplay
             var state = new Dictionary<string, ReplaySample>(StringComparer.OrdinalIgnoreCase);
             float time = 0f;
 
-            using var reader = new StringReader(text);
-            string? line;
-            while ((line = reader.ReadLine()) != null)
+            int at = 0;
+            int textN = text.Length;
+            while (at < textN)
             {
+                int lineStart = at;
+                while (at < textN && text[at] != '\n') at++;
+                int lineEnd = at;
+                if (lineEnd > lineStart && text[lineEnd - 1] == '\r') lineEnd--;
+                if (at < textN) at++;
+                var line = text.AsSpan(lineStart, lineEnd - lineStart);
                 if (line.Length == 0 || line[0] == '/') continue;
 
                 if (line[0] == '#')
                 {
-                    time = ParseTime(line.Substring(1));
+                    time = ParseTime(line.Slice(1));
                     if (time > doc.Duration) doc.Duration = time;
                     continue;
                 }
 
-                if (line.StartsWith("FileType=", StringComparison.OrdinalIgnoreCase) ||
-                    line.StartsWith("FileVersion=", StringComparison.OrdinalIgnoreCase))
+                if (line.StartsWith("FileType=".AsSpan(), StringComparison.OrdinalIgnoreCase) ||
+                    line.StartsWith("FileVersion=".AsSpan(), StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 if (line[0] == '-')
                 {
-                    string raw = line.Substring(1);
+                    var raw = line.Slice(1);
                     int cut = raw.IndexOf(',');
-                    string deadId = (cut < 0 ? raw : raw.Substring(0, cut)).Trim();
-                    if (deadId.Length > 0 && objects.TryGetValue(deadId, out var dead))
+                    var deadSpan = (cut < 0 ? raw : raw.Slice(0, cut)).Trim();
+                    if (deadSpan.Length > 0)
                     {
-                        dead.RemovedAt = time;
-                        // These ids are reused after removal. Drop the finished event from the
-                        // active lookup so the next line with this id creates a new object.
-                        if (ReleasesIdOnRemove(dead.Type))
+                        string deadId = deadSpan.ToString();
+                        if (objects.TryGetValue(deadId, out var dead))
                         {
-                            objects.Remove(deadId);
-                            state.Remove(deadId);
+                            dead.RemovedAt = time;
+                            // These ids are reused after removal. Drop the finished event from the
+                            // active lookup so the next line with this id creates a new object.
+                            if (ReleasesIdOnRemove(dead.Type))
+                            {
+                                objects.Remove(deadId);
+                                state.Remove(deadId);
+                            }
                         }
                     }
                     if (time > doc.Duration) doc.Duration = time;
@@ -84,8 +92,8 @@ namespace NOReplay
 
                 int comma = line.IndexOf(',');
                 if (comma <= 0) continue;
-                string objId = line.Substring(0, comma).Trim();
-                string rest = line.Substring(comma + 1);
+                string objId = line.Slice(0, comma).Trim().ToString();
+                var rest = line.Slice(comma + 1);
 
                 if (objId == "0")
                 {
@@ -111,147 +119,140 @@ namespace NOReplay
                 bool hasPose = false;
                 bool telemetry = false;
 
-                foreach (var part in rest.Split(','))
+                var props = new AcmiScan.Props(rest);
+                while (props.MoveNext())
                 {
-                    if (part.Length == 0) continue;
-                    int eq = part.IndexOf('=');
-                    if (eq <= 0) continue;
-                    string key = part.Substring(0, eq);
-                    string val = part.Substring(eq + 1);
-                    if (key.Equals("Name", StringComparison.OrdinalIgnoreCase))
+                    var key = props.Key;
+                    var val = props.Value;
+                    if (AcmiScan.KeyIs(key, "Name"))
                     {
-                        if (!string.IsNullOrEmpty(val)) obj.Name = val;
+                        if (val.Length > 0) obj.Name = val.ToString();
                     }
-                    else if (key.Equals("Type", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Type"))
                     {
-                        if (!string.IsNullOrEmpty(val)
+                        if (val.Length > 0
                             && (obj.Type ?? "").IndexOf("GunBurst", StringComparison.OrdinalIgnoreCase) < 0)
-                            obj.Type = val;
+                            obj.Type = val.ToString();
                     }
-                    else if (key.Equals("Coalition", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Coalition"))
                     {
-                        if (!string.IsNullOrEmpty(val)) obj.Coalition = val;
+                        if (val.Length > 0) obj.Coalition = val.ToString();
                     }
-                    else if (key.Equals("Pilot", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Pilot"))
                     {
-                        if (!string.IsNullOrEmpty(val)) obj.Pilot = val;
+                        if (val.Length > 0) obj.Pilot = val.ToString();
                     }
-                    else if (key.Equals("CallSign", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "CallSign"))
                     {
-                        if (!string.IsNullOrEmpty(val)) obj.CallSign = val;
+                        if (val.Length > 0) obj.CallSign = val.ToString();
                     }
-                    else if (key.Equals("Registration", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Registration"))
                     {
-                        if (!string.IsNullOrEmpty(val)) obj.Registration = val;
+                        if (val.Length > 0) obj.Registration = val.ToString();
                     }
-                    else if (key.Equals("Loadout", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Loadout"))
                     {
-                        if (!string.IsNullOrEmpty(val)) obj.Loadout = val;
+                        if (val.Length > 0) obj.Loadout = val.ToString();
                     }
-                    else if (key.Equals("Livery", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Livery"))
                     {
-                        if (!string.IsNullOrEmpty(val)) obj.Livery = val;
+                        if (val.Length > 0) obj.Livery = val.ToString();
                     }
-                    else if (key.Equals("Parent", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Parent"))
                     {
-                        if (!string.IsNullOrEmpty(val)) obj.ParentId = val;
+                        if (val.Length > 0) obj.ParentId = val.ToString();
                     }
-                    else if (key.Equals("Weapon", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Weapon"))
                     {
-                        if (!string.IsNullOrEmpty(val)) obj.Weapon = val;
+                        if (val.Length > 0) obj.Weapon = val.ToString();
                     }
-                    else if (key.Equals("Gun", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Gun"))
                     {
-                        if (int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out var gunIndex))
+                        if (AcmiScan.TryInt(val, out var gunIndex))
                             obj.GunIndex = gunIndex;
                     }
-                    else if (key.Equals("Turrets", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Turrets"))
                     {
                         ParseTurrets(obj, val, time);
                     }
-                    else if (key.Equals("Rpm", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Rpm"))
                     {
-                        if (float.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out var rpm))
+                        if (AcmiScan.TryFloat(val, out var rpm, false))
                             obj.Rpm = rpm;
                     }
-                    else if (key.Equals("Muzzle", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Muzzle"))
                     {
-                        if (float.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out var mz))
+                        if (AcmiScan.TryFloat(val, out var mz, false))
                             obj.Muzzle = mz;
                     }
-                    else if (key.Equals("Drag", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Drag"))
                     {
-                        if (float.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out var drag))
+                        if (AcmiScan.TryFloat(val, out var drag, false))
                             obj.Drag = drag;
                     }
-                    else if (key.Equals("Grav", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Grav"))
                     {
-                        if (float.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out var grav))
+                        if (AcmiScan.TryFloat(val, out var grav, false))
                             obj.Grav = grav;
                     }
-                    else if (key.Equals("Spread", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Spread"))
                     {
-                        if (float.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out var spread))
+                        if (AcmiScan.TryFloat(val, out var spread, false))
                             obj.Spread = spread;
                     }
-                    else if (key.Equals("Part", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Part"))
                     {
-                        if (byte.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out var partId))
+                        if (AcmiScan.TryByte(val, out var partId))
                         {
                             obj.PartId = partId;
                             obj.HasPart = true;
                         }
                     }
-                    else if (key.Equals("Kind", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Kind"))
                     {
-                        if (!string.IsNullOrEmpty(val)) obj.PartKind = val;
+                        if (val.Length > 0) obj.PartKind = val.ToString();
                     }
-                    else if (key.Equals("Path", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Path"))
                     {
-                        if (!string.IsNullOrEmpty(val)) obj.PartPath = val;
+                        if (val.Length > 0) obj.PartPath = val.ToString();
                     }
-                    else if (key.Equals("Seg", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Seg"))
                     {
-                        if (int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seg))
+                        if (AcmiScan.TryInt(val, out var seg))
                             obj.PartSeg = seg;
                     }
-                    else if (key.Equals("Rotor", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Rotor"))
                     {
-                        if (int.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out var rotor))
+                        if (AcmiScan.TryInt(val, out var rotor))
                             obj.PartRotor = rotor;
                     }
-                    else if (key.Equals("Vx", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Vx"))
                     {
-                        if (float.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out var vx))
+                        if (AcmiScan.TryFloat(val, out var vx, false))
                             obj.PartVx = vx;
                     }
-                    else if (key.Equals("Vy", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Vy"))
                     {
-                        if (float.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out var vy))
+                        if (AcmiScan.TryFloat(val, out var vy, false))
                             obj.PartVy = vy;
                     }
-                    else if (key.Equals("Vz", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Vz"))
                     {
-                        if (float.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out var vz))
+                        if (AcmiScan.TryFloat(val, out var vz, false))
                             obj.PartVz = vz;
                     }
-                    else if (key.Equals("Visible", StringComparison.OrdinalIgnoreCase) && val.StartsWith("0"))
+                    else if (AcmiScan.KeyIs(key, "Visible") && val.StartsWith("0".AsSpan(), StringComparison.Ordinal))
                     {
                         obj.RemovedAt = time;
                     }
-                    else if (key == "T" || key.Equals("Transform", StringComparison.OrdinalIgnoreCase))
+                    else if ((key.Length == 1 && key[0] == 'T') || AcmiScan.KeyIs(key, "Transform"))
                     {
-                        if (ParseTransform(val, ref sample, obj.Type, obj.Name))
+                        if (ParseTransform(val, ref sample))
                             hasPose = true;
                     }
-                    else if (key.Equals("Q", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Q"))
                     {
-                        var qb = val.Split('|');
-                        if (qb.Length >= 4
-                            && float.TryParse(qb[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var qx)
-                            && float.TryParse(qb[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var qy)
-                            && float.TryParse(qb[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var qz)
-                            && float.TryParse(qb[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var qw))
+                        if (AcmiScan.ParseQuat(val, out var qx, out var qy, out var qz, out var qw))
                         {
                             sample.HasQuat = true;
                             sample.Qx = qx;
@@ -260,38 +261,37 @@ namespace NOReplay
                             sample.Qw = qw;
                         }
                     }
-                    else if (key.Equals("LandingGear", StringComparison.OrdinalIgnoreCase)
-                          || key.Equals("Gear", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "LandingGear") || AcmiScan.KeyIs(key, "Gear"))
                     {
-                        if (float.TryParse(val.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var g))
+                        if (AcmiScan.TryFloat(val, out var g))
                         {
                             sample.HasGear = true;
                             sample.Gear = g;
                             telemetry = true;
                         }
                     }
-                    else if (key.Equals("Throttle", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "Throttle"))
                     {
-                        if (float.TryParse(val.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var th))
+                        if (AcmiScan.TryFloat(val, out var th))
                         {
                             sample.HasThrottle = true;
                             sample.Throttle = th;
                             telemetry = true;
                         }
                     }
-                    else if (key.Equals("RpmRatio", StringComparison.OrdinalIgnoreCase)
-                          || key.Equals("JetRpm", StringComparison.OrdinalIgnoreCase)
-                          || key.Equals("TurbineRpm", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "RpmRatio")
+                          || AcmiScan.KeyIs(key, "JetRpm")
+                          || AcmiScan.KeyIs(key, "TurbineRpm"))
                     {
-                        if (float.TryParse(val.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var rpm))
+                        if (AcmiScan.TryFloat(val, out var rpm))
                         {
                             telemetry = true;
-                            if (key.Equals("JetRpm", StringComparison.OrdinalIgnoreCase))
+                            if (AcmiScan.KeyIs(key, "JetRpm"))
                             {
                                 sample.HasJetRpm = true;
                                 sample.JetRpm = rpm;
                             }
-                            else if (key.Equals("TurbineRpm", StringComparison.OrdinalIgnoreCase))
+                            else if (AcmiScan.KeyIs(key, "TurbineRpm"))
                             {
                                 sample.HasTurbineRpm = true;
                                 sample.TurbineRpm = rpm;
@@ -303,10 +303,9 @@ namespace NOReplay
                             }
                         }
                     }
-                    else if (key.Equals("TAS", StringComparison.OrdinalIgnoreCase)
-                          || key.Equals("IAS", StringComparison.OrdinalIgnoreCase))
+                    else if (AcmiScan.KeyIs(key, "TAS") || AcmiScan.KeyIs(key, "IAS"))
                     {
-                        if (float.TryParse(val.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var tas))
+                        if (AcmiScan.TryFloat(val, out var tas))
                         {
                             sample.HasTas = true;
                             sample.Tas = tas;
@@ -403,42 +402,41 @@ namespace NOReplay
                 || t.IndexOf("PartBreak", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        static bool IgnoreClosedGunBurstUpdate(ReplayObject obj, string rest)
+        static bool IgnoreClosedGunBurstUpdate(ReplayObject obj, ReadOnlySpan<char> rest)
         {
             if ((obj.Type ?? "").IndexOf("GunBurst", StringComparison.OrdinalIgnoreCase) < 0)
                 return false;
             if (obj.RemovedAt >= 0f)
                 return true;
-            if (rest.IndexOf("Type=Misc+Explosion", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (rest.IndexOf("Type=Misc+Explosion".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0)
                 return true;
-            return rest.IndexOf("Radius=", StringComparison.OrdinalIgnoreCase) >= 0;
+            return rest.IndexOf("Radius=".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        static void ApplyGlobal(ReplayDocument doc, string rest)
+        static void ApplyGlobal(ReplayDocument doc, ReadOnlySpan<char> rest)
         {
-            foreach (var part in rest.Split(','))
+            var props = new AcmiScan.Props(rest);
+            while (props.MoveNext())
             {
-                int eq = part.IndexOf('=');
-                if (eq <= 0) continue;
-                string key = part.Substring(0, eq);
-                string val = part.Substring(eq + 1);
-                if (key.Equals("Title", StringComparison.OrdinalIgnoreCase))
-                    doc.Title = val;
-                else if (key.Equals("MapId", StringComparison.OrdinalIgnoreCase))
-                    doc.MapId = val;
-                else if (key.Equals("DataRecorder", StringComparison.OrdinalIgnoreCase))
-                    doc.DataRecorder = val;
-                else if (key.Equals("TimeOfDay", StringComparison.OrdinalIgnoreCase) && float.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float tod))
+                var key = props.Key;
+                var val = props.Value;
+                if (AcmiScan.KeyIs(key, "Title"))
+                    doc.Title = val.ToString();
+                else if (AcmiScan.KeyIs(key, "MapId"))
+                    doc.MapId = val.ToString();
+                else if (AcmiScan.KeyIs(key, "DataRecorder"))
+                    doc.DataRecorder = val.ToString();
+                else if (AcmiScan.KeyIs(key, "TimeOfDay") && AcmiScan.TryFloat(val, out float tod, false))
                     doc.TimeOfDay = tod;
-                else if (key.Equals("Conditions", StringComparison.OrdinalIgnoreCase) && float.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float cond))
+                else if (AcmiScan.KeyIs(key, "Conditions") && AcmiScan.TryFloat(val, out float cond, false))
                     doc.Conditions = cond;
-                else if (key.Equals("CloudHeight", StringComparison.OrdinalIgnoreCase) && float.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ch))
+                else if (AcmiScan.KeyIs(key, "CloudHeight") && AcmiScan.TryFloat(val, out float ch, false))
                     doc.CloudHeight = ch;
-                else if (key.Equals("WindSpeed", StringComparison.OrdinalIgnoreCase) && float.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float ws))
+                else if (AcmiScan.KeyIs(key, "WindSpeed") && AcmiScan.TryFloat(val, out float ws, false))
                     doc.WindSpeed = ws;
-                else if (key.Equals("WindTurbulence", StringComparison.OrdinalIgnoreCase) && float.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float wt))
+                else if (AcmiScan.KeyIs(key, "WindTurbulence") && AcmiScan.TryFloat(val, out float wt, false))
                     doc.WindTurbulence = wt;
-                else if (key.Equals("MoonPhase", StringComparison.OrdinalIgnoreCase) && float.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float mp))
+                else if (AcmiScan.KeyIs(key, "MoonPhase") && AcmiScan.TryFloat(val, out float mp, false))
                     doc.MoonPhase = mp;
             }
         }
@@ -553,61 +551,43 @@ namespace NOReplay
             return (type ?? "").IndexOf("Projectile", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        static bool ParseTransform(string val, ref ReplaySample s, string? type, string? name)
+        static bool ParseTransform(ReadOnlySpan<char> val, ref ReplaySample s)
         {
-            var bits = val.Split('|');
-            if (bits.Length < 3) return false;
-            bool any = false;
-
-            // New raw format: x|y|z
-            if (bits.Length == 3)
-            {
-                if (TryNum(bits, 0, out var rx)) { s.X = rx; any = true; }
-                if (TryNum(bits, 1, out var ry)) { s.Y = ry; any = true; }
-                if (TryNum(bits, 2, out var rz)) { s.Z = rz; any = true; }
-                return any;
-            }
-
-            // Legacy ACMI formats
-            if (TryNum(bits, 2, out var alt)) { s.Y = alt; any = true; }
-            if (bits.Length == 5)
-            {
-                if (TryNum(bits, 3, out var x5)) { s.X = x5; any = true; }
-                if (TryNum(bits, 4, out var z5)) { s.Z = z5; any = true; }
-                return any;
-            }
-            if (bits.Length > 3 && TryNum(bits, 3, out var roll)) { s.Roll = roll; any = true; }
-            if (bits.Length > 4 && TryNum(bits, 4, out var pitch)) { s.Pitch = pitch; any = true; }
-            if (bits.Length > 5 && TryNum(bits, 5, out var yaw)) { s.Yaw = yaw; any = true; }
-            if (bits.Length > 6 && TryNum(bits, 6, out var x)) { s.X = x; any = true; }
-            if (bits.Length > 7 && TryNum(bits, 7, out var z)) { s.Z = z; any = true; }
-            return any;
+            if (!AcmiScan.ParsePose(val, out var pose) && !pose.Any) return false;
+            if (!pose.Any) return false;
+            if (pose.HasX) s.X = pose.X;
+            if (pose.HasY) s.Y = pose.Y;
+            if (pose.HasZ) s.Z = pose.Z;
+            if (pose.HasRoll) s.Roll = pose.Roll;
+            if (pose.HasPitch) s.Pitch = pose.Pitch;
+            if (pose.HasYaw) s.Yaw = pose.Yaw;
+            return true;
         }
 
-        static void ParseTurrets(ReplayObject obj, string val, float time)
+        static void ParseTurrets(ReplayObject obj, ReadOnlySpan<char> val, float time)
         {
-            if (string.IsNullOrEmpty(val)) return;
-            var segs = val.Split(';');
-            for (int i = 0; i < segs.Length; i++)
+            if (val.Length == 0) return;
+            int i = 0;
+            while (i <= val.Length)
             {
-                string seg = segs[i];
+                int rel = i < val.Length ? val.Slice(i).IndexOf(';') : -1;
+                var seg = rel < 0 ? val.Slice(i) : val.Slice(i, rel);
+                int next = rel < 0 ? val.Length + 1 : i + rel + 1;
+                i = next;
                 if (seg.Length == 0) continue;
                 int colon = seg.IndexOf(':');
                 if (colon <= 0 || colon >= seg.Length - 1) continue;
-                string key = seg.Substring(0, colon);
-                var ang = seg.Substring(colon + 1).Split('|');
-                if (ang.Length < 2) continue;
-                if (!float.TryParse(ang[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var trav)) continue;
-                if (!float.TryParse(ang[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var elev)) continue;
+                string key = seg.Slice(0, colon).ToString();
+                var ang = seg.Slice(colon + 1);
+                int bar = ang.IndexOf('|');
+                if (bar <= 0) continue;
+                if (!AcmiScan.TryFloat(ang.Slice(0, bar), out var trav, false)) continue;
+                var elevSpan = ang.Slice(bar + 1);
+                int bar2 = elevSpan.IndexOf('|');
+                if (bar2 >= 0) elevSpan = elevSpan.Slice(0, bar2);
+                if (!AcmiScan.TryFloat(elevSpan, out var elev, false)) continue;
                 obj.AddTurretKey(time, key, trav, elev);
             }
-        }
-
-        static bool TryNum(string[] bits, int i, out float v)
-        {
-            v = 0f;
-            if (i >= bits.Length || string.IsNullOrEmpty(bits[i])) return false;
-            return float.TryParse(bits[i].Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out v);
         }
 
         static void StretchSampleTimes(ReplayObject obj)

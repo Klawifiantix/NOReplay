@@ -1072,6 +1072,7 @@ namespace NOReplay
         void LateUpdate()
         {
             if (Track == null) return;
+            NoteSpoolClock(Plugin.Clock.Time);
             if (!IsTrackAlive())
             {
                 float end = Track.RemovedAt;
@@ -1099,6 +1100,8 @@ namespace NOReplay
                     }
                     SetGhostVisible(false);
                 }
+                if (_air && !_neutral)
+                    WindDownPowerplant();
                 if (!_ordnance) TickStructural(false);
                 return;
             }

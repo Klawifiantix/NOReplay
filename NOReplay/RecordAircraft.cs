@@ -19,6 +19,9 @@ namespace NOReplay
         private float lastRoll = float.NaN;
         private float lastThrust = float.NaN;
         private float avgThrust = float.NaN;
+        private float lastRpmRatio = float.NaN;
+        private float lastJetRpm = float.NaN;
+        private float lastTurbineRpm = float.NaN;
 
         private Vector3 lastHead = Vector3.zero;
 
@@ -165,6 +168,41 @@ namespace NOReplay
             return avgThrust;
         }
 
+        void EmitPowerRpm()
+        {
+            try
+            {
+                var seen = new HashSet<IEngine>();
+                float rotorSum = 0f, jetSum = 0f, turbSum = 0f;
+                int rotorN = 0, jetN = 0, turbN = 0;
+                void Take(IEngine? e)
+                {
+                    if (e == null || !seen.Add(e)) return;
+                    string n = e.GetType().Name;
+                    float r = e.GetRPMRatio();
+                    if (n == "TurbineEngine") { turbSum += r; turbN++; }
+                    else if (n == "Turbojet" || n == "Turbofan") { jetSum += r; jetN++; }
+                    else { rotorSum += r; rotorN++; }
+                }
+                for (int i = 0; i < aircraft.engines.Count; i++)
+                    Take(aircraft.engines[i]);
+                for (int i = 0; i < aircraft.engineStates.Count; i++)
+                    Take(aircraft.engineStates[i]);
+                void Emit(string key, ref float last, int n, float sum)
+                {
+                    if (n <= 0) return;
+                    float v = sum / n;
+                    if (!float.IsNaN(last) && Mathf.Abs(last - v) < 0.02f) return;
+                    props.Add(key, v.ToString("0.00", CultureInfo.InvariantCulture));
+                    last = v;
+                }
+                Emit("RpmRatio", ref lastRpmRatio, rotorN, rotorSum);
+                Emit("JetRpm", ref lastJetRpm, jetN, jetSum);
+                Emit("TurbineRpm", ref lastTurbineRpm, turbN, turbSum);
+            }
+            catch { }
+        }
+
         void UpdateAircraft()
         {
             if (aircraft.speed != lastTAS && RecordConfig.RecordSpeed.Value == true)
@@ -249,6 +287,7 @@ namespace NOReplay
                     props.Add("EngineRPM", avgThrust.ToString("0.##", CultureInfo.InvariantCulture));
                     lastThrust = avgThrust;
                 }
+                EmitPowerRpm();
             }
         }
 

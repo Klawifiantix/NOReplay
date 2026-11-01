@@ -276,6 +276,29 @@ namespace NOReplay
                             sample.Throttle = th;
                         }
                     }
+                    else if (key.Equals("RpmRatio", StringComparison.OrdinalIgnoreCase)
+                          || key.Equals("JetRpm", StringComparison.OrdinalIgnoreCase)
+                          || key.Equals("TurbineRpm", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (float.TryParse(val.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var rpm))
+                        {
+                            if (key.Equals("JetRpm", StringComparison.OrdinalIgnoreCase))
+                            {
+                                sample.HasJetRpm = true;
+                                sample.JetRpm = rpm;
+                            }
+                            else if (key.Equals("TurbineRpm", StringComparison.OrdinalIgnoreCase))
+                            {
+                                sample.HasTurbineRpm = true;
+                                sample.TurbineRpm = rpm;
+                            }
+                            else
+                            {
+                                sample.HasRpm = true;
+                                sample.Rpm = rpm;
+                            }
+                        }
+                    }
                     else if (key.Equals("TAS", StringComparison.OrdinalIgnoreCase)
                           || key.Equals("IAS", StringComparison.OrdinalIgnoreCase))
                     {

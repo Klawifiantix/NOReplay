@@ -258,37 +258,10 @@ namespace NOReplay
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             if (missile != null && mt != null)
             {
-                try
-                {
-                    var motors = mt.GetField("motors", flags)?.GetValue(missile) as Array;
-                    if (motors != null)
-                    {
-                        foreach (var motor in motors)
-                        {
-                            if (motor == null) continue;
-                            try { motor.GetType().GetMethod("Burnout", flags)?.Invoke(motor, new object[] { true }); } catch { }
-                        }
-                    }
-                }
-                catch { }
-                try
-                {
-                    bool hearBoom = Plugin.AudioNearWorld(pos, 700f);
-                    var flight = mt.GetField("flightSound", flags)?.GetValue(missile);
-                    var clip = mt.GetField("nearbyDetonationClip", flags)?.GetValue(missile);
-                    if (hearBoom && flight != null && clip != null)
-                    {
-                        var ft = flight.GetType();
-                        ft.GetMethod("Stop", Type.EmptyTypes)?.Invoke(flight, null);
-                        ft.GetProperty("clip")?.SetValue(flight, clip);
-                        ft.GetProperty("pitch")?.SetValue(flight, 1f);
-                        ft.GetProperty("volume")?.SetValue(flight, 1f);
-                        ft.GetProperty("loop")?.SetValue(flight, false);
-                        ft.GetProperty("mute")?.SetValue(flight, false);
-                        ft.GetMethod("Play", Type.EmptyTypes)?.Invoke(flight, null);
-                    }
-                }
-                catch { }
+                // Do not call Motor.Burnout or Motor.Destruct. Burnout(true) stops every
+                // motor source, and Destruct parents a fresh effect under the ghost.
+                // The flight clip is left alone so a later seek can play the whoosh again.
+                StopMotorAndFlight();
             }
             GameObject? fx = null;
             if (missile != null && mt != null)
@@ -309,20 +282,6 @@ namespace NOReplay
                         fx = wt.GetField(field, flags)?.GetValue(warhead) as GameObject
                              ?? wt.GetField("airEffect", flags)?.GetValue(warhead) as GameObject
                              ?? wt.GetField("fizzleEffect", flags)?.GetValue(warhead) as GameObject;
-                    }
-                }
-                catch { }
-                try
-                {
-                    var motors = mt.GetField("motors", flags)?.GetValue(missile) as Array;
-                    if (motors != null)
-                    {
-                        foreach (var motor in motors)
-                        {
-                            if (motor == null) continue;
-                            try { motor.GetType().GetMethod("Burnout", flags)?.Invoke(motor, new object[] { true }); } catch { }
-                            try { motor.GetType().GetMethod("Destruct", flags)?.Invoke(motor, new object[] { missile }); } catch { }
-                        }
                     }
                 }
                 catch { }

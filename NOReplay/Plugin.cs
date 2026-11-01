@@ -229,6 +229,34 @@ namespace NOReplay
 
         int _ordSeekSerial;
 
+        static readonly List<ReplayGhost> _ordRespawn = new List<ReplayGhost>();
+
+        internal static void QueueOrdnanceRespawn(ReplayGhost rg)
+        {
+            if (rg != null && !_ordRespawn.Contains(rg))
+                _ordRespawn.Add(rg);
+        }
+
+        static void FlushOrdnanceRespawn()
+        {
+            if (_ordRespawn.Count == 0) return;
+            for (int i = 0; i < _ordRespawn.Count; i++)
+            {
+                var rg = _ordRespawn[i];
+                if (rg == null) continue;
+                var track = rg.Track;
+                var go = rg.gameObject;
+                ReleaseCameraIfOn(go);
+                _ghosts.Remove(go);
+                _ghostComps.Remove(rg);
+                if (track != null && !_pendingAir.Contains(track))
+                    _pendingAir.Add(track);
+                if (go != null)
+                    UnityEngine.Object.Destroy(go);
+            }
+            _ordRespawn.Clear();
+        }
+
         void ApplyOrdnanceSeeks()
         {
             if (Clock.SeekSerial == _ordSeekSerial) return;
@@ -240,6 +268,7 @@ namespace NOReplay
                 if (rg == null || !rg.IsOrdnancePublic) continue;
                 rg.OnReplaySeek(t);
             }
+            FlushOrdnanceRespawn();
         }
 
         void TickMissileBooms()

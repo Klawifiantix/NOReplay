@@ -14,6 +14,15 @@ namespace NOReplay
             public AudioSource[] Sources = Array.Empty<AudioSource>();
         }
 
+        sealed class SrcHome
+        {
+            public AudioSource? Src;
+            public AudioClip? Clip;
+            public bool Loop;
+            public float Volume;
+            public float Pitch;
+        }
+
         MotorSlot[]? _slots;
         MissileMotorAudio.Stage[] _motorStages = Array.Empty<MissileMotorAudio.Stage>();
         object? _slotsMissile;
@@ -26,6 +35,9 @@ namespace NOReplay
         bool _resumeAudio;
         bool _ordWasAlive;
         bool _boomShotPlayed;
+        string _audioLogKey = "";
+        string _audioPlay = "";
+        List<SrcHome>? _srcHome;
         AudioSource? _flightAudio;
         AudioClip? _flightClip;
         bool _flightClipSaved;
@@ -82,9 +94,67 @@ namespace NOReplay
                 _resumeAudio = true;
             }
 
+            LogMissilePlay(cue);
             DriveFlight(missile, mt, s, cue);
             DriveMotorSources(cue);
             _ordHeard = true;
+        }
+
+        string OrdAudioId()
+        {
+            string id = Track?.Id ?? "?";
+            string n = Track?.Name ?? gameObject.name;
+            return id + " " + n;
+        }
+
+        string OrdAudioState(float time)
+        {
+            if (DetonatedAt(time)) return "dead";
+            float launch = OrdnanceBorn();
+            if (time < launch) return "prelaunch";
+            var cue = MissileMotorAudio.At(time - launch, _motorStages, -1, -1);
+            if (cue.Ignition || cue.Motor == MissileMotorAudio.MotorStart.FromHead) return "ignition";
+            if (cue.Motor == MissileMotorAudio.MotorStart.Offset) return "burn";
+            if (cue.Flight) return "coast";
+            return "prelaunch";
+        }
+
+        int CountAudioSources()
+        {
+            int n = 0;
+            var sources = GetComponentsInChildren<AudioSource>(true);
+            for (int i = 0; i < sources.Length; i++)
+                if (sources[i] != null) n++;
+            return n;
+        }
+
+        void LogMissileAudio(string verb, string state, string extra = "")
+        {
+            string key = verb + "|" + state + "|" + extra;
+            if (key == _audioLogKey) return;
+            _audioLogKey = key;
+            Plugin.Log?.LogInfo("MissileAudio " + verb + " " + OrdAudioId()
+                + " t=" + Plugin.Clock.Time.ToString("0.00")
+                + " state=" + state
+                + " srcs=" + CountAudioSources()
+                + (extra.Length > 0 ? " " + extra : ""));
+        }
+
+        void LogMissilePlay(MissileMotorAudio.Cue cue)
+        {
+            if (cue.Ignition)
+            {
+                if (_audioPlay == "ignition") return;
+                _audioPlay = "ignition";
+                Plugin.Log?.LogInfo("MissileAudio play ignition " + OrdAudioId());
+                return;
+            }
+            if (cue.Motor != MissileMotorAudio.MotorStart.Silent)
+            {
+                if (_audioPlay == "sustain") return;
+                _audioPlay = "sustain";
+                Plugin.Log?.LogInfo("MissileAudio play sustain " + OrdAudioId());
+            }
         }
 
         bool OrdnanceAudioDirty()
@@ -103,12 +173,22 @@ namespace NOReplay
         internal void OnReplaySeek(float time)
         {
             if (!_ordnance || IsFlareTrack()) return;
+            bool detonated = _boomed || _boomShotPlayed;
+            int live = CountAudioSources();
+            bool lost = _srcHome != null && _srcHome.Count > 0 && live == 0;
+            if (detonated && (time < OrdnanceBorn() || lost))
+            {
+                LogMissileAudio("re-arm", time < OrdnanceBorn() ? "prelaunch" : OrdAudioState(time), "respawn");
+                Plugin.QueueOrdnanceRespawn(this);
+                return;
+            }
             ArmOrdnanceAudio();
             bool alive = IsTrackAlive();
             _boomed = !alive && DetonatedAt(time);
             if (!alive) _ordWasAlive = false;
             if (gameObject.activeSelf != alive)
                 gameObject.SetActive(alive);
+            LogMissileAudio("re-arm", OrdAudioState(time));
         }
 
         bool DetonatedAt(float time)
@@ -130,16 +210,67 @@ namespace NOReplay
             _ordAudioClock = -1f;
             _ordPrevT = -1f;
             _boomShotPlayed = false;
+            _audioPlay = "";
+            _slotsMissile = null;
             CacheFlightClip();
+            RememberSources();
+            RestoreSources();
             RestoreFlightClip();
-            var sources = GetComponentsInChildren<AudioSource>(true);
-            for (int i = 0; i < sources.Length; i++)
+        }
+
+        void RememberSources()
+        {
+            if (_srcHome != null || _boomed || _boomShotPlayed) return;
+            var found = GetComponentsInChildren<AudioSource>(true);
+            if (found.Length == 0) return;
+            _srcHome = new List<SrcHome>(found.Length);
+            for (int i = 0; i < found.Length; i++)
             {
-                var src = sources[i];
+                var src = found[i];
                 if (src == null) continue;
+                if (_boomClip != null && src.clip == _boomClip) continue;
+                _srcHome.Add(new SrcHome
+                {
+                    Src = src,
+                    Clip = src.clip,
+                    Loop = src.loop,
+                    Volume = src.volume,
+                    Pitch = src.pitch,
+                });
+            }
+        }
+
+        void RestoreSources()
+        {
+            RememberSources();
+            var root = transform;
+            var found = GetComponentsInChildren<AudioSource>(true);
+            for (int i = 0; i < found.Length; i++)
+            {
+                var src = found[i];
+                if (src == null) continue;
+                var node = src.transform;
+                while (node != null && node != root)
+                {
+                    if (!node.gameObject.activeSelf) node.gameObject.SetActive(true);
+                    node = node.parent;
+                }
                 src.enabled = true;
                 src.mute = false;
                 src.playOnAwake = false;
+                if (_srcHome != null)
+                {
+                    for (int h = 0; h < _srcHome.Count; h++)
+                    {
+                        var home = _srcHome[h];
+                        if (home.Src != src) continue;
+                        if (home.Clip != null) src.clip = home.Clip;
+                        src.loop = home.Loop;
+                        if (home.Volume > 0.001f) src.volume = home.Volume;
+                        if (home.Pitch > 0.01f) src.pitch = home.Pitch;
+                        break;
+                    }
+                }
                 src.Stop();
             }
         }
@@ -159,6 +290,7 @@ namespace NOReplay
             }
             catch { }
             RememberFlightClip();
+            RememberSources();
         }
 
         void RestoreFlightClip()
@@ -304,6 +436,7 @@ namespace NOReplay
 
         void StartAt(AudioSource src, float time)
         {
+            if (!src.gameObject.activeSelf) src.gameObject.SetActive(true);
             src.enabled = true;
             src.mute = false;
             // Pause() makes isPlaying false. UnPause already continued the clip;
@@ -428,7 +561,14 @@ namespace NOReplay
                     }
                     StartAt(src, MissileMotorAudio.LoopOffset(len, GetInstanceID() + i * 17 + s * 131));
                 }
-                if (sustain)
+                bool any = false;
+                for (int s = 0; s < sources.Length; s++)
+                {
+                    var src = sources[s];
+                    if (src != null && src.isPlaying) any = true;
+                }
+                if (slot.Startup != null && slot.Startup.isPlaying) any = true;
+                if (sustain && any)
                     _headStage = i;
             }
         }

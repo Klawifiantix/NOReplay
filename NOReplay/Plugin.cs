@@ -187,6 +187,8 @@ namespace NOReplay
                 if (Input.GetKeyDown(KeyCode.LeftArrow)) Clock.Seek(Clock.Time - 5f);
                 if (Input.GetKeyDown(KeyCode.RightArrow)) Clock.Seek(Clock.Time + 5f);
                 if (Input.GetKeyDown(KeyCode.F10)) _timelineHidden = !_timelineHidden;
+                if (Input.GetKeyDown(KeyCode.T) && !ReplayTextFocused())
+                    ToggleTrails();
                 if (_holdClock)
                 {
                     Clock.Paused = true;
@@ -219,6 +221,21 @@ namespace NOReplay
                 Log.LogInfo("F8 gedr�ckt.");
                 Record.Toggle();
             }
+        }
+
+        internal static void ToggleTrails()
+        {
+            TrailsOn = !TrailsOn;
+        }
+
+        internal static bool ReplayTextFocused()
+        {
+            if (GUIUtility.keyboardControl != 0) return true;
+            var checker = FindGameType("InputFieldChecker");
+            if (checker == null) return false;
+            var field = checker.GetField("InsideInputField", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+            try { return field?.GetValue(null) is bool on && on; }
+            catch { return false; }
         }
 
         float _panelAt;

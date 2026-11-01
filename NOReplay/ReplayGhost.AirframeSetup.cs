@@ -113,6 +113,22 @@ namespace NOReplay
             catch { }
         }
 
+        internal static void DisableParticleEmission(Component? ps)
+        {
+            if (ps == null) return;
+            BindParticleRefl();
+            try
+            {
+                _pPsEnableEmission?.SetValue(ps, false);
+                if (_pPsEmission != null && _pEmEnabled != null)
+                {
+                    var em = _pPsEmission.GetValue(ps);
+                    if (em != null) _pEmEnabled.SetValue(em, false);
+                }
+            }
+            catch { }
+        }
+
         internal static void PlayParticleSystem(Component? ps)
         {
             if (ps == null) return;
@@ -183,8 +199,7 @@ namespace NOReplay
                 if (n.IndexOf("Orbit", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                 if (n == "RotorShaft" || n == "LandingGear"
                     || n == "SoftBodyRotor" || n == "SwashRotor" || n == "Aircraft"
-                    || n == "JetNozzle" || n == "Downwash" || n == "DownwashEffect"
-                    || n == "VaporEffect" || n == "VaporEmitter") continue;
+                    || n == "JetNozzle" || n == "Downwash" || n == "DownwashEffect") continue;
                 if (n.IndexOf("Particle", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                 if (n.IndexOf("Trail", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                 if (n.IndexOf("Flare", StringComparison.OrdinalIgnoreCase) >= 0) continue;
@@ -320,8 +335,14 @@ namespace NOReplay
                 {
                     AddPsFromObject(bt.GetField("heatHazeParticles", flags)?.GetValue(beh), pt, keep);
                 }
-                else if (tn == "VaporEffect" || tn == "VaporEmitter" || tn == "TrailEmitter")
+                else if (tn == "VaporEffect")
                 {
+                    RememberVaporHost(beh, pt);
+                    AddPsFromObject(beh, pt, keep);
+                }
+                else if (tn == "TrailEmitter")
+                {
+                    AddPsFromObject(bt.GetField("trailSystem", flags)?.GetValue(beh), pt, keep);
                     AddPsFromObject(bt.GetField("particles", flags)?.GetValue(beh), pt, keep);
                     AddPsFromObject(beh, pt, keep);
                 }
@@ -351,15 +372,26 @@ namespace NOReplay
             {
                 _killPsBound = true;
                 BindGuns();
+                _vaporPs.Clear();
                 var protectedPs = new HashSet<Component>();
                 CollectProtectedParticles(pt, protectedPs);
                 foreach (var keepPs in protectedPs)
-                    EnableParticleEmission(keepPs);
+                {
+                    if (_vaporPs.Contains(keepPs))
+                        DisableParticleEmission(keepPs);
+                    else
+                        EnableParticleEmission(keepPs);
+                }
 
                 var list = new List<Component>();
                 foreach (var c in GetComponentsInChildren(pt, true))
                 {
                     if (c == null) continue;
+                    if (_vaporPs.Contains(c))
+                    {
+                        DisableParticleEmission(c);
+                        continue;
+                    }
                     if (protectedPs.Contains(c) || IsMuzzleParticle(c))
                     {
                         EnableParticleEmission(c);
@@ -368,6 +400,12 @@ namespace NOReplay
                     var tr = c.transform;
                     string path = tr != null ? tr.name : "";
                     if (tr != null && tr.parent != null) path = tr.parent.name + "/" + path;
+                    if (IsVaporPath(path.ToLowerInvariant()))
+                    {
+                        _vaporPs.Add(c);
+                        DisableParticleEmission(c);
+                        continue;
+                    }
                     if (KeepFxName(path.ToLowerInvariant()))
                     {
                         EnableParticleEmission(c);
@@ -416,6 +454,7 @@ namespace NOReplay
             BindDownwashSources();
             BindNozzles();
             BindMotion();
+            EnsureWingVapor();
         }
 
         void BindDownwashSources()

@@ -1012,6 +1012,7 @@ namespace NOReplay
             {
                 HaltGuns(false);
                 StopSurfaceFx(false);
+                if (_air) ClearVapor(true);
             }
             else
                 ResumeGuns();
@@ -1306,7 +1307,8 @@ namespace NOReplay
             int bit = where == "ApplyFx" ? 1
                 : where == "TickRadars" ? 2
                 : where == "TickStructural" ? 4
-                : where == "TickAmmo" ? 8 : 16;
+                : where == "TickAmmo" ? 8
+                : where == "Vapor" ? 32 : 16;
             if ((_subFail & bit) != 0) return;
             _subFail |= bit;
             Plugin.Log.LogWarning(where + " " + ex.GetType().Name + ": " + ex.Message);

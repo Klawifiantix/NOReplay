@@ -241,9 +241,9 @@ namespace NOReplay
             TickMenuButton();
             TickLeaveReplay();
             TickOfficialStart();
-            if (Input.GetKeyDown(KeyCode.F8))
+            if (HotkeyDown(RecordConfig.StartStopRecordingKey, KeyCode.F8))
             {
-                Log.LogInfo("F8 gedr�ckt.");
+                Log.LogInfo("Aufnahmetaste gedrückt.");
                 Record.Toggle();
             }
         }
@@ -276,6 +276,15 @@ namespace NOReplay
         static FieldInfo? _insideInput;
         static Func<bool>? _insideInputGet;
         static bool _insideInputLooked;
+
+        // Configured shortcut. A missing entry keeps the old key so a failed
+        // config load does not drop the control.
+        internal static bool HotkeyDown(ConfigEntry<KeyboardShortcut>? entry, KeyCode fallback)
+        {
+            if (entry == null) return Input.GetKeyDown(fallback);
+            try { return entry.Value.IsDown(); }
+            catch { return false; }
+        }
 
         internal static bool ReplayTextFocused()
         {

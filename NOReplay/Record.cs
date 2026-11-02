@@ -41,14 +41,14 @@ namespace NOReplay
             catch (Exception ex) { Plugin.Log.LogError("RecordParts.Install: " + ex); }
             try { RecordTrap.Install(); }
             catch (Exception ex) { Plugin.Log.LogError("RecordTrap.Install: " + ex); }
-            Plugin.Log.LogInfo("Aufnahme bereit. F8 startet und stoppt.");
+            Plugin.Log.LogInfo("Aufnahme bereit. " + RecordKeyLabel() + " startet und stoppt.");
         }
 
         public static void Toggle()
         {
             if (Plugin.CurrentDoc != null)
             {
-                Plugin.Log.LogInfo("F8 ignoriert, Replay l�uft.");
+                Plugin.Log.LogInfo(RecordKeyLabel() + " ignoriert, Replay läuft.");
                 return;
             }
             if (Active) Stop();
@@ -70,7 +70,7 @@ namespace NOReplay
                 RecordParts.Reset();
                 Active = true;
                 engine.CaptureExistingUnits();
-                Plugin.Log.LogInfo("Aufnahme gestartet (F8).");
+                Plugin.Log.LogInfo("Aufnahme gestartet (" + RecordKeyLabel() + ").");
             }
             catch (Exception ex)
             {
@@ -96,7 +96,18 @@ namespace NOReplay
             var turrets = UnityEngine.Object.FindObjectsOfType<RecordTurrets>();
             for (int i = 0; i < turrets.Length; i++)
                 if (turrets[i] != null) UnityEngine.Object.Destroy(turrets[i]);
-            Plugin.Log.LogInfo("Aufnahme gestoppt (F8).");
+            Plugin.Log.LogInfo("Aufnahme gestoppt (" + RecordKeyLabel() + ").");
+        }
+
+        static string RecordKeyLabel()
+        {
+            try
+            {
+                var entry = RecordConfig.StartStopRecordingKey;
+                if (entry != null) return entry.Value.ToString();
+            }
+            catch { }
+            return "F8";
         }
 
         sealed class RecLabel : MonoBehaviour

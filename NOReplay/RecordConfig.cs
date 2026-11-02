@@ -347,7 +347,11 @@ namespace NOReplay
             EnableUnitLogging = config.Bind(DeveloperFeatures, "EnableUnknownUnitLogging", DefaultEnableUnitLogging, "Toggle logging Unknown Units that are unknown to ACMI Recorder. Default: false");
             Record.Log?.LogDebug($"EnableUnknownUnitLogging = {EnableUnitLogging.Value}");
 
-            StartStopRecordingKey = config.Bind("Hotkeys", "StartStopRecordingKey", new KeyboardShortcut(DefaultStartStopRecordingKey));
+            StartStopRecordingKey = config.Bind(
+                "Hotkeys",
+                "StartStopRecordingKey",
+                new KeyboardShortcut(DefaultStartStopRecordingKey),
+                "Start or stop recording in a live match. Default: F8. During playback the key is ignored.");
             Record.Log?.LogDebug($"StartStopRecordingKey = {StartStopRecordingKey.Value}");
 
             EnableLogging = config.Bind(DeveloperFeatures, "EnableLogging", DefaultEnableLogging, "Toggle Logging. Default: false");

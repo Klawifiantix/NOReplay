@@ -1077,6 +1077,7 @@ namespace NOReplay
         void LateUpdate()
         {
             if (Track == null) return;
+            if (_ordnance) TickWings(Plugin.Clock.Time);
             NoteSpoolClock(Plugin.Clock.Time);
             if (!IsTrackAlive())
             {

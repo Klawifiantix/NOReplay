@@ -196,6 +196,7 @@ namespace NOReplay
             if (gameObject.activeSelf != alive)
                 gameObject.SetActive(alive);
             LogMissileAudio("re-arm", OrdAudioState(time));
+            TickWings(time);
         }
 
         bool DetonatedAt(float time)

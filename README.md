@@ -25,8 +25,8 @@ Install
 Controls & Usage
 
 Record
-* In a normal match, press F8 to start recording. Rec appears at the bottom right.
-* Press F8 again to stop. The ACMI file is written to the replay folder.
+* In a normal match, press F8 to start recording. Rec appears at the bottom right. F8 is the default.
+* Press the same key again to stop. The ACMI file is written to the replay folder.
 Recording is off in the main menu and during playback.
 
 Open a replay
@@ -41,19 +41,26 @@ Timeline
 * Play runs the track. Pause holds it.
 * Drag the marker to scrub. Units jump to that time. Dragging backward shows the reverse motion.
 * Speeds: -4x -2x -1x -0.5x -0.25x 0.25x 0.5x 1x 2x 4x.
-* F10 hides the timeline. F10 shows it again.
-* Trails button toggles flight paths. The T key does the same. The slider next to it sets trail length from 0 to 10 minutes. Dead airframes lose their trail.
+* F10 hides the timeline. F10 shows it again. F10 is the default.
+* Trails button toggles flight paths. The T key does the same. T is the default. The slider next to it sets trail length from 0 to 10 minutes. Dead airframes lose their trail.
 
 Camera
 * Click a unit, building, or projectile on the map. It stays selected, the camera jumps to it, and the view orbits. After PLAY or PAUSE the timeline shows || and the type name, plus the pilot or callsign when there is one. With nothing selected, the || and the name are left out.
 * WASD leaves that orbit. The camera flies free again, and the selection stays.
-* F toggles the look-at lock. While it is on, the camera flies free and turns to face the selected target. The camera does not move with the target. [F] shows after the name. F again returns to normal mouse look.
+* F toggles the look-at lock. F is the default. While it is on, the camera flies free and turns to face the selected target. The camera does not move with the target. [F] shows after the name. F again returns to normal mouse look.
 * If the target is destroyed, detonates, despawns, or the time moves past it, the name leaves the timeline, the lock is released, and the camera stays where it is.
-* F and T do nothing while a text field is selected.
+* The look-at and trails keys do nothing while a text field is selected.
 * The normal spectator path is unchanged.
 * Orbit around a unit works. Free camera and fly-by work.
 * If the unit you are watching is destroyed, the camera is released before the unit is removed.
 * The camera does not jump to a unit on its own.
+
+Shortcuts
+* Defaults: F8 records, Space plays or pauses, 1 / 2 / 4 set speed to 1x / 2x / 4x, Left and Right arrow jump 5 seconds, F10 hides or shows the timeline, F toggles look-at lock, T toggles trails.
+* Look-at lock and trails do nothing while a text field is selected. During a replay the game's own binding for those two keys is muted. Both follow the key you set.
+* WASD still flies the free camera. Those four keys are not in the config.
+* Change them in `BepInEx/config/you.noreplay.cfg`, or in ConfigurationManager (F1). Recording is StartStopRecordingKey under Hotkeys. Replay keys are under Replay Hotkeys. A value already saved in the config is kept. Only a missing entry uses the default above.
+* If two shortcuts use the same key, or one of them is W, A, S or D, NOReplay.log warns once.
 
 ---
 
@@ -94,7 +101,7 @@ The meatball uses the carrier landing runway's 3.4° glideslope. It does not run
 How it works
 
 Record
-* F8 toggles a recorder in the live match. It writes Tacview-style ACMI: unit id, parent, coalition, position samples, loadout, livery, throttle, gun-burst windows, part breaks, and weather (time of day, conditions, cloud height, wind). Shells are not stored one by one. A burst is enough to rebuild the stream on playback. A single cannon shot is one sample. A part break is one line: which part, and the velocity when it left the airframe.
+* The record key (default F8) toggles a recorder in the live match. It writes Tacview-style ACMI: unit id, parent, coalition, position samples, loadout, livery, throttle, gun-burst windows, part breaks, and weather (time of day, conditions, cloud height, wind). Shells are not stored one by one. A burst is enough to rebuild the stream on playback. A single cannon shot is one sample. A part break is one line: which part, and the velocity when it left the airframe.
 * The recorder does not run during a replay. Replay patches that mute AI do not run in a normal match, so leaving the aircraft and normal firing stay intact.
 * Aircraft are registered before hardpoint weapons spawn. Turret recording stays attached and picks up the chin turret or gunpod once it exists. Loadout is written again if it arrives just after spawn.
 

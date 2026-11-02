@@ -194,22 +194,22 @@ namespace NOReplay
             if (CurrentDoc != null)
             {
                 long perfStamp = PerfLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-                if (Input.GetKeyDown(KeyCode.Space))
+                if (HotkeyDown(RecordConfig.PlayPauseKey, KeyCode.Space))
                 {
                     _holdClock = false;
                     Clock.Paused = !Clock.Paused;
                 }
-                if (Input.GetKeyDown(KeyCode.Alpha1)) Clock.Speed = 1f;
-                if (Input.GetKeyDown(KeyCode.Alpha2)) Clock.Speed = 2f;
-                if (Input.GetKeyDown(KeyCode.Alpha4)) Clock.Speed = 4f;
-                if (Input.GetKeyDown(KeyCode.LeftArrow)) Clock.Seek(Clock.Time - 5f);
-                if (Input.GetKeyDown(KeyCode.RightArrow)) Clock.Seek(Clock.Time + 5f);
-                if (Input.GetKeyDown(KeyCode.F10)) _timelineHidden = !_timelineHidden;
+                if (HotkeyDown(RecordConfig.Speed1Key, KeyCode.Alpha1)) Clock.Speed = 1f;
+                if (HotkeyDown(RecordConfig.Speed2Key, KeyCode.Alpha2)) Clock.Speed = 2f;
+                if (HotkeyDown(RecordConfig.Speed4Key, KeyCode.Alpha4)) Clock.Speed = 4f;
+                if (HotkeyDown(RecordConfig.SeekBackKey, KeyCode.LeftArrow)) Clock.Seek(Clock.Time - 5f);
+                if (HotkeyDown(RecordConfig.SeekForwardKey, KeyCode.RightArrow)) Clock.Seek(Clock.Time + 5f);
+                if (HotkeyDown(RecordConfig.ToggleTimelineKey, KeyCode.F10)) _timelineHidden = !_timelineHidden;
                 EnsureReplayKeysMuted();
                 if (!ReplayTextFocused())
                 {
-                    if (Input.GetKeyDown(KeyCode.T)) ToggleTrails();
-                    if (Input.GetKeyDown(KeyCode.F)) ToggleLookLock();
+                    if (HotkeyDown(RecordConfig.ToggleTrailsKey, KeyCode.T)) ToggleTrails();
+                    if (HotkeyDown(RecordConfig.LookAtLockKey, KeyCode.F)) ToggleLookLock();
                 }
                 if (_holdClock)
                 {
@@ -277,12 +277,25 @@ namespace NOReplay
         static Func<bool>? _insideInputGet;
         static bool _insideInputLooked;
 
-        // Configured shortcut. A missing entry keeps the old key so a failed
-        // config load does not drop the control.
+        // IsDown() is the configured key and its modifiers, but it stays quiet
+        // while any other key is held. The old GetKeyDown checks did not, so a
+        // trail toggle still works during WASD. A missing entry keeps the old key.
         internal static bool HotkeyDown(ConfigEntry<KeyboardShortcut>? entry, KeyCode fallback)
         {
             if (entry == null) return Input.GetKeyDown(fallback);
-            try { return entry.Value.IsDown(); }
+            try
+            {
+                KeyboardShortcut key = entry.Value;
+                if (key.IsDown()) return true;
+                if (key.MainKey == KeyCode.None) return false;
+                if (!Input.GetKeyDown(key.MainKey)) return false;
+                foreach (KeyCode mod in key.Modifiers)
+                {
+                    if (mod == KeyCode.None) continue;
+                    if (!Input.GetKey(mod)) return false;
+                }
+                return true;
+            }
             catch { return false; }
         }
 

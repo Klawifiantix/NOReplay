@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using BepInEx.Configuration;
 using HarmonyLib;
 using UnityEngine;
 
@@ -642,6 +643,13 @@ namespace NOReplay
             catch { }
         }
 
+        internal static void RefreshReplayKeyMute()
+        {
+            if (!_keysMuted) return;
+            RestoreReplayKeys();
+            EnsureReplayKeysMuted();
+        }
+
         static void EnsureReplayKeysMuted()
         {
             if (_keysMuted || CurrentDoc == null) return;
@@ -650,7 +658,8 @@ namespace NOReplay
                 int n = MuteReplayKeys();
                 if (n < 0) return;
                 _keysMuted = true;
-                Log.LogInfo("Replay-Tasten F/T stumm x" + n);
+                string label = ReplayMuteLabel();
+                Log.LogInfo("Replay-Tasten " + (label.Length == 0 ? "(keine)" : label) + " stumm x" + n);
             }
             catch (Exception ex)
             {
@@ -671,8 +680,8 @@ namespace NOReplay
             _muteTries = 0;
         }
 
-        // F and T are replay keys. Turn off keyboard bindings that use them so the
-        // game action does not fire as well. Other devices keep their bindings.
+        // Look-at lock and trails. Turn off keyboard bindings that use those keys
+        // so the game action does not fire as well. Other devices keep their bindings.
         static int MuteReplayKeys()
         {
             var gm = FindGameType("GameManager");
@@ -686,6 +695,7 @@ namespace NOReplay
             _muteTries++;
             bool sawKeyboard = false;
             int n = 0;
+            var muteNames = ReplayMuteNames();
             foreach (var map in all)
             {
                 if (map == null) continue;
@@ -696,7 +706,7 @@ namespace NOReplay
                 if (elems == null) continue;
                 foreach (var el in elems)
                 {
-                    if (el == null || !IsKeyFT(el)) continue;
+                    if (el == null || !IsReplayMuteKey(el, muteNames)) continue;
                     if (!ReadEnabled(el, out bool on) || !on) continue;
                     if (!WriteEnabled(el, false)) continue;
                     _mutedKeys.Add(el);
@@ -707,16 +717,54 @@ namespace NOReplay
             return n;
         }
 
-        static bool IsKeyFT(object el)
+        static string ReplayMuteLabel()
+        {
+            var names = ReplayMuteNames();
+            if (names.Count == 0) return "";
+            return string.Join("/", names);
+        }
+
+        static List<string> ReplayMuteNames()
+        {
+            var names = new List<string>(2);
+            AddMuteName(names, RecordConfig.LookAtLockKey, KeyCode.F);
+            AddMuteName(names, RecordConfig.ToggleTrailsKey, KeyCode.T);
+            return names;
+        }
+
+        static void AddMuteName(List<string> names, ConfigEntry<KeyboardShortcut>? entry, KeyCode fallback)
+        {
+            KeyCode key = fallback;
+            if (entry != null)
+            {
+                try { key = entry.Value.MainKey; }
+                catch { key = fallback; }
+            }
+            if (key == KeyCode.None) return;
+            string name = key.ToString();
+            for (int i = 0; i < names.Count; i++)
+                if (names[i] == name) return;
+            names.Add(name);
+        }
+
+        static bool IsReplayMuteKey(object el, List<string> names)
         {
             try
             {
                 var t = el.GetType();
                 string a = t.GetProperty("keyCode", Inst)?.GetValue(el)?.ToString() ?? "";
                 string b = t.GetProperty("keyboardKeyCode", Inst)?.GetValue(el)?.ToString() ?? "";
-                return a == "F" || a == "T" || b == "F" || b == "T";
+                return NameIn(names, a) || NameIn(names, b);
             }
             catch { return false; }
+        }
+
+        static bool NameIn(List<string> names, string name)
+        {
+            if (name.Length == 0) return false;
+            for (int i = 0; i < names.Count; i++)
+                if (names[i] == name) return true;
+            return false;
         }
 
         static bool ReadEnabled(object el, out bool on)

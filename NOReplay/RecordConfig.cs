@@ -1,4 +1,5 @@
 ﻿using BepInEx.Configuration;
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using System;
@@ -12,6 +13,7 @@ namespace NOReplay
         internal const string OptionalDataSettings = "Optional Data Settings";
         internal const string VisualSettings = "Visual Settings";
         internal const string DeveloperFeatures = "Developer Features";
+        internal const string ReplayHotkeys = "Replay Hotkeys";
 
         internal const int DefaultUpdateRate = 5;
 
@@ -67,6 +69,15 @@ namespace NOReplay
         internal const bool DefaultEnableUnitLogging = false;
 
         internal const KeyCode DefaultStartStopRecordingKey = KeyCode.F8;
+        internal const KeyCode DefaultToggleTimelineKey = KeyCode.F10;
+        internal const KeyCode DefaultLookAtLockKey = KeyCode.F;
+        internal const KeyCode DefaultToggleTrailsKey = KeyCode.T;
+        internal const KeyCode DefaultPlayPauseKey = KeyCode.Space;
+        internal const KeyCode DefaultSpeed1Key = KeyCode.Alpha1;
+        internal const KeyCode DefaultSpeed2Key = KeyCode.Alpha2;
+        internal const KeyCode DefaultSpeed4Key = KeyCode.Alpha4;
+        internal const KeyCode DefaultSeekBackKey = KeyCode.LeftArrow;
+        internal const KeyCode DefaultSeekForwardKey = KeyCode.RightArrow;
 
 #pragma warning disable CS8618
         private static ConfigEntry<int> _UpdateRate;
@@ -111,6 +122,15 @@ namespace NOReplay
         internal static ConfigEntry<bool> EnableLogging;
 
         internal static ConfigEntry<KeyboardShortcut> StartStopRecordingKey;
+        internal static ConfigEntry<KeyboardShortcut> ToggleTimelineKey;
+        internal static ConfigEntry<KeyboardShortcut> LookAtLockKey;
+        internal static ConfigEntry<KeyboardShortcut> ToggleTrailsKey;
+        internal static ConfigEntry<KeyboardShortcut> PlayPauseKey;
+        internal static ConfigEntry<KeyboardShortcut> Speed1Key;
+        internal static ConfigEntry<KeyboardShortcut> Speed2Key;
+        internal static ConfigEntry<KeyboardShortcut> Speed4Key;
+        internal static ConfigEntry<KeyboardShortcut> SeekBackKey;
+        internal static ConfigEntry<KeyboardShortcut> SeekForwardKey;
 
         internal static readonly bool DefaultDestructionEvents = true;
         internal static ConfigEntry<bool> DestructionEvents;
@@ -347,16 +367,114 @@ namespace NOReplay
             EnableUnitLogging = config.Bind(DeveloperFeatures, "EnableUnknownUnitLogging", DefaultEnableUnitLogging, "Toggle logging Unknown Units that are unknown to ACMI Recorder. Default: false");
             Record.Log?.LogDebug($"EnableUnknownUnitLogging = {EnableUnitLogging.Value}");
 
-            StartStopRecordingKey = config.Bind(
+            StartStopRecordingKey = BindHotkey(
+                config,
                 "Hotkeys",
                 "StartStopRecordingKey",
-                new KeyboardShortcut(DefaultStartStopRecordingKey),
+                DefaultStartStopRecordingKey,
                 "Start or stop recording in a live match. Default: F8. During playback the key is ignored.");
-            Record.Log?.LogDebug($"StartStopRecordingKey = {StartStopRecordingKey.Value}");
+
+            ToggleTimelineKey = BindHotkey(config, ReplayHotkeys, "Toggle Timeline", DefaultToggleTimelineKey,
+                "Hide or show the replay timeline. Default: F10.");
+            LookAtLockKey = BindHotkey(config, ReplayHotkeys, "Look-at Lock", DefaultLookAtLockKey,
+                "Toggle look-at lock on the selected unit. Default: F. Ignored while a text field is focused. The game binding for this key is muted during replay.");
+            ToggleTrailsKey = BindHotkey(config, ReplayHotkeys, "Toggle Trails", DefaultToggleTrailsKey,
+                "Toggle flight-path trails. Default: T. Ignored while a text field is focused. The game binding for this key is muted during replay.");
+            PlayPauseKey = BindHotkey(config, ReplayHotkeys, "Play/Pause", DefaultPlayPauseKey,
+                "Play or pause the replay. Default: Space.");
+            Speed1Key = BindHotkey(config, ReplayHotkeys, "Speed 1x", DefaultSpeed1Key,
+                "Set playback speed to 1x. Default: 1.");
+            Speed2Key = BindHotkey(config, ReplayHotkeys, "Speed 2x", DefaultSpeed2Key,
+                "Set playback speed to 2x. Default: 2.");
+            Speed4Key = BindHotkey(config, ReplayHotkeys, "Speed 4x", DefaultSpeed4Key,
+                "Set playback speed to 4x. Default: 4.");
+            SeekBackKey = BindHotkey(config, ReplayHotkeys, "Seek Backward", DefaultSeekBackKey,
+                "Jump the replay back 5 seconds. Default: Left Arrow.");
+            SeekForwardKey = BindHotkey(config, ReplayHotkeys, "Seek Forward", DefaultSeekForwardKey,
+                "Jump the replay forward 5 seconds. Default: Right Arrow.");
 
             EnableLogging = config.Bind(DeveloperFeatures, "EnableLogging", DefaultEnableLogging, "Toggle Logging. Default: false");
             Record.Log?.LogDebug($"EnableLogging = {EnableLogging.Value}");
 
+            WarnHotkeyCollisions();
+        }
+
+        static readonly HashSet<string> _warnedHotkeys = new HashSet<string>();
+
+        static ConfigEntry<KeyboardShortcut> BindHotkey(ConfigFile config, string section, string key, KeyCode code, string description)
+        {
+            var entry = config.Bind(section, key, new KeyboardShortcut(code), description);
+            entry.SettingChanged += OnHotkeyChanged;
+            Record.Log?.LogDebug(key + " = " + entry.Value);
+            return entry;
+        }
+
+        static void OnHotkeyChanged(object sender, EventArgs e)
+        {
+            WarnHotkeyCollisions();
+            Plugin.RefreshReplayKeyMute();
+        }
+
+        internal static void WarnHotkeyCollisions()
+        {
+            var keys = new[]
+            {
+                new HotkeySlot("Start/stop recording", StartStopRecordingKey),
+                new HotkeySlot("Toggle timeline", ToggleTimelineKey),
+                new HotkeySlot("Look-at lock", LookAtLockKey),
+                new HotkeySlot("Toggle trails", ToggleTrailsKey),
+                new HotkeySlot("Play/pause", PlayPauseKey),
+                new HotkeySlot("Speed 1x", Speed1Key),
+                new HotkeySlot("Speed 2x", Speed2Key),
+                new HotkeySlot("Speed 4x", Speed4Key),
+                new HotkeySlot("Seek backward", SeekBackKey),
+                new HotkeySlot("Seek forward", SeekForwardKey),
+            };
+            for (int i = 0; i < keys.Length; i++)
+            {
+                if (!TryShortcut(keys[i].Entry, out var a)) continue;
+                if (a.MainKey == KeyCode.W || a.MainKey == KeyCode.A
+                    || a.MainKey == KeyCode.S || a.MainKey == KeyCode.D)
+                {
+                    string flyId = keys[i].Name + "|WASD|" + a.MainKey;
+                    if (_warnedHotkeys.Add(flyId))
+                        Plugin.Log.LogWarning("Hotkey-Konflikt: " + keys[i].Name + " (" + a + ") liegt auf " + a.MainKey + ". WASD bewegt die freie Kamera weiter.");
+                }
+                for (int j = i + 1; j < keys.Length; j++)
+                {
+                    if (!TryShortcut(keys[j].Entry, out var b)) continue;
+                    if (a.MainKey != b.MainKey) continue;
+                    string id = keys[i].Name + "|" + keys[j].Name + "|" + a.MainKey;
+                    if (!_warnedHotkeys.Add(id)) continue;
+                    Plugin.Log.LogWarning("Hotkey-Konflikt: " + keys[i].Name + " (" + a + ") und " + keys[j].Name + " (" + b + ") nutzen " + a.MainKey + ".");
+                }
+            }
+        }
+
+        static bool TryShortcut(ConfigEntry<KeyboardShortcut>? entry, out KeyboardShortcut key)
+        {
+            key = default;
+            if (entry == null) return false;
+            try
+            {
+                key = entry.Value;
+                return key.MainKey != KeyCode.None;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        struct HotkeySlot
+        {
+            internal readonly string Name;
+            internal readonly ConfigEntry<KeyboardShortcut>? Entry;
+            internal HotkeySlot(string name, ConfigEntry<KeyboardShortcut>? entry)
+            {
+                Name = name;
+                Entry = entry;
+            }
         }
     }
 }

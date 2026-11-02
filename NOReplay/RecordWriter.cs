@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using NuclearOption.SavedMission;
@@ -176,6 +177,17 @@ namespace NOReplay
                 propText.Append(kv.Key).Append('=').Append(kv.Value);
             }
             return propText.ToString();
+        }
+
+        internal void WriteGlobal(string body, DateTime updateTime)
+        {
+            TimeSpan diff = updateTime - reference;
+            if (diff != lastUpdate)
+            {
+                lastUpdate = diff;
+                WriteLine("#" + diff.TotalSeconds.ToString(CultureInfo.InvariantCulture));
+            }
+            WriteLine("0," + body);
         }
 
         internal void WriteLine(string line)

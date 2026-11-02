@@ -13,5 +13,6 @@
     <Compile Include="..\..\NOReplay\SampleIndex.cs" Link="SampleIndex.cs" />
     <Compile Include="..\..\NOReplay\FieldFast.cs" Link="FieldFast.cs" />
     <Compile Include="..\..\NOReplay\AcmiScan.cs" Link="AcmiScan.cs" />
+    <Compile Include="..\..\NOReplay\CarrierOps.cs" Link="CarrierOps.cs" />
   </ItemGroup>
 </Project>

@@ -10,7 +10,6 @@ namespace NOReplay
     {
         internal const string GeneralSettings = "General Settings";
         internal const string OptionalDataSettings = "Optional Data Settings";
-        internal const string HeightMapGeneratorSettings = "Heightmap Generator Settings";
         internal const string VisualSettings = "Visual Settings";
         internal const string DeveloperFeatures = "Developer Features";
 
@@ -43,13 +42,6 @@ namespace NOReplay
 
         internal const bool DefaultEnableLogging = false;
 
-        internal const KeyCode DefaultGenerateHeightMapKey = KeyCode.F10;
-        internal const int DefaultMetersPerScan = 4;
-        internal const int DefaultHeightMapResolution = 4096;
-        internal const bool DefaultEnableHeightmapGenerator = false;
-        internal const bool DefaultTacviewBetaHeightMapGenerator = true;
-        //internal const float DefaultOrtoGraphicSize = 5f;
-
         internal const float DefaultTextColorR = 1.0f;
         internal const float DefaultTextColorG = 1.0f;
         internal const float DefaultTextColorB = 1.0f;
@@ -73,8 +65,6 @@ namespace NOReplay
         internal const bool DefaultAutoStartRecording = true;
 
         internal const bool DefaultEnableUnitLogging = false;
-        internal const bool DefaultEnableEncyclopediaExporter = false;
-        internal const KeyCode DefaultEncyclopediaExporterKey = KeyCode.F11;
 
         internal const KeyCode DefaultStartStopRecordingKey = KeyCode.F8;
 
@@ -105,13 +95,6 @@ namespace NOReplay
         internal static ConfigEntry<bool> RecordPilotHead;
         internal static ConfigEntry<bool> RecordExtraTelemetry;
 
-        internal static ConfigEntry<int> HeightMapResolution;
-        internal static ConfigEntry<int> MetersPerScan;
-        internal static ConfigEntry<KeyboardShortcut> _GenerateHeightMapKey;
-        internal static ConfigEntry<bool> EnableHeightmapGenerator;
-        //internal static ConfigEntry <bool> TacviewBetaHeightMapGenerator;
-        //internal static ConfigEntry<float> OrtoGraphicSize;
-
         internal static ConfigEntry<float> TextColorR;
         internal static ConfigEntry<float> TextColorG;
         internal static ConfigEntry<float> TextColorB;
@@ -122,13 +105,10 @@ namespace NOReplay
         internal static ConfigEntry<float> AutoSaveCountDownY;
 
         internal static ConfigEntry<bool> EnableUnitLogging;
-        internal static ConfigEntry<bool> EnableEncyclopediaExporter;
         internal static ConfigEntry<bool> RecordEjectedPilots;
         internal static ConfigEntry<bool> AutoStartRecording;
 
         internal static ConfigEntry<bool> EnableLogging;
-
-        internal static ConfigEntry<KeyboardShortcut> EncyclopediaExporterKey;
 
         internal static ConfigEntry<KeyboardShortcut> StartStopRecordingKey;
 
@@ -168,15 +148,6 @@ namespace NOReplay
                 return _CompressIDs.Value;
             }
         }
-
-        internal static bool GenerateHeightMapKey
-        {
-            get
-            {
-                return _GenerateHeightMapKey.Value.IsDown();
-            }
-        }
-
 
         internal static void InitSettings(ConfigFile config)
         {
@@ -302,39 +273,6 @@ namespace NOReplay
             _CompressIDs = config.Bind(OptionalDataSettings, "CompressIDs", DefaultCompressIDs, "Compress IDs to reduce filesize with less determinism.");
             Record.Log?.LogDebug($"CompressIDs = {_CompressIDs.Value}");
 
-            MetersPerScan = config.Bind(HeightMapGeneratorSettings, "MetersPerScan", DefaultMetersPerScan, "Sample rate of the Heightmap generator. Does a scan per X meter. Default: 4");
-            if (MetersPerScan.Value < 1)
-            {
-                Record.Log?.LogWarning($"Invalid MetersPerScan! Setting default value {DefaultMetersPerScan}!");
-                MetersPerScan.Value = DefaultMetersPerScan;
-            }
-            Record.Log?.LogDebug($"MetersPerScan = {MetersPerScan.Value}");
-
-            HeightMapResolution = config.Bind(HeightMapGeneratorSettings, "HeightMapResolution", DefaultHeightMapResolution, "Resolution of the Heightmap. Must be divisible by 4. Default: 4096");
-            if ((HeightMapResolution.Value % 4) != 0)
-            {
-                Record.Log?.LogWarning($"HeightMapResolution must be divisible by 4! Setting default value {DefaultHeightMapResolution}!");
-                HeightMapResolution.Value = DefaultHeightMapResolution;
-            }
-            Record.Log?.LogDebug($"HeightMapResolution = {HeightMapResolution.Value}");
-            /*
-            OrtoGraphicSize = config.Bind(HeightMapGeneratorSettings, "OrtographicSize", DefaultOrtoGraphicSize, "Size of Ortographic Camera for Texture Generation. Must be bigger than 0f.");
-            if (OrtoGraphicSize.Value <= 0f)
-            {
-                Record.Log?.LogWarning($"OrtographicSize must be divisible by 4! Setting default value {DefaultOrtoGraphicSize}!");
-                OrtoGraphicSize.Value = DefaultOrtoGraphicSize;
-            }
-            Record.Log?.LogDebug($"OrtographicSize = {OrtoGraphicSize.Value}");
-            */
-            _GenerateHeightMapKey = config.Bind("Hotkeys", "Generate Heightmap", new KeyboardShortcut(DefaultGenerateHeightMapKey));
-            Record.Log?.LogDebug($"Generate Heightmap key = {_GenerateHeightMapKey.Value}");
-
-            EnableHeightmapGenerator = config.Bind(HeightMapGeneratorSettings, "EnableHeightmapGenerator", DefaultEnableHeightmapGenerator, "Enable/Disable Heightmap Generator. Default: false");
-            Record.Log?.LogDebug($"EnableHeightmapGenerator = {EnableHeightmapGenerator.Value}");
-
-            //TacviewBetaHeightMapGenerator = config.Bind(HeightMapGeneratorSettings, "TacviewBetaHeightMapGenerator", DefaultTacviewBetaHeightMapGenerator, "True: Compatibility set for Tacview 1.9.5 Beta 11, False: Compatibility set for Tacview Stable. Default: True");
-            //Record.Log?.LogDebug($"TacviewBetaHeightMapGenerator = {TacviewBetaHeightMapGenerator.Value}");
-
             RecordEjectedPilots = config.Bind(GeneralSettings, "RecordEjectedPilots", DefaultRecordEjectedPilots, "Toggle Recording Ejected Pilots.");
             Record.Log?.LogDebug($"RecordEjectedPilots = {RecordEjectedPilots.Value}");
 
@@ -408,12 +346,6 @@ namespace NOReplay
 
             EnableUnitLogging = config.Bind(DeveloperFeatures, "EnableUnknownUnitLogging", DefaultEnableUnitLogging, "Toggle logging Unknown Units that are unknown to ACMI Recorder. Default: false");
             Record.Log?.LogDebug($"EnableUnknownUnitLogging = {EnableUnitLogging.Value}");
-
-            EnableEncyclopediaExporter = config.Bind(DeveloperFeatures, "EnableEncyclopediaExporter", DefaultEnableEncyclopediaExporter, "Toggle Encyclopedia Exporter. Default: false");
-            Record.Log?.LogDebug($"EnableEncyclopediaExporter = {EnableEncyclopediaExporter.Value}");
-
-            EncyclopediaExporterKey = config.Bind("Hotkeys", "EncyclopediaExporterKey", new KeyboardShortcut(DefaultEncyclopediaExporterKey));
-            Record.Log?.LogDebug($"EncyclopediaExporterKey = {EncyclopediaExporterKey.Value}");
 
             StartStopRecordingKey = config.Bind("Hotkeys", "StartStopRecordingKey", new KeyboardShortcut(DefaultStartStopRecordingKey));
             Record.Log?.LogDebug($"StartStopRecordingKey = {StartStopRecordingKey.Value}");

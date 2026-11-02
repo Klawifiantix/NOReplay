@@ -1,10 +1,28 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Reflection;
+using System.Text;
 using UnityEngine;
 
 namespace NOReplay
 {
+    /// <summary>
+    /// Runs after the ghost and the LOD group, so a later pass cannot
+    /// switch the landing lights back off before they are drawn.
+    /// </summary>
+    [DefaultExecutionOrder(10000)]
+    public sealed class ReplayBallLate : MonoBehaviour
+    {
+        internal ReplayGhost? Ghost;
+
+        void LateUpdate()
+        {
+            if (Ghost == null || Plugin.CurrentDoc == null) return;
+            Ghost.DriveMeatball(Plugin.Clock.Time);
+        }
+    }
+
     public partial class ReplayGhost
     {
         struct BallRig
@@ -42,6 +60,8 @@ namespace NOReplay
         BallRig[] _balls = Array.Empty<BallRig>();
         bool _ballReady;
         string? _ballLabel;
+        bool _ballVisLogged;
+        float _ballStateAt = -999f;
         float _spawnOffY;
         bool _spawnOffKnown;
 
@@ -62,6 +82,27 @@ namespace NOReplay
             _fBallLow = _olsType.GetField("meatballPosLow", flags);
             _fBallHigh = _olsType.GetField("meatballPosHigh", flags);
             _fMeasured = _olsType.GetField("meatballMeasuredRange", flags);
+        }
+
+        /// <summary>
+        /// Carrier light particles are not damage smoke. SuppressDamageFx
+        /// would stop them, and SetActive alone does not start them again.
+        /// </summary>
+        internal static bool IsOpticalLight(Transform? tr)
+        {
+            for (var t = tr; t != null; t = t.parent)
+            {
+                if (t.GetComponent<ReplayGhost>() != null) return false;
+                string n = t.name ?? "";
+                if (n.IndexOf("meatball", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                if (n.IndexOf("datum", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                if (n.IndexOf("optical", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                if (n.IndexOf("iflo", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                if (n.IndexOf("waveoff", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                if (n.IndexOf("wave_off", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                if (n.IndexOf("fresnel", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            }
+            return false;
         }
 
         void TryBindBall()
@@ -93,6 +134,8 @@ namespace NOReplay
                     High = _fBallHigh?.GetValue(comp) as Transform,
                     Measured = _fMeasured?.GetValue(comp) is float m ? m : 1f
                 };
+                if (rig.Meatball == null && rig.Ball != null)
+                    rig.Meatball = rig.Ball.gameObject;
                 object? runway = null;
                 var airbase = _fBallBase?.GetValue(comp);
                 if (airbase != null)
@@ -118,6 +161,10 @@ namespace NOReplay
                 rigs.Add(rig);
             }
             _balls = rigs.ToArray();
+            if (_balls.Length == 0) return;
+            var late = GetComponent<ReplayBallLate>();
+            if (late == null) late = gameObject.AddComponent<ReplayBallLate>();
+            late.Ghost = this;
         }
 
         static object? ArrestorRunway(object airbase, BindingFlags flags)
@@ -138,11 +185,17 @@ namespace NOReplay
             return landing;
         }
 
-        void DriveMeatball(float time)
+        internal void DriveMeatball(float time)
         {
             if (!_ballReady) TryBindBall();
             if (_balls.Length == 0) return;
             string shown = "";
+            float shownSlope = 0f;
+            float shownErr = 0f;
+            string shownLit = "off";
+            int shownCell = -1;
+            int shownCells = 0;
+            string shownCellName = "";
             for (int i = 0; i < _balls.Length; i++)
             {
                 var rig = _balls[i];
@@ -159,7 +212,6 @@ namespace NOReplay
                     continue;
                 }
                 shown = target.CarrierLabel();
-                ShowDatum(rig);
                 Vector3 start = rig.RunwayStart.position;
                 Vector3 end = rig.RunwayEnd != null ? rig.RunwayEnd.position : start;
                 Vector3 dir = end - start;
@@ -188,34 +240,224 @@ namespace NOReplay
                 float slope = (error * (1000f / Mathf.Max(range, 100f)) + measured * 0.5f) / measured;
                 rig.Ball.position = Vector3.Lerp(rig.Low.position, rig.High.position, slope);
                 bool flash = Mathf.Sin(Time.unscaledTime * 16f) > 0f;
+                bool red = false, white = false, ball = true;
+                string lit;
                 if (slope < 0.2f)
                 {
-                    SetGo(rig.White, false);
-                    SetGo(rig.Red, slope < 0f ? flash : true);
+                    white = false;
+                    red = slope < 0f ? flash : true;
+                    lit = slope < 0f ? "red-flash" : "red";
                 }
                 else if (slope > 0.8f)
                 {
-                    SetGo(rig.Red, false);
-                    SetGo(rig.White, slope > 1f ? flash : true);
+                    red = false;
+                    white = slope > 1f ? flash : true;
+                    lit = slope > 1f ? "white-flash" : "white";
                 }
                 else
                 {
-                    SetGo(rig.Red, false);
-                    SetGo(rig.White, false);
-                    SetGo(rig.Meatball, true);
+                    red = false;
+                    white = false;
+                    ball = true;
+                    lit = "ball";
                 }
-                SetGo(rig.WaveOff, false);
+                bool wantLog = !_ballVisLogged || Time.unscaledTime - _ballStateAt >= 1f;
+                string before = wantLog && !_ballVisLogged ? Snapshot(rig) : "";
+                ShowLights(rig, ball, true, red, white);
+                int cells = 0;
+                int cell = -1;
+                string cellName = "";
+                if (wantLog)
+                    cell = LitCell(rig, slope, out cells, out cellName);
+                shownSlope = slope;
+                shownErr = error;
+                shownLit = lit;
+                shownCell = cell;
+                shownCells = cells;
+                shownCellName = cellName;
+                if (!_ballVisLogged)
+                {
+                    _ballVisLogged = true;
+                    Plugin.Log.LogInfo("Meatball-Vis " + CarrierLabel()
+                        + " before[" + before + "] after[" + Snapshot(rig) + "]"
+                        + " lit=" + lit
+                        + " slope=" + slope.ToString("0.00", CultureInfo.InvariantCulture)
+                        + " err=" + error.ToString("0.0", CultureInfo.InvariantCulture)
+                        + " cell=" + cell.ToString(CultureInfo.InvariantCulture)
+                        + "/" + cells.ToString(CultureInfo.InvariantCulture)
+                        + (cellName.Length > 0 ? " " + cellName : ""));
+                }
             }
-            if (shown == _ballLabel) return;
-            if (shown.Length == 0 && string.IsNullOrEmpty(_ballLabel))
+            if (shown.Length == 0)
+                _ballVisLogged = false;
+            if (shown != _ballLabel)
             {
-                _ballLabel = "";
+                if (!(shown.Length == 0 && string.IsNullOrEmpty(_ballLabel)))
+                {
+                    Plugin.Log.LogInfo(shown.Length == 0
+                        ? "Meatball " + CarrierLabel() + " off"
+                        : "Meatball " + CarrierLabel() + " -> " + shown);
+                }
+                _ballLabel = shown;
+            }
+            if (shown.Length > 0 && Time.unscaledTime - _ballStateAt >= 1f)
+            {
+                _ballStateAt = Time.unscaledTime;
+                Plugin.Log.LogInfo("Meatball-State " + CarrierLabel() + " -> " + shown
+                    + " slope=" + shownSlope.ToString("0.00", CultureInfo.InvariantCulture)
+                    + " err=" + shownErr.ToString("0.0", CultureInfo.InvariantCulture)
+                    + " lit=" + shownLit
+                    + " cell=" + shownCell.ToString(CultureInfo.InvariantCulture)
+                    + "/" + shownCells.ToString(CultureInfo.InvariantCulture)
+                    + (shownCellName.Length > 0 ? " " + shownCellName : ""));
+            }
+        }
+
+        void ShowLights(BallRig rig, bool ball, bool datum, bool red, bool white)
+        {
+            Reveal(rig.Meatball, ball);
+            Reveal(rig.Datum, datum);
+            Reveal(rig.Red, red);
+            Reveal(rig.White, white);
+            Reveal(rig.WaveOff, false);
+            if (rig.Ball != null)
+                Reveal(rig.Ball.gameObject, ball);
+        }
+
+        void Reveal(GameObject? go, bool on)
+        {
+            if (go == null) return;
+            if (!on)
+            {
+                if (go.activeSelf) go.SetActive(false);
                 return;
             }
-            _ballLabel = shown;
-            Plugin.Log.LogInfo(shown.Length == 0
-                ? "Meatball " + CarrierLabel() + " off"
-                : "Meatball " + CarrierLabel() + " -> " + shown);
+            var t = go.transform;
+            while (t != null && t != transform)
+            {
+                if (!t.gameObject.activeSelf) t.gameObject.SetActive(true);
+                t = t.parent;
+            }
+            int shipLayer = gameObject.layer;
+            var nodes = go.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < nodes.Length; i++)
+            {
+                if (nodes[i] != null && nodes[i].gameObject.layer != shipLayer)
+                    nodes[i].gameObject.layer = shipLayer;
+            }
+            var rends = go.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < rends.Length; i++)
+            {
+                var r = rends[i];
+                if (r == null) continue;
+                _disabledInPrefab.Remove(r);
+                r.enabled = true;
+                r.forceRenderingOff = false;
+                if (r.gameObject.layer != shipLayer) r.gameObject.layer = shipLayer;
+            }
+            var lights = go.GetComponentsInChildren<Light>(true);
+            for (int i = 0; i < lights.Length; i++)
+                if (lights[i] != null) lights[i].enabled = true;
+            var pt = ParticleType();
+            if (pt != null)
+            {
+                foreach (var c in go.GetComponentsInChildren(pt, true))
+                {
+                    if (c is not Component ps) continue;
+                    EnableParticleEmission(ps);
+                    PlayParticleSystem(ps);
+                }
+            }
+            var behs = go.GetComponentsInChildren<MonoBehaviour>(true);
+            for (int i = 0; i < behs.Length; i++)
+            {
+                var b = behs[i];
+                if (b != null && b.GetType().Name == "MeshLightSettings")
+                    b.enabled = true;
+            }
+        }
+
+        static int LitCell(BallRig rig, float slope, out int count, out string name)
+        {
+            name = "";
+            var list = new List<Renderer>(8);
+            AddCells(rig.Datum, list);
+            AddCells(rig.Meatball, list);
+            if (rig.Ball != null) AddCells(rig.Ball.gameObject, list);
+            count = list.Count;
+            if (count == 0) return -1;
+            if (count > 1 && rig.Low != null && rig.High != null)
+            {
+                Vector3 axis = rig.High.position - rig.Low.position;
+                list.Sort((a, b) =>
+                {
+                    float da = a != null ? Vector3.Dot(a.transform.position, axis) : 0f;
+                    float db = b != null ? Vector3.Dot(b.transform.position, axis) : 0f;
+                    return da.CompareTo(db);
+                });
+            }
+            float u = slope < 0f ? 0f : (slope > 1f ? 1f : slope);
+            int index = count == 1 ? 0 : Mathf.RoundToInt(u * (count - 1));
+            if (index < 0) index = 0;
+            if (index >= count) index = count - 1;
+            if (list[index] != null) name = list[index].name;
+            return index;
+        }
+
+        static void AddCells(GameObject? go, List<Renderer> list)
+        {
+            if (go == null) return;
+            var rends = go.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < rends.Length; i++)
+            {
+                var r = rends[i];
+                if (r != null && !list.Contains(r)) list.Add(r);
+            }
+        }
+
+        static string Snapshot(BallRig rig)
+        {
+            var sb = new StringBuilder(256);
+            sb.Append("ols=").Append(rig.Host != null ? rig.Host.name : "?");
+            AppendGo(sb, "ball", rig.Meatball);
+            AppendGo(sb, "datum", rig.Datum);
+            AppendGo(sb, "red", rig.Red);
+            AppendGo(sb, "white", rig.White);
+            AppendGo(sb, "pos", rig.Ball != null ? rig.Ball.gameObject : null);
+            return sb.ToString();
+        }
+
+        static void AppendGo(StringBuilder sb, string label, GameObject? go)
+        {
+            sb.Append(' ').Append(label).Append('=');
+            if (go == null)
+            {
+                sb.Append("null");
+                return;
+            }
+            int rends = 0, rendOn = 0, lights = 0, lightOn = 0;
+            var rs = go.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < rs.Length; i++)
+            {
+                if (rs[i] == null) continue;
+                rends++;
+                if (rs[i].enabled) rendOn++;
+            }
+            var ls = go.GetComponentsInChildren<Light>(true);
+            for (int i = 0; i < ls.Length; i++)
+            {
+                if (ls[i] == null) continue;
+                lights++;
+                if (ls[i].enabled) lightOn++;
+            }
+            sb.Append(go.name)
+                .Append(" self=").Append(go.activeSelf ? "1" : "0")
+                .Append(" hier=").Append(go.activeInHierarchy ? "1" : "0")
+                .Append(" layer=").Append(go.layer.ToString(CultureInfo.InvariantCulture))
+                .Append(" rend=").Append(rendOn.ToString(CultureInfo.InvariantCulture))
+                .Append('/').Append(rends.ToString(CultureInfo.InvariantCulture))
+                .Append(" light=").Append(lightOn.ToString(CultureInfo.InvariantCulture))
+                .Append('/').Append(lights.ToString(CultureInfo.InvariantCulture));
         }
 
         ReplayGhost? PickBallTarget(Transform ols, float time)
@@ -276,25 +518,14 @@ namespace NOReplay
             return _spawnOffY;
         }
 
-        static void ShowDatum(BallRig rig)
+        void HideBall(BallRig rig)
         {
-            SetGo(rig.Meatball, true);
-            SetGo(rig.Datum, true);
-            SetGo(rig.WaveOff, false);
+            Reveal(rig.Meatball, false);
+            Reveal(rig.Datum, false);
+            Reveal(rig.WaveOff, false);
+            Reveal(rig.Red, false);
+            Reveal(rig.White, false);
         }
 
-        static void HideBall(BallRig rig)
-        {
-            SetGo(rig.Meatball, false);
-            SetGo(rig.Datum, false);
-            SetGo(rig.WaveOff, false);
-            SetGo(rig.Red, false);
-            SetGo(rig.White, false);
-        }
-
-        static void SetGo(GameObject? go, bool on)
-        {
-            if (go != null && go.activeSelf != on) go.SetActive(on);
-        }
     }
 }

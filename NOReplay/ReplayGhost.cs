@@ -603,7 +603,9 @@ namespace NOReplay
                 Bind();
                 CacheShipFx();
                 BindMotion();
+                TryBindWires();
             }
+            if (_air) TryBindHook();
             Plugin.ApplyReplayIdentity(gameObject, Track);
             if (!_air && !_ship && !_ordnance)
             {
@@ -1181,6 +1183,7 @@ namespace NOReplay
                 InvalidatePlaybackCaches();
                 BindNozzles();
                 BindMotion();
+                ForgetHook();
                 _nextGunScan = 0f;
                 _nextRadarScan = 0f;
             }
@@ -1311,6 +1314,8 @@ namespace NOReplay
                 try { ReapplyInactiveOrdnance(); }
                 catch (Exception ex) { LogSubsystemOnce("ReapplyInactiveOrdnance", ex); }
             }
+            try { DriveCarrier(nowT); }
+            catch (Exception ex) { LogSubsystemOnce("Carrier", ex); }
         }
 
         int _subFail;
@@ -1321,7 +1326,8 @@ namespace NOReplay
                 : where == "TickRadars" ? 2
                 : where == "TickStructural" ? 4
                 : where == "TickAmmo" ? 8
-                : where == "Vapor" ? 32 : 16;
+                : where == "Vapor" ? 32
+                : where == "Carrier" ? 64 : 16;
             if ((_subFail & bit) != 0) return;
             _subFail |= bit;
             Plugin.Log.LogWarning(where + " " + ex.GetType().Name + ": " + ex.Message);

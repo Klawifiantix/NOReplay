@@ -604,6 +604,7 @@ namespace NOReplay
                 CacheShipFx();
                 BindMotion();
                 TryBindWires();
+                TryBindBall();
             }
             if (_air) TryBindHook();
             Plugin.ApplyReplayIdentity(gameObject, Track);

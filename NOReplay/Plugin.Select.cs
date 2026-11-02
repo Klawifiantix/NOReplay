@@ -13,6 +13,7 @@ namespace NOReplay
         static readonly BindingFlags Stat = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
 
         static ReplayGhost? _selected;
+        internal static ReplayGhost? SelectedGhost => _selected;
         static bool _ownOrbit;
         static bool _lookLock;
         static float _orbYaw, _orbPitch, _orbDist = 40f;

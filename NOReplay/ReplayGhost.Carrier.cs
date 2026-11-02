@@ -110,7 +110,11 @@ namespace NOReplay
         void DriveCarrier(float time)
         {
             if (_air) DriveHook(time);
-            if (_ship) DriveWires(time);
+            if (_ship)
+            {
+                DriveWires(time);
+                DriveMeatball(time);
+            }
         }
 
         void DriveHook(float time)

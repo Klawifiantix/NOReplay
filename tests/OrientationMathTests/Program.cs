@@ -40,6 +40,10 @@ namespace NOReplay.OrientationTests
             AcmiPropsMatchSplit();
             AcmiPoseMatchesTheOldReader();
             FloatFieldDoesNotNeedSetValue();
+            CruiseWingsWaitThenOpen();
+            GlideWingsUseTheShortDelay();
+            SeekFoldsTheWingsAgain();
+            FinKindsMatchTheSeekers();
             CarrierOpsTests.Run();
             _failed += CarrierOpsTests.Failed;
             if (_failed > 0)
@@ -500,6 +504,54 @@ namespace NOReplay.OrientationTests
         {
             public float Speed;
             public bool On;
+        }
+
+        static void CruiseWingsWaitThenOpen()
+        {
+            // OpticalSeekerCruiseMissile default finDelay is 1s. deploySpeed 1 opens over the next second.
+            Check(FinDeploy.Amount(1f, 1f, 1f) == 0f, "still folded on the delay tick");
+            Check(MathF.Abs(FinDeploy.Amount(1.5f, 1f, 1f) - 0.5f) < 0.0001f, "cruise wing half open");
+            Check(FinDeploy.Amount(2f, 1f, 1f) == 1f, "cruise wing open after one second");
+            Check(FinDeploy.Amount(30f, 1f, 1f) == 1f, "cruise wing stays open");
+            Check(FinDeploy.Amount(0.5f, 1f, 0f) == 0f, "zero deploy speed stays folded");
+            FinDeploy.LerpEuler(0f, 0f, 90f, 0f, 0f, 0f, 0.5f, out float x, out float y, out float z);
+            Check(MathF.Abs(z - 45f) < 0.0001f && x == 0f && y == 0f, "euler blend is component lerp");
+        }
+
+        static void GlideWingsUseTheShortDelay()
+        {
+            float delay = FinDeploy.FallbackDelay("OpticalSeekerBomb");
+            Check(MathF.Abs(delay - 0.2f) < 0.0001f, "glide bomb default delay");
+            Check(FinDeploy.Amount(0.2f, delay, 1f) == 0f, "glide wing folded at the delay");
+            Check(MathF.Abs(FinDeploy.Amount(0.7f, delay, 1f) - 0.5f) < 0.0001f, "glide wing half open");
+            Check(FinDeploy.Amount(-1f, delay, 1f) == 0f, "before launch is folded");
+            Check(MathF.Abs(FinDeploy.Amount(1.25f, 1f, 2f) - 0.5f) < 0.0001f, "faster fin is half open sooner");
+        }
+
+        static void SeekFoldsTheWingsAgain()
+        {
+            float delay = FinDeploy.FallbackDelay("OpticalSeekerCruiseMissile");
+            Check(FinDeploy.Amount(8f, delay, 1f) == 1f, "seek forward is open");
+            Check(FinDeploy.Amount(0.2f, delay, 1f) == 0f, "seek back before the delay is folded");
+            Check(FinDeploy.Amount(0f, 0f, 1f) == 0f, "launch instant of an immediate fin stays folded");
+            Check(MathF.Abs(FinDeploy.Amount(0.25f, 0f, 1f) - 0.25f) < 0.0001f, "immediate fin has been opening since launch");
+        }
+
+        static void FinKindsMatchTheSeekers()
+        {
+            Check(FinDeploy.KindFor("OpticalSeekerCruiseMissile") == FinDeploy.Kind.FinDelay, "cruise uses finDelay");
+            Check(FinDeploy.KindFor("OpticalSeekerBomb") == FinDeploy.Kind.FinDelay, "glide bomb uses finDelay");
+            Check(FinDeploy.KindFor("OpticalSeeker") == FinDeploy.Kind.FinDelay, "optical missile uses finDelay");
+            Check(FinDeploy.KindFor("ARMSeeker") == FinDeploy.Kind.FinDelay, "ARM uses finDelay");
+            Check(FinDeploy.KindFor("ARHSeeker") == FinDeploy.Kind.Guidance, "ARH opens with guidance");
+            Check(FinDeploy.KindFor("IRSeeker") == FinDeploy.Kind.Guidance, "IR opens with guidance");
+            Check(FinDeploy.KindFor("SARHSeeker") == FinDeploy.Kind.Immediate, "SARH opens at launch");
+            Check(FinDeploy.KindFor("BallisticMissileGuidance") == FinDeploy.Kind.Immediate, "ballistic opens at launch");
+            Check(FinDeploy.KindFor("OpticalSeekerHighDrag") == FinDeploy.Kind.None, "high drag is not a folding fin");
+            Check(MathF.Abs(FinDeploy.FallbackDelay("OpticalSeekerCruiseMissile") - 1f) < 0.0001f, "cruise default delay");
+            Check(MathF.Abs(FinDeploy.FallbackDelay("IRSeeker") - 0.25f) < 0.0001f, "IR default guidance delay");
+            Check(MathF.Abs(FinDeploy.FallbackDelay("ARHSeeker") - 1f) < 0.0001f, "ARH default guidance delay");
+            Check(MathF.Abs(FinDeploy.FallbackDelay("ARMSeeker") - 0.5f) < 0.0001f, "ARM default delay");
         }
 
         static void FloatFieldDoesNotNeedSetValue()

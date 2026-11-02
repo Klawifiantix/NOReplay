@@ -10,6 +10,7 @@
     <Compile Include="..\..\NOReplay\VaporMath.cs" Link="VaporMath.cs" />
     <Compile Include="..\..\NOReplay\GroundRoll.cs" Link="GroundRoll.cs" />
     <Compile Include="..\..\NOReplay\MissileMotorAudio.cs" Link="MissileMotorAudio.cs" />
+    <Compile Include="..\..\NOReplay\FinDeploy.cs" Link="FinDeploy.cs" />
     <Compile Include="..\..\NOReplay\SampleIndex.cs" Link="SampleIndex.cs" />
     <Compile Include="..\..\NOReplay\FieldFast.cs" Link="FieldFast.cs" />
     <Compile Include="..\..\NOReplay\AcmiScan.cs" Link="AcmiScan.cs" />

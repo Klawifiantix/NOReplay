@@ -457,7 +457,7 @@ namespace NOReplay
                         DisableParticleEmission(c);
                         continue;
                     }
-                    if (KeepFxName(path.ToLowerInvariant()))
+                    if (KeepFxName(path.ToLowerInvariant()) || IsOpticalLight(tr))
                     {
                         EnableParticleEmission(c);
                         continue;

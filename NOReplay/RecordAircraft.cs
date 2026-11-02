@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
 using UnityEngine;
 
 namespace NOReplay
@@ -22,6 +23,10 @@ namespace NOReplay
         private float lastRpmRatio = float.NaN;
         private float lastJetRpm = float.NaN;
         private float lastTurbineRpm = float.NaN;
+        TailHook? _tailHook;
+        FieldInfo? _tailAmount;
+        int _tailTries;
+        float _lastTailhook = float.NaN;
 
         private Vector3 lastHead = Vector3.zero;
 
@@ -290,6 +295,25 @@ namespace NOReplay
                 }
                 EmitPowerRpm();
             }
+            EmitTailhook();
+        }
+
+        void EmitTailhook()
+        {
+            if (_tailHook == null)
+            {
+                if (_tailTries > 40) return;
+                _tailTries++;
+                if ((_tailTries & 3) != 1) return;
+                _tailHook = aircraft.GetComponentInChildren<TailHook>(true);
+                if (_tailHook == null) return;
+                _tailAmount = typeof(TailHook).GetField("deployedAmount", BindingFlags.Instance | BindingFlags.NonPublic);
+            }
+            if (_tailAmount == null || _tailHook == null) return;
+            if (_tailAmount.GetValue(_tailHook) is not float amount || float.IsNaN(amount)) return;
+            if (!float.IsNaN(_lastTailhook) && Mathf.Abs(_lastTailhook - amount) <= 0.05f) return;
+            props.Add("Tailhook", Mathf.Clamp01(amount).ToString("0.00", CultureInfo.InvariantCulture));
+            _lastTailhook = amount;
         }
 
         void ApplyLoadoutAndLivery()

@@ -33,6 +33,7 @@ Open a replay
 * In the main menu, click Replay. The button is only on that screen.
 * The list shows ACMI files from the replay folder. The folder path is at the top of the window. Set it once. The mod remembers it.
 * Click a file. It is converted to NOReplay.json and that mission starts. There is no second confirm button.
+* A .acmi that is still a zip opens the same way as a .zip.acmi.
 * Leave the mission and the timeline closes. The Replay button is back in the main menu.
 
 Timeline
@@ -61,6 +62,9 @@ What you see
 * The pilot name from the callsign, in the info panel. State reads Replay. Speed is taken from the recording, metric or imperial as the game is set.
 * Loadout and livery from the recording, including empty pylons.
 * Landing gear from the ACMI LandingGear flag. Doors follow the gear. Gear stays attached through ship elevator traversal.
+* Tailhook on an aircraft whose loadout contains TailHook_ (the Ifrit Multirole and the Compass trainer). A recorded Tailhook value is played back. An older file infers it: down between 30 m and 120 m AGL while slowing and descending, up above 100 m/s or below 2 m/s, moving at half a unit per second. Scrubbing, reverse and pause use the same curve.
+* Arresting wires on the Hyperion. A recorded trap uses the wire from the file. Otherwise a sharp stop on the deck with the hook down catches the wire the hook crosses, and a touch-and-go does not. The cable follows the hook, then runs back to rest at 4 m/s.
+* The optical landing ball on the Hyperion. It follows the selected aircraft when that aircraft is on the approach with the hook down, otherwise the nearest such aircraft. Low is red, high is white.
 * Rotors, propellers, jet nozzles and engine sound from the unit you are near. Pitch and volume follow the game's own engine curves and the recorded throttle. Aircraft, helicopters, ground vehicles and ships stay in 3D: the prefab distance curve is left alone, and a fly-by or free camera keeps Doppler on. A parked vehicle is quiet. A moving one crossfades from idle to drive the way the game does.
 * Helicopter rotor downwash, and the wake behind a moving ship.
 * Ground-vehicle wheels and tank tracks roll with the replay. Forward and reverse follow the nose. A vehicle turning on the spot rolls the two sides in opposite directions when the prefab has a wheel on each side, or two separate track meshes. One combined track mesh keeps the centerline speed, the same way the game scrolls it. Motion freezes while the timeline is paused, including during a scrub that is not moving the vehicle. Vehicles more than about a kilometer from the camera are left still.
@@ -74,6 +78,16 @@ What you see
 * Radar dishes keep turning on ships, radar trucks, radar buildings and AWACS. A radar truck folds the dish in while it is moving and unfolds it when it stops. Pause freezes the motion. Scrubbing sets the fold to the pose for that moment.
 * Trails behind airframes and ordnance. Airframe trails are thicker, ordnance trails thinner. Faction color. Dead units lose their trail.
 * Weather from the recording: time of day, cloud height, weather intensity. Applied when the world loads.
+
+---
+
+Carrier ops
+
+The hook and the wires are not simulated. Physics on the ghosts stays off, and TailHook, ArrestorGear and OpticalLandingSystem stay disabled. Each frame is a function of the replay clock, so a seek lands on the pose for that time.
+
+A new recording writes Tailhook when the hook moves by more than about 0.05, and Event=Trap|aircraft|carrier|wire when a wire catches, with Event=Untrap when it lets go. Older files have neither line. The hook is inferred and the trap is detected from the track.
+
+The meatball uses the carrier landing runway's 3.4° glideslope. It does not run the game's wave-off timer. That timer waits on the real clock and drops the aircraft from a landing list, which a scrub cannot undo. The ball and the datum lights are moved directly.
 
 ---
 

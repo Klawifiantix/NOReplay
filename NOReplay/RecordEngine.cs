@@ -28,6 +28,12 @@ namespace NOReplay
             writer.UpdateObject(obj, curTime);
         }
 
+        internal void WriteGlobalEvent(string body)
+        {
+            if (writer == null || string.IsNullOrEmpty(body)) return;
+            writer.WriteGlobal(body, curTime);
+        }
+
         public void RegisterUnitFromListener(Unit unit)
         {
             if (unit == null || unitObjects.ContainsKey(unit.persistentID.Id)) return;

@@ -40,6 +40,8 @@ namespace NOReplay.OrientationTests
             AcmiPropsMatchSplit();
             AcmiPoseMatchesTheOldReader();
             FloatFieldDoesNotNeedSetValue();
+            CarrierOpsTests.Run();
+            _failed += CarrierOpsTests.Failed;
             if (_failed > 0)
             {
                 Console.Error.WriteLine("FAILED " + _failed);

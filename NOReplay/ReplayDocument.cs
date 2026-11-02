@@ -17,6 +17,7 @@ namespace NOReplay
         public string DataRecorder = "";
         public float Duration;
         public List<ReplayObject> Objects = new List<ReplayObject>();
+        public List<CarrierTrap> Traps = new List<CarrierTrap>();
 
         public void IndexChildren()
         {
@@ -220,6 +221,10 @@ namespace NOReplay
                 JetRpm = a.HasJetRpm && b.HasJetRpm ? Mathf.Lerp(a.JetRpm, b.JetRpm, u) : (a.HasJetRpm ? a.JetRpm : b.JetRpm),
                 HasTurbineRpm = a.HasTurbineRpm || b.HasTurbineRpm,
                 TurbineRpm = a.HasTurbineRpm && b.HasTurbineRpm ? Mathf.Lerp(a.TurbineRpm, b.TurbineRpm, u) : (a.HasTurbineRpm ? a.TurbineRpm : b.TurbineRpm),
+                HasAgl = a.HasAgl || b.HasAgl,
+                Agl = a.HasAgl && b.HasAgl ? Mathf.Lerp(a.Agl, b.Agl, u) : (a.HasAgl ? a.Agl : b.Agl),
+                HasTailhook = a.HasTailhook || b.HasTailhook,
+                Tailhook = a.HasTailhook && b.HasTailhook ? Mathf.Lerp(a.Tailhook, b.Tailhook, u) : (a.HasTailhook ? a.Tailhook : b.Tailhook),
                 HasQuat = true,
                 Qx = qx,
                 Qy = qy,
@@ -416,7 +421,21 @@ namespace NOReplay
         public float JetRpm;
         public bool HasTurbineRpm;
         public float TurbineRpm;
+        public bool HasAgl;
+        public float Agl;
+        public bool HasTailhook;
+        public float Tailhook;
 
         public ReplaySample Clone() => this;
+    }
+
+    public struct CarrierTrap
+    {
+        public string AircraftId;
+        public string CarrierId;
+        public int Wire;
+        public float Catch;
+        public float Release;
+        public bool Recorded;
     }
 }

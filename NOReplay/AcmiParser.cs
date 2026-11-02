@@ -10,12 +10,21 @@ namespace NOReplay
     {
         public static ReplayDocument Load(string path)
         {
-            string text;
-            if (path.EndsWith(".zip.acmi", StringComparison.OrdinalIgnoreCase) ||
-                path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            using var fs = File.OpenRead(path);
+            bool zipName = path.EndsWith(".zip.acmi", StringComparison.OrdinalIgnoreCase)
+                || path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
+            bool zipMagic = false;
+            if (fs.Length >= 2)
             {
-                using var fs = File.OpenRead(path);
-                using var zip = new ZipArchive(fs, ZipArchiveMode.Read);
+                int b0 = fs.ReadByte();
+                int b1 = fs.ReadByte();
+                zipMagic = b0 == 0x50 && b1 == 0x4B;
+                fs.Position = 0;
+            }
+            string text;
+            if (zipName || zipMagic)
+            {
+                using var zip = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: false);
                 if (zip.Entries.Count == 0)
                     throw new InvalidDataException("Leeres zip.acmi");
                 using var sr = new StreamReader(zip.Entries[0].Open(), Encoding.UTF8);
@@ -23,7 +32,8 @@ namespace NOReplay
             }
             else
             {
-                text = File.ReadAllText(path, Encoding.UTF8);
+                using var sr = new StreamReader(fs, Encoding.UTF8);
+                text = sr.ReadToEnd();
             }
             return Parse(text);
         }
@@ -97,7 +107,7 @@ namespace NOReplay
 
                 if (objId == "0")
                 {
-                    ApplyGlobal(doc, rest);
+                    ApplyGlobal(doc, rest, time);
                     continue;
                 }
 
@@ -312,6 +322,24 @@ namespace NOReplay
                             telemetry = true;
                         }
                     }
+                    else if (AcmiScan.KeyIs(key, "AGL"))
+                    {
+                        if (AcmiScan.TryFloat(val, out var agl))
+                        {
+                            sample.HasAgl = true;
+                            sample.Agl = agl;
+                            telemetry = true;
+                        }
+                    }
+                    else if (AcmiScan.KeyIs(key, "Tailhook") || AcmiScan.KeyIs(key, "TailHook"))
+                    {
+                        if (AcmiScan.TryFloat(val, out var hook))
+                        {
+                            sample.HasTailhook = true;
+                            sample.Tailhook = hook;
+                            telemetry = true;
+                        }
+                    }
                 }
 
                 if (obj.SpawnAt < 0f && ReplayDocument.IsPartBreak(obj.Type))
@@ -385,6 +413,8 @@ namespace NOReplay
             }
             if (launches > 0 || partBreaks > 0)
                 Plugin.Log.LogInfo("Waffen-Index Starts=" + launches + " Teile=" + partBreaks);
+            if (doc.Traps.Count > 0)
+                Plugin.Log.LogInfo("Fangseile: " + doc.Traps.Count);
 
             float max = doc.Duration;
             foreach (var o in doc.Objects)
@@ -413,14 +443,16 @@ namespace NOReplay
             return rest.IndexOf("Radius=".AsSpan(), StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        static void ApplyGlobal(ReplayDocument doc, ReadOnlySpan<char> rest)
+        static void ApplyGlobal(ReplayDocument doc, ReadOnlySpan<char> rest, float time)
         {
             var props = new AcmiScan.Props(rest);
             while (props.MoveNext())
             {
                 var key = props.Key;
                 var val = props.Value;
-                if (AcmiScan.KeyIs(key, "Title"))
+                if (AcmiScan.KeyIs(key, "Event"))
+                    ApplyTrapEvent(doc, val, time);
+                else if (AcmiScan.KeyIs(key, "Title"))
                     doc.Title = val.ToString();
                 else if (AcmiScan.KeyIs(key, "MapId"))
                     doc.MapId = val.ToString();
@@ -438,6 +470,35 @@ namespace NOReplay
                     doc.WindTurbulence = wt;
                 else if (AcmiScan.KeyIs(key, "MoonPhase") && AcmiScan.TryFloat(val, out float mp, false))
                     doc.MoonPhase = mp;
+            }
+        }
+
+        static void ApplyTrapEvent(ReplayDocument doc, ReadOnlySpan<char> val, float time)
+        {
+            if (!CarrierOps.TryParseTrapEvent(val, out bool release, out string aircraft, out string carrier, out int wire))
+                return;
+            if (!release)
+            {
+                doc.Traps.Add(new CarrierTrap
+                {
+                    AircraftId = aircraft,
+                    CarrierId = carrier,
+                    Wire = wire,
+                    Catch = time,
+                    Release = -1f,
+                    Recorded = true
+                });
+                return;
+            }
+            for (int i = doc.Traps.Count - 1; i >= 0; i--)
+            {
+                var trap = doc.Traps[i];
+                if (trap.Release >= 0f) continue;
+                if (!CarrierOps.SameId(trap.AircraftId, aircraft) || !CarrierOps.SameId(trap.CarrierId, carrier))
+                    continue;
+                trap.Release = time;
+                doc.Traps[i] = trap;
+                return;
             }
         }
 

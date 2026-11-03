@@ -56,8 +56,8 @@ Camera
 * The camera does not jump to a unit on its own.
 
 Shortcuts
-* Defaults: F8 records, Space plays or pauses, 1 / 2 / 4 set speed to 1x / 2x / 4x, Left and Right arrow jump 5 seconds, F10 hides or shows the timeline, F toggles look-at lock, T toggles trails.
-* Look-at lock and trails do nothing while a text field is selected. During a replay the game's own binding for those two keys is muted. Both follow the key you set.
+* Defaults: F8 records, Space plays or pauses, 1 / 2 / 4 set speed to 1x / 2x / 4x, Left and Right arrow jump 5 seconds, F10 hides or shows the timeline, F toggles look-at lock, T toggles trails, P toggles the carrier approach pattern.
+* Look-at lock, trails and the approach pattern do nothing while a text field is selected. During a replay the game's own binding for those keys is muted. They follow the key you set. The pattern starts off.
 * WASD still flies the free camera. Those four keys are not in the config.
 * Change them in `BepInEx/config/you.noreplay.cfg`, or in ConfigurationManager (F1). Recording is StartStopRecordingKey under Hotkeys. Replay keys are under Replay Hotkeys. A value already saved in the config is kept. Only a missing entry uses the default above.
 * If two shortcuts use the same key, or one of them is W, A, S or D, NOReplay.log warns once.
@@ -72,6 +72,7 @@ What you see
 * Tailhook on an aircraft whose loadout contains TailHook_ (the Ifrit Multirole and the Compass trainer). A recorded Tailhook value is played back. An older file infers it: down between 30 m and 120 m AGL while slowing and descending, up above 100 m/s or below 2 m/s, moving at half a unit per second. Scrubbing, reverse and pause use the same curve.
 * Arresting wires on the Hyperion. A recorded trap uses the wire from the file. Otherwise a sharp stop on the deck with the hook down catches the wire the hook crosses, and a touch-and-go does not. The cable follows the hook, then runs back to rest at 4 m/s.
 * The optical landing ball on the Hyperion. It follows the selected aircraft when that aircraft is on the approach with the hook down, otherwise the nearest such aircraft. Low is red, high is white.
+* The Case I approach pattern on each Hyperion, one green line. P toggles it. It starts off. Initial and downwind are at 1500 ft. The break is a level left 180 over the ship. The final turn comes down the angled deck, and the glideslope ends on the wires. A bolter continues straight ahead. The line moves and turns with the carrier. Red and blue trails are unchanged.
 * Rotors, propellers, jet nozzles and engine sound from the unit you are near. Pitch and volume follow the game's own engine curves and the recorded throttle. Aircraft, helicopters, ground vehicles and ships stay in 3D: the prefab distance curve is left alone, and a fly-by or free camera keeps Doppler on. A parked vehicle is quiet. A moving one crossfades from idle to drive the way the game does.
 * Helicopter rotor downwash, and the wake behind a moving ship.
 * Ground-vehicle wheels and tank tracks roll with the replay. Forward and reverse follow the nose. A vehicle turning on the spot rolls the two sides in opposite directions when the prefab has a wheel on each side, or two separate track meshes. One combined track mesh keeps the centerline speed, the same way the game scrolls it. Motion freezes while the timeline is paused, including during a scrub that is not moving the vehicle. Vehicles more than about a kilometer from the camera are left still.
@@ -95,6 +96,8 @@ The hook and the wires are not simulated. Physics on the ghosts stays off, and T
 A new recording writes Tailhook when the hook moves by more than about 0.05, and Event=Trap|aircraft|carrier|wire when a wire catches, with Event=Untrap when it lets go. Older files have neither line. The hook is inferred and the trap is detected from the track.
 
 The meatball uses the carrier landing runway's 3.4° glideslope. It does not run the game's wave-off timer. That timer waits on the real clock and drops the aircraft from a landing list, which a scrub cannot undo. The ball and the datum lights are moved directly.
+
+The green pattern is that same glideslope, drawn once in the carrier's own coordinates. Initial is 2 NM astern and 0.25 NM to starboard, parallel to the hull, at 1500 ft. The break's nose is 1 NM ahead of the ship. Downwind is 1.75 NM to port. The final turn descends to the ball, 0.75 NM astern on the angled deck, then the 0.06 glideslope (about 3.4°) down to the wires. The bolter runs 1 NM along that deck. Pause, scrub, reverse and speed changes leave the shape alone. The line follows the ship's pose, including heading, so it stays on the deck. It is removed when the replay ends or the carrier is gone.
 
 ---
 

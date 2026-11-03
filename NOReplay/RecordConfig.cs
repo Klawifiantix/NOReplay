@@ -78,6 +78,7 @@ namespace NOReplay
         internal const KeyCode DefaultSpeed4Key = KeyCode.Alpha4;
         internal const KeyCode DefaultSeekBackKey = KeyCode.LeftArrow;
         internal const KeyCode DefaultSeekForwardKey = KeyCode.RightArrow;
+        internal const KeyCode DefaultCasePatternKey = KeyCode.P;
 
 #pragma warning disable CS8618
         private static ConfigEntry<int> _UpdateRate;
@@ -131,6 +132,7 @@ namespace NOReplay
         internal static ConfigEntry<KeyboardShortcut> Speed4Key;
         internal static ConfigEntry<KeyboardShortcut> SeekBackKey;
         internal static ConfigEntry<KeyboardShortcut> SeekForwardKey;
+        internal static ConfigEntry<KeyboardShortcut> CasePatternKey;
 
         internal static readonly bool DefaultDestructionEvents = true;
         internal static ConfigEntry<bool> DestructionEvents;
@@ -392,6 +394,8 @@ namespace NOReplay
                 "Jump the replay back 5 seconds. Default: Left Arrow.");
             SeekForwardKey = BindHotkey(config, ReplayHotkeys, "Seek Forward", DefaultSeekForwardKey,
                 "Jump the replay forward 5 seconds. Default: Right Arrow.");
+            CasePatternKey = BindHotkey(config, ReplayHotkeys, "Case Pattern", DefaultCasePatternKey,
+                "Toggle the green Case I approach pattern on each Hyperion. Default: P. Off when the game starts. Ignored while a text field is focused. The game binding for this key is muted during replay.");
 
             EnableLogging = config.Bind(DeveloperFeatures, "EnableLogging", DefaultEnableLogging, "Toggle Logging. Default: false");
             Record.Log?.LogDebug($"EnableLogging = {EnableLogging.Value}");
@@ -429,6 +433,7 @@ namespace NOReplay
                 new HotkeySlot("Speed 4x", Speed4Key),
                 new HotkeySlot("Seek backward", SeekBackKey),
                 new HotkeySlot("Seek forward", SeekForwardKey),
+                new HotkeySlot("Case pattern", CasePatternKey),
             };
             for (int i = 0; i < keys.Length; i++)
             {

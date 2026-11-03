@@ -38,6 +38,7 @@ namespace NOReplay
         bool _pendingOfficialStart;
         bool _timelineHidden;
         internal static bool TrailsOn;
+        internal static bool PatternOn;
         internal static bool PerfLog;
         internal static float TrailSeconds = 60f;
         static bool _holdClock;
@@ -210,6 +211,7 @@ namespace NOReplay
                 {
                     if (HotkeyDown(RecordConfig.ToggleTrailsKey, KeyCode.T)) ToggleTrails();
                     if (HotkeyDown(RecordConfig.LookAtLockKey, KeyCode.F)) ToggleLookLock();
+                    if (HotkeyDown(RecordConfig.CasePatternKey, KeyCode.P)) TogglePattern();
                 }
                 if (_holdClock)
                 {
@@ -271,6 +273,11 @@ namespace NOReplay
         internal static void ToggleTrails()
         {
             TrailsOn = !TrailsOn;
+        }
+
+        internal static void TogglePattern()
+        {
+            PatternOn = !PatternOn;
         }
 
         static FieldInfo? _insideInput;

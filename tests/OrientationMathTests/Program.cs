@@ -46,6 +46,8 @@ namespace NOReplay.OrientationTests
             FinKindsMatchTheSeekers();
             CarrierOpsTests.Run();
             _failed += CarrierOpsTests.Failed;
+            ApproachPatternTests.Run();
+            _failed += ApproachPatternTests.Failed;
             if (_failed > 0)
             {
                 Console.Error.WriteLine("FAILED " + _failed);

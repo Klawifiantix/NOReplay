@@ -82,7 +82,7 @@ namespace NOReplay
             return $"{newPos.x.ToString(CultureInfo.InvariantCulture)}|{newPos.y.ToString(CultureInfo.InvariantCulture)}|{newPos.z.ToString(CultureInfo.InvariantCulture)}";
         }
 
-        internal void UpdatePose()
+        internal void UpdatePose(bool force = false)
         {
             float fx = MathF.Round(unit.transform.position.GlobalX(), 2);
             float fy = MathF.Round(unit.transform.position.GlobalY(), 2);
@@ -95,13 +95,17 @@ namespace NOReplay
             Vector3 newPos = new(fx, fy, fz);
             Vector3 newRot = new(fax, fay, faz);
 
-            if (newPos != lastPos || newRot != lastRot)
+            if (force || newPos != lastPos || newRot != lastRot)
             {
-                props.Add("T", UpdatePosition(newPos));
+                if (!props.ContainsKey("T"))
+                    props.Add("T", UpdatePosition(newPos));
 
                 // Raw transform quaternion
-                var q = unit.transform.rotation;
-                props.Add("Q", $"{q.x.ToString(CultureInfo.InvariantCulture)}|{q.y.ToString(CultureInfo.InvariantCulture)}|{q.z.ToString(CultureInfo.InvariantCulture)}|{q.w.ToString(CultureInfo.InvariantCulture)}");
+                if (!props.ContainsKey("Q"))
+                {
+                    var q = unit.transform.rotation;
+                    props.Add("Q", $"{q.x.ToString(CultureInfo.InvariantCulture)}|{q.y.ToString(CultureInfo.InvariantCulture)}|{q.z.ToString(CultureInfo.InvariantCulture)}|{q.w.ToString(CultureInfo.InvariantCulture)}");
+                }
                 lastPos = newPos;
                 lastRot = newRot;
             }

@@ -16,5 +16,6 @@
     <Compile Include="..\..\NOReplay\AcmiScan.cs" Link="AcmiScan.cs" />
     <Compile Include="..\..\NOReplay\CarrierOps.cs" Link="CarrierOps.cs" />
     <Compile Include="..\..\NOReplay\ApproachPattern.cs" Link="ApproachPattern.cs" />
+    <Compile Include="..\..\NOReplay\ShipSink.cs" Link="ShipSink.cs" />
   </ItemGroup>
 </Project>

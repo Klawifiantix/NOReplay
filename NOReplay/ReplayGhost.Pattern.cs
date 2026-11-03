@@ -16,7 +16,7 @@ namespace NOReplay
             if (!_ship) return;
             if (!Plugin.PatternOn && _caseLine == null) return;
             if (!CasePatternCarrier()) return;
-            if (!Plugin.PatternOn || !IsTrackAlive())
+            if (!Plugin.PatternOn || !IsTrackAlive() || ShipIsDead(Plugin.Clock.Time))
             {
                 HideCasePattern();
                 return;

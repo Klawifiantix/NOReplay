@@ -460,7 +460,7 @@ namespace NOReplay
                 if (rg == null) continue;
                 var go = rg.gameObject;
                 if (go == null) continue;
-                bool on = rg.IsTrackAlive();
+                bool on = rg.KeepsGhostActive();
                 if (go.activeSelf == on) continue;
                 if (!on)
                 {

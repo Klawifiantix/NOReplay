@@ -255,6 +255,12 @@ namespace NOReplay
                     {
                         obj.RemovedAt = time;
                     }
+                    else if (AcmiScan.KeyIs(key, "Sinking") && obj.KilledAt < 0f
+                        && val.Length > 0 && val[0] == '1')
+                    {
+                        // Our recorder. Tacview skips the property. It is not a removal.
+                        obj.KilledAt = time;
+                    }
                     else if ((key.Length == 1 && key[0] == 'T') || AcmiScan.KeyIs(key, "Transform"))
                     {
                         if (ParseTransform(val, ref sample))

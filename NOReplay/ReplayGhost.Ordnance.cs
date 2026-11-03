@@ -208,6 +208,11 @@ namespace NOReplay
         internal void ForceWreck()
         {
             if (_ordnance || _boomed) return;
+            if (_ship)
+            {
+                _boomed = true;
+                return;
+            }
             if (Track == null || Track.RemovedAt < 0f) return;
             if (Plugin.Clock.Time + 0.05f < Track.RemovedAt) return;
             _boomed = true;

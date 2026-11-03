@@ -144,6 +144,8 @@ namespace NOReplay
         public bool HasTurrets { get; private set; }
         public float SpawnAt = -1f;
         public float RemovedAt = -1f;
+        /// <summary>Replay time of Sinking=1. -1 when the file has no kill marker. The hull may keep moving until <see cref="RemovedAt"/>.</summary>
+        public float KilledAt = -1f;
         public bool HasPart;
         public byte PartId;
         public string? PartKind;

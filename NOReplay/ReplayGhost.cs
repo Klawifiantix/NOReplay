@@ -522,6 +522,7 @@ namespace NOReplay
         {
             StopSurfaceFx(false);
             HideCasePattern();
+            ClearShipSplash();
         }
 
         void OnDestroy()
@@ -1024,7 +1025,10 @@ namespace NOReplay
             if (_visible != on)
             {
                 _visible = on;
-                Plugin.SetMapIcon(gameObject, on);
+                bool icon = on;
+                if (icon && _ship && ShipIsDead(Plugin.Clock.Time))
+                    icon = false;
+                Plugin.SetMapIcon(gameObject, icon);
             }
             ReapplyReplayHides();
         }
@@ -1083,6 +1087,9 @@ namespace NOReplay
             NoteSpoolClock(Plugin.Clock.Time);
             if (!IsTrackAlive())
             {
+                float nowDead = Plugin.Clock.Time;
+                if (_ship && InScriptedSink(nowDead) && DriveScriptedShip(nowDead))
+                    return;
                 if (Plugin.CurrentDoc == null)
                     DestroyCasePattern();
                 else
@@ -1091,7 +1098,7 @@ namespace NOReplay
                 float end = Track.RemovedAt;
                 if (end < 0f && Track.Samples.Count > 0)
                     end = Track.Samples[Track.Samples.Count - 1].Time;
-                if (!_boomed && (end < 0f || Plugin.Clock.Time >= end))
+                if (!_boomed && (end < 0f || nowDead >= end))
                 {
                     _boomed = true;
                     if (_ordnance && !IsFlareTrack())
@@ -1100,8 +1107,14 @@ namespace NOReplay
                         Plugin.ReleaseCameraIfOn(gameObject);
                         PlayWarheadBoom(transform.position);
                     }
-                    else if (!_ordnance)
+                    else if (!_ordnance && !_ship)
                         PlayUnitWreckFx(transform.position, transform.rotation);
+                }
+                if (_ship)
+                {
+                    ClearShipSplash();
+                    StopShipFx(false);
+                    StopGroundAudio();
                 }
                 HaltGuns(false);
                 if (_visible)
@@ -1121,6 +1134,10 @@ namespace NOReplay
                 return;
             }
             _boomed = false;
+            if (_ship && _splashGo != null)
+                ClearShipSplash();
+            if (_ship && !ShipIsDead(Plugin.Clock.Time))
+                _sinkClock = Plugin.Clock.Time;
             if (_ordnance && !_ordWasAlive)
             {
                 _ordWasAlive = true;
@@ -1143,6 +1160,8 @@ namespace NOReplay
                 }
             }
             else if (!_visible) SetGhostVisible(true);
+            if (_ship && ShipIsDead(Plugin.Clock.Time))
+                Plugin.SetMapIcon(gameObject, false);
             if (_asleep && (_air || _ship))
                 ExitSleep();
             if (!_air && !_ship && !_ordnance)
@@ -1210,8 +1229,14 @@ namespace NOReplay
                 HoldLocals();
                 HoldAirbrakes();
             }
-            if (!_ordnance) AimGuns();
-            TickGunVisuals();
+            if (_ship && ShipIsDead(Plugin.Clock.Time))
+                QuietDeadShip(Plugin.Clock.Time);
+            else
+            {
+                ReleaseDeadShipGuns();
+                if (!_ordnance) AimGuns();
+                TickGunVisuals();
+            }
 
             float nowT = Plugin.Clock.Time;
             bool rewound = _prevT >= 0f && nowT + 0.02f < _prevT;

@@ -414,7 +414,7 @@ namespace NOReplay
         static bool Alive(ReplayGhost? rg)
         {
             if (rg == null) return false;
-            try { return rg.IsTrackAlive(); }
+            try { return rg.KeepsGhostActive(); }
             catch { return false; }
         }
 

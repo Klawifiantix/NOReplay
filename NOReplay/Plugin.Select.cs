@@ -680,8 +680,8 @@ namespace NOReplay
             _muteTries = 0;
         }
 
-        // Look-at lock and trails. Turn off keyboard bindings that use those keys
-        // so the game action does not fire as well. Other devices keep their bindings.
+        // Look-at lock, trails and the case pattern. Turn off keyboard bindings that
+        // use those keys so the game action does not fire as well. Other devices keep their bindings.
         static int MuteReplayKeys()
         {
             var gm = FindGameType("GameManager");
@@ -726,9 +726,10 @@ namespace NOReplay
 
         static List<string> ReplayMuteNames()
         {
-            var names = new List<string>(2);
+            var names = new List<string>(3);
             AddMuteName(names, RecordConfig.LookAtLockKey, KeyCode.F);
             AddMuteName(names, RecordConfig.ToggleTrailsKey, KeyCode.T);
+            AddMuteName(names, RecordConfig.CasePatternKey, KeyCode.P);
             return names;
         }
 

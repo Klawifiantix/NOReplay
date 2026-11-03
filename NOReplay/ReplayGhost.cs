@@ -521,6 +521,7 @@ namespace NOReplay
         void OnDisable()
         {
             StopSurfaceFx(false);
+            HideCasePattern();
         }
 
         void OnDestroy()
@@ -534,6 +535,7 @@ namespace NOReplay
                 UnityEngine.Object.Destroy(_trail.gameObject);
                 _trail = null;
             }
+            DestroyCasePattern();
             try
             {
                 // Plugin.Log.LogInfo("GO weg " + name + " " + (Track != null ? Track.Name : "?")
@@ -1081,6 +1083,10 @@ namespace NOReplay
             NoteSpoolClock(Plugin.Clock.Time);
             if (!IsTrackAlive())
             {
+                if (Plugin.CurrentDoc == null)
+                    DestroyCasePattern();
+                else
+                    HideCasePattern();
                 if (_ordnance) _ordWasAlive = false;
                 float end = Track.RemovedAt;
                 if (end < 0f && Track.Samples.Count > 0)
@@ -1190,6 +1196,7 @@ namespace NOReplay
                 _nextRadarScan = 0f;
             }
             drive.SetPositionAndRotation(p, q);
+            if (_ship) SyncCasePattern(drive);
             if (!_ordnance)
             {
                 EnsureGunsCurrent(false);

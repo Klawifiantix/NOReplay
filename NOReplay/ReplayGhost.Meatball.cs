@@ -217,11 +217,11 @@ namespace NOReplay
                 Vector3 dir = end - start;
                 float len = dir.magnitude;
                 if (len > 0.01f) dir /= len;
-                float along = len > 500f ? Mathf.Lerp(20f, 300f, (len - 500f) * 0.0005f) : 0f;
+                float along = ApproachPattern.MeatballTouchAlong(len);
                 Vector3 touch = start + dir * along;
                 var flat = new Vector3(acPos.x - touch.x, 0f, acPos.z - touch.z);
                 float horiz = flat.magnitude;
-                float aimY = touch.y + target.SpawnOffsetY() + 0.06f * horiz;
+                float aimY = touch.y + target.SpawnOffsetY() + ApproachPattern.GlideslopeRise * horiz;
                 float error = acPos.y - aimY;
                 Vector3 toStart = start - acPos;
                 float range = toStart.magnitude;

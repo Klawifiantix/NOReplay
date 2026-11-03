@@ -165,7 +165,7 @@ namespace NOReplay
         {
             if (!_shipFxBound || (_shipUnit == null && _shipProps.Length == 0))
                 CacheShipFx();
-            if (!_visible || _neutral || !IsTrackAlive())
+            if (!_visible || _neutral || !IsTrackAlive() || ShipIsDead(Plugin.Clock.Time))
             {
                 StopShipFx(false);
                 return;
@@ -442,6 +442,11 @@ namespace NOReplay
 
         void DriveShipAudio(float spd)
         {
+            if (ShipIsDead(Plugin.Clock.Time))
+            {
+                StopGroundAudio();
+                return;
+            }
             BindGroundAudio();
             if (!_shipFxBound)
                 CacheShipFx();

@@ -505,7 +505,7 @@ namespace NOReplay
             if (uc != null)
                 rg = uc.GetComponent<ReplayGhost>() ?? uc.GetComponentInParent<ReplayGhost>();
             if (rg == null) return true;
-            if (!rg.IsTrackAlive())
+            if (!rg.IsTrackAlive() || rg.ShipIsDead(Clock.Time))
             {
                 if (c.gameObject.activeSelf) c.gameObject.SetActive(false);
                 return false;

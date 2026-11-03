@@ -187,6 +187,12 @@ namespace NOReplay
 
         internal void DriveMeatball(float time)
         {
+            if (ShipIsDead(time))
+            {
+                for (int i = 0; i < _balls.Length; i++)
+                    HideBall(_balls[i]);
+                return;
+            }
             if (!_ballReady) TryBindBall();
             if (_balls.Length == 0) return;
             string shown = "";

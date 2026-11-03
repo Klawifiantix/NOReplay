@@ -1,13 +1,22 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
 using UnityEngine;
 
 namespace NOReplay
 {
     internal class RecordShip : RecordUnit
     {
+        const float DyingSampleSeconds = 0.2f;
+        const float DespawnCapSeconds = 180f;
+
         private Ship ship;
+        bool _sinking;
+        bool _sinkEnded;
+        float _sinkFor;
+        float _despawnLimit;
+        static bool _delayWarned;
 
         public virtual void Init(Ship ship)
         {
@@ -53,7 +62,13 @@ namespace NOReplay
 
         public override void Update()
         {
-            if (!this.enabled || unit == null || unit.disabled) return;
+            if (!enabled) return;
+            if (_sinking)
+            {
+                TickSink();
+                return;
+            }
+            if (unit == null || unit.disabled) return;
 
             timer += Time.deltaTime;
             if (timer < RecordConfig.vehicleUpdateDelta.Value) return;
@@ -65,6 +80,26 @@ namespace NOReplay
                 props.Clear();
             }
             timer = 0;
+        }
+
+        void TickSink()
+        {
+            bool gone = ship == null;
+            _sinkFor += Time.deltaTime;
+            if (gone || _sinkFor >= _despawnLimit)
+            {
+                EndSink();
+                return;
+            }
+            timer += Time.deltaTime;
+            if (timer < DyingSampleSeconds) return;
+            timer = 0f;
+            UpdatePose();
+            if (props.Count > 0)
+            {
+                Engine.invokeWriterUpdate(this);
+                props.Clear();
+            }
         }
 
         private void OnFactionChanged(Unit u)
@@ -91,21 +126,72 @@ namespace NOReplay
 
         private void OnUnitDisabled(Unit u)
         {
-            if (u != unit || base.disabled) return;
+            if (u != unit || _sinking || base.disabled) return;
+            _sinking = true;
             base.disabled = true;
-            props = new Dictionary<string, string>
-            {
-                { "Visible", "0.0" },
-                { "Type", null }
-            };
+            _sinkFor = 0f;
+            _despawnLimit = DespawnLimit();
+            // Tacview ignores an unknown property and does not remove the object.
+            // Visible=0, which does hide it, is written only when the hull is gone.
+            props.Clear();
+            if (unit != null) UpdatePose(true);
+            props["Sinking"] = "1";
             Engine.invokeWriterUpdate(this);
             props.Clear();
             if (base.destroyedEvent)
                 Engine.invokeWriterDestroy(this);
+            Record.Log?.LogInfo("Schiff sinkt " + tacviewId.ToString("X")
+                + " noch " + _despawnLimit.ToString("0.#", CultureInfo.InvariantCulture) + "s");
+            if (_despawnLimit <= 0f || ship == null)
+                EndSink();
+        }
 
+        float DespawnLimit()
+        {
+            try
+            {
+                var field = typeof(Ship).GetField("disabledDespawnDelay",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (field != null && field.GetValue(ship) is float raw && raw >= 0f)
+                    return (int)raw;
+                if (field == null && !_delayWarned)
+                {
+                    _delayWarned = true;
+                    Record.Log?.LogWarning("Ship.disabledDespawnDelay fehlt. Die Hülle wird bis zum Zerstören mitgeschrieben.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Record.Log?.LogDebug("Ship despawn delay: " + ex.Message);
+            }
+            return DespawnCapSeconds;
+        }
+
+        void EndSink()
+        {
+            if (_sinkEnded) return;
+            _sinkEnded = true;
+            WriteRemoval();
             Unsubscribe();
-            this.enabled = false;
-            UnityEngine.Object.Destroy(this.gameObject);
+            enabled = false;
+            UnityEngine.Object.Destroy(gameObject);
+        }
+
+        void WriteRemoval()
+        {
+            try
+            {
+                props.Clear();
+                if (unit != null) UpdatePose(true);
+                props["Visible"] = "0.0";
+                props["Type"] = null!;
+                Engine.invokeWriterUpdate(this);
+                props.Clear();
+            }
+            catch (Exception ex)
+            {
+                Record.Log?.LogDebug("Ship sink end: " + ex.Message);
+            }
         }
 
         private void Unsubscribe()
@@ -120,7 +206,15 @@ namespace NOReplay
             catch { }
         }
 
-        private void OnDestroy() => Unsubscribe();
+        private void OnDestroy()
+        {
+            if (_sinking && !_sinkEnded)
+            {
+                _sinkEnded = true;
+                WriteRemoval();
+            }
+            Unsubscribe();
+        }
 
         public override void LateUpdate() { }
         internal override void UpdateTargets() { }

@@ -1175,8 +1175,8 @@ namespace NOReplay
                 }
                 _colsOff = true;
             }
-            float gx = s.X, gy = s.Y, gz = s.Z;
-            bool coasted = TryVehicleCoast(Plugin.Clock.Time, out gx, out gy, out gz, out var coastVel);
+            bool coasted = TryVehicleCoast(Plugin.Clock.Time, out float cx, out float cy, out float cz, out var coastVel);
+            TrackCoast.Apply(coasted, cx, cy, cz, s.X, s.Y, s.Z, out float gx, out float gy, out float gz);
             var p = Plugin.GlobalToLocal(gx, gy, gz);
             Quaternion q;
             if (s.HasQuat)

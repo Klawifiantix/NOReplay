@@ -58,5 +58,17 @@ namespace NOReplay
             z = z1 + vz * ahead;
             return speed > 0f;
         }
+
+        /// <summary>
+        /// A rejected coast must not replace the sampled position. Callers that
+        /// take the coast outputs on a false return put the unit at the origin.
+        /// </summary>
+        public static void Apply(bool accepted, float coastX, float coastY, float coastZ,
+            float sampleX, float sampleY, float sampleZ, out float x, out float y, out float z)
+        {
+            x = accepted ? coastX : sampleX;
+            y = accepted ? coastY : sampleY;
+            z = accepted ? coastZ : sampleZ;
+        }
     }
 }

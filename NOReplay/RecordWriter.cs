@@ -102,7 +102,7 @@ namespace NOReplay
             {
                 lastUpdate = diff;
                 //output.WriteLine("#" + diff.TotalSeconds);
-                WriteLine("#" + diff.TotalSeconds);
+                WriteLine("#" + diff.TotalSeconds.ToString(CultureInfo.InvariantCulture));
             }
 
             //output.WriteLine($"{aObject.id:X},{StringifyProps(props)}");
@@ -118,7 +118,7 @@ namespace NOReplay
             {
                 lastUpdate = diff;
                 //output.WriteLine("#" + diff.TotalSeconds);
-                WriteLine("#" + diff.TotalSeconds);
+                WriteLine("#" + diff.TotalSeconds.ToString(CultureInfo.InvariantCulture));
             }
 
             WriteLine($"-{aObject.tacviewId:X}");
@@ -131,12 +131,12 @@ namespace NOReplay
             {
                 lastUpdate = diff;
                 //output.WriteLine("#" + diff.TotalSeconds);
-                WriteLine("#" + diff.TotalSeconds);
+                WriteLine("#" + diff.TotalSeconds.ToString(CultureInfo.InvariantCulture));
             }
 
             if (RecordConfig.DestructionEvents.Value == true)
             {
-                WriteLine("#" + diff.TotalSeconds);
+                WriteLine("#" + diff.TotalSeconds.ToString(CultureInfo.InvariantCulture));
                 if (aObject.destroyedEvent)
                 {
                     WriteLine($"0,Event=Message|{aObject.tacviewId:X}|Has been destroyed.");
@@ -151,12 +151,12 @@ namespace NOReplay
             {
                 lastUpdate = diff;
                 //output.WriteLine("#" + diff.TotalSeconds);
-                WriteLine("#" + diff.TotalSeconds);
+                WriteLine("#" + diff.TotalSeconds.ToString(CultureInfo.InvariantCulture));
             }
 
             if (RecordConfig.DestructionEvents.Value == true)
             {
-                WriteLine("#" + diff.TotalSeconds);
+                WriteLine("#" + diff.TotalSeconds.ToString(CultureInfo.InvariantCulture));
                 if (aObject.destroyedEvent)
                 {
                     WriteLine($"0,Event=Message|{aObject.tacviewId:X}|Has been repaired.");
@@ -174,7 +174,7 @@ namespace NOReplay
             {
                 if (!first) propText.Append(',');
                 first = false;
-                propText.Append(kv.Key).Append('=').Append(kv.Value);
+                propText.Append(kv.Key).Append('=').Append(kv.Value ?? "");
             }
             return propText.ToString();
         }
@@ -207,13 +207,35 @@ namespace NOReplay
             output.Flush();
         }
 
-        internal async void Close()
+        int _packed;
+
+        internal void Close()
         {
-            output.Close();
-            string zipPath = await RecordZip.ZipFileAsync(filename);
-            Record.Log?.LogDebug($"saving compressed acmi {zipPath}");
-            await RecordZip.DeleteFileAsync(filename);
-            Record.Log?.LogDebug($"deleted uncompressed acmi {filename}");
+            // OnDisable and OnDestroy both close. A second zip truncates the
+            // archive after the first one deletes the text file, which is an
+            // empty recording.
+            if (System.Threading.Interlocked.Exchange(ref _packed, 1) != 0) return;
+            try { output.Close(); }
+            catch (Exception ex) { Record.Log?.LogError("ACMI close: " + ex.Message); }
+            System.Threading.Tasks.Task.Run(Pack);
+        }
+
+        void Pack()
+        {
+            try
+            {
+                long bytes = new FileInfo(filename).Exists ? new FileInfo(filename).Length : 0;
+                Record.Log?.LogInfo("ACMI " + bytes.ToString(CultureInfo.InvariantCulture) + " bytes");
+                if (bytes < 64)
+                {
+                    Record.Log?.LogError("ACMI blieb leer");
+                    return;
+                }
+                string zipPath = RecordZip.ZipFileAsync(filename).GetAwaiter().GetResult();
+                RecordZip.DeleteFileAsync(filename).GetAwaiter().GetResult();
+                Record.Log?.LogInfo("ACMI gepackt " + zipPath);
+            }
+            catch (Exception ex) { Record.Log?.LogError("ACMI zip: " + ex.Message); }
         }
     }
 }

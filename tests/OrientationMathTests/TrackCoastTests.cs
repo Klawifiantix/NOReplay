@@ -14,6 +14,7 @@ namespace NOReplay.OrientationTests
             CapsASpike();
             ParkedDoesNotDrift();
             SeekIsStable();
+            RejectedCoastKeepsTheSample();
         }
 
         static void HoldsUntilTheGap()
@@ -78,6 +79,14 @@ namespace NOReplay.OrientationTests
                 out float bx, out float by, out _, out _, out _, out _);
             Check(a && b && ax == bx && ay == by, "two reads of the same time match");
             Check(MathF.Abs(ay - 7f) < 0.001f, "vertical speed coasts too");
+        }
+
+        static void RejectedCoastKeepsTheSample()
+        {
+            TrackCoast.Apply(false, 0f, 0f, 0f, 100f, 20f, 30f, out float x, out float y, out float z);
+            Check(x == 100f && y == 20f && z == 30f, "a rejected coast keeps the sampled position");
+            TrackCoast.Apply(true, 4f, 5f, 6f, 100f, 20f, 30f, out float cx, out float cy, out float cz);
+            Check(cx == 4f && cy == 5f && cz == 6f, "an accepted coast replaces the sample");
         }
 
         static void Check(bool ok, string message)

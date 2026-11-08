@@ -481,12 +481,30 @@ namespace NOReplay
         static bool PrefixMapClick(object __instance)
         {
             _mapClickFollow = true;
+            _shiftMapSelect = false;
             NoteClickCamera();
-            return SkipDeadMapIcon(__instance);
+            if (!SkipDeadMapIcon(__instance)) return false;
+            var choice = MapClickGate.Decide(CurrentDoc != null, ShiftHeld(), false);
+            if (!choice.SelectInPlace) return choice.RunGameClick;
+            _shiftMapSelect = true;
+            HoldCamera();
+            try { SelectInPlace(__instance); }
+            catch (Exception ex) { Log.LogWarning("Shift-Auswahl: " + ex.Message); }
+            RestoreHeldCamera();
+            return false;
         }
 
         static void PostfixMapClick(object __instance)
         {
+            if (_shiftMapSelect)
+            {
+                try { RestoreHeldCamera(); }
+                catch (Exception ex) { Log.LogWarning("Shift-Kamera: " + ex.Message); }
+                _shiftMapSelect = false;
+                _mapClickFollow = false;
+                _clickCamPosOk = false;
+                return;
+            }
             try { TrySelectFromMapClick(__instance); }
             catch (Exception ex) { Log.LogWarning("Auswahl: " + ex.Message); }
             _mapClickFollow = false;
@@ -753,8 +771,32 @@ namespace NOReplay
             {
                 Harmony.Patch(m, prefix: new HarmonyMethod(typeof(Plugin), nameof(SkipIfGhost)));
                 Log.LogInfo("Gear-Phys-Block LandingGear.FixedUpdate");
+                var br = t.GetMethod("BreakWheel", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (br != null)
+                {
+                    Harmony.Patch(br, prefix: new HarmonyMethod(typeof(Plugin), nameof(SkipIfGhost)));
+                    Log.LogInfo("Gear-Phys-Block LandingGear.BreakWheel");
+                }
             }
             catch (Exception ex) { Log.LogWarning("Gear-Phys-Block: " + ex.Message); }
+            PatchGhostDetach();
+        }
+
+        static void PatchGhostDetach()
+        {
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            foreach (var name in new[] { "AeroPart", "UnitPart" })
+            {
+                var t = FindGameType(name);
+                var m = t?.GetMethod("Detach", flags);
+                if (m == null) continue;
+                try
+                {
+                    Harmony.Patch(m, prefix: new HarmonyMethod(typeof(Plugin), nameof(SkipIfGhost)));
+                    Log.LogInfo("Gear-Phys-Block " + name + ".Detach");
+                }
+                catch (Exception ex) { Log.LogWarning("Detach-Block " + name + ": " + ex.Message); }
+            }
         }
 
         static void BlockComplexPhysics()

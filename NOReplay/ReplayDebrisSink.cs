@@ -19,4 +19,22 @@ namespace NOReplay
             Point = collision.GetContact(0).point;
         }
     }
+
+    /// <summary>
+    /// Destroys a thrown part from the replay clock. The ghost that spawned it
+    /// may already be inactive, so the piece cannot wait for that ghost's tick.
+    /// </summary>
+    internal sealed class ReplayDebrisLife : MonoBehaviour
+    {
+        public float Born;
+        public float Life = 14f;
+
+        void Update()
+        {
+            bool playing = Plugin.CurrentDoc != null;
+            float now = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+            if (!DebrisLife.Expired(playing, now, Born, Life)) return;
+            Destroy(gameObject);
+        }
+    }
 }

@@ -15,7 +15,11 @@ namespace NOReplay
     {
         private ReplayDocument _doc;
         private readonly List<(ReplayObject obj, Unit unit)> _tracked = new();
+        private readonly List<ReplayObject> _waiting = new();
         private readonly Dictionary<string, Shown> _shown = new Dictionary<string, Shown>();
+        private readonly HashSet<string> _missLogged = new HashSet<string>();
+        float _nextScan;
+        int _scanLeft = 40;
         static bool _fxPatched;
 
         sealed class Shown
@@ -63,26 +67,35 @@ namespace NOReplay
                 list.Add(u);
             }
 
+            int removed = 0;
             int matched = 0;
+            var used = new HashSet<int>();
+            _waiting.Clear();
             foreach (var obj in _doc.Objects)
             {
                 if (obj.RemovedAt < 0f) continue;
-                if (ObjectMoved(obj)) continue; // moving objects keep their Ghost
+                string type = obj.Type ?? "";
+                bool parked = type.IndexOf("Static", StringComparison.OrdinalIgnoreCase) >= 0
+                    || obj.IsParkedStatic();
+                if (!parked && ObjectMoved(obj)) continue;
+                removed++;
 
                 Unit match = null;
-                string id = obj.Id ?? "";
-                if (byName.TryGetValue(id, out var candidates) && candidates.Count > 0)
+                string id = SanitizeId(obj.Id);
+                if (id.Length > 0 && byName.TryGetValue(id, out var candidates) && candidates.Count > 0)
                     match = candidates[0];
+                if (match == null && obj.Id != null && byName.TryGetValue(obj.Id, out var raw) && raw.Count > 0)
+                    match = raw[0];
 
                 if (match == null && obj.Samples.Count > 0)
                 {
                     var s = obj.Samples[0];
-                    Vector3 want = new Vector3(s.X, s.Y, s.Z);
-                    float best = 12f;
+                    Vector3 want = Plugin.GlobalToLocal(s.X, s.Y, s.Z);
+                    float best = 40f;
                     foreach (var u in allUnits)
                     {
                         if (u == null || u.definition == null) continue;
-                        if (u.definition.unitName != obj.Name && u.definition.code != obj.Name) continue;
+                        if (!NameMatches(u, obj)) continue;
                         float d = Vector3.Distance(u.transform.position, want);
                         if (d < best)
                         {
@@ -93,11 +106,55 @@ namespace NOReplay
                 }
                 if (match != null)
                 {
-                    _tracked.Add((obj, match));
-                    matched++;
+                    if (used.Add(match.GetInstanceID()))
+                    {
+                        _tracked.Add((obj, match));
+                        matched++;
+                    }
+                }
+                else
+                {
+                    _waiting.Add(obj);
+                    NoteUnmatched(obj);
                 }
             }
-            Plugin.Log?.LogInfo($"ReplayStaticHandler: {matched} zugeordnet");
+            Plugin.Log?.LogInfo("ReplayStaticHandler: " + matched + " zugeordnet, warten " + _waiting.Count + " von " + removed);
+        }
+
+        static string SanitizeId(string? raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return "";
+            var sb = new System.Text.StringBuilder(raw.Length);
+            foreach (char c in raw)
+            {
+                if (char.IsLetterOrDigit(c) || c == '_' || c == '-') sb.Append(c);
+                else sb.Append('_');
+            }
+            return sb.ToString();
+        }
+
+        static bool NameMatches(Unit unit, ReplayObject obj)
+        {
+            string name = obj.Name ?? "";
+            if (name.Length == 0 || unit.definition == null) return false;
+            if (string.Equals(unit.definition.unitName, name, StringComparison.OrdinalIgnoreCase)) return true;
+            if (string.Equals(unit.definition.code, name, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        void NoteUnmatched(ReplayObject obj)
+        {
+            string name = obj.Name ?? "";
+            if (name.Length == 0) return;
+            bool care = name.IndexOf("Tank", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Storage", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Depot", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Fuel", StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Ammo", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!care) return;
+            string id = obj.Id ?? "";
+            if (!_missLogged.Add(id + "|" + name)) return;
+            Plugin.Log?.LogInfo("Wreck unmatched " + name + " id=" + id + " type=" + (obj.Type ?? ""));
         }
 
         private bool ObjectMoved(ReplayObject obj)
@@ -118,6 +175,15 @@ namespace NOReplay
                 return;
             }
             if (_doc == null || Plugin.Clock == null) return;
+            if (_waiting.Count > 0 && _scanLeft > 0 && Time.unscaledTime >= _nextScan)
+            {
+                _scanLeft--;
+                _nextScan = Time.unscaledTime + 0.5f;
+                int before = _tracked.Count;
+                BuildLookup();
+                if (_tracked.Count != before)
+                    Plugin.Log?.LogInfo("ReplayStaticHandler rescan " + _tracked.Count);
+            }
             EnsureBuildingPatch();
             float t = Plugin.Clock.Time;
             bool paused = Plugin.Clock.Paused;
@@ -133,7 +199,7 @@ namespace NOReplay
                 }
                 bool dead = obj.RemovedAt >= 0f && t >= obj.RemovedAt;
                 if (dead && !shown.Dead)
-                    ShowWreck(unit, shown);
+                    ShowWreck(unit, shown, obj.RemovedAt);
                 else if (!dead && shown.Dead)
                     Restore(unit, shown);
                 if (!shown.Dead || shown.Particles.Length == 0) continue;
@@ -172,7 +238,7 @@ namespace NOReplay
             return Plugin.CurrentDoc == null;
         }
 
-        void ShowWreck(Unit unit, Shown shown)
+        void ShowWreck(Unit unit, Shown shown, float born)
         {
             shown.Dead = true;
             try
@@ -191,7 +257,7 @@ namespace NOReplay
                 hidden.Add(r);
             }
             shown.Hidden = hidden.ToArray();
-            shown.Wreck = SpawnWreck(unit);
+            shown.Wreck = SpawnWreck(unit, born);
             shown.Particles = ParticlesOf(shown.Wreck);
         }
 
@@ -218,11 +284,26 @@ namespace NOReplay
             catch { }
         }
 
-        static GameObject? SpawnWreck(Unit unit)
+        static FieldInfo? WreckField(Type type)
         {
-            var field = unit.GetType().GetField("wreckage",
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            if (field?.GetValue(unit) is not GameObject prefab || prefab == null) return null;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+            for (var t = type; t != null; t = t.BaseType)
+            {
+                var f = t.GetField("wreckage", flags);
+                if (f != null) return f;
+            }
+            return null;
+        }
+
+        static GameObject? SpawnWreck(Unit unit, float born)
+        {
+            string label = unit.definition != null ? unit.definition.unitName : unit.name;
+            var field = WreckField(unit.GetType());
+            if (field?.GetValue(unit) is not GameObject prefab || prefab == null)
+            {
+                Plugin.Log?.LogInfo("Wreck no prefab " + label + " type=" + unit.GetType().Name);
+                return null;
+            }
             var hold = new GameObject("NOReplay_WreckHold");
             hold.SetActive(false);
             GameObject go;
@@ -244,25 +325,34 @@ namespace NOReplay
                     try { mb.GetType().GetField("stopWhenParentCulled", flags)?.SetValue(mb, false); } catch { }
                     continue;
                 }
-                if (n == "FragmentManager" || n == "Wreckage")
+                if (n == "Wreckage")
                     mb.enabled = false;
             }
+            go.transform.SetParent(null, false);
+            go.transform.SetPositionAndRotation(unit.transform.position, unit.transform.rotation);
+            go.SetActive(true);
+            var motion = go.GetComponent<ReplayWreckMotion>();
+            if (motion == null) motion = go.AddComponent<ReplayWreckMotion>();
+            var fm = go.GetComponentInChildren<FragmentManager>(true);
+            if (fm != null)
+            {
+                motion.Born = born;
+                motion.Arm(fm, unit.GetInstanceID());
+                if (fm is Behaviour beh) beh.enabled = false;
+            }
+            else
+                Plugin.Log?.LogInfo("Wreck no FragmentManager " + label + " prefab=" + prefab.name);
             foreach (var rb in go.GetComponentsInChildren<Rigidbody>(true))
             {
                 if (rb == null) continue;
                 rb.useGravity = false;
-                rb.isKinematic = false;
-                rb.constraints = RigidbodyConstraints.FreezeAll;
+                rb.isKinematic = true;
                 rb.detectCollisions = false;
             }
             foreach (var c in go.GetComponentsInChildren<Collider>(true))
                 if (c != null) c.enabled = false;
-            go.SetActive(true);
-            go.transform.SetParent(null, true);
-            go.transform.SetPositionAndRotation(unit.transform.position, unit.transform.rotation);
-            foreach (var rb in go.GetComponentsInChildren<Rigidbody>(true))
-                if (rb != null) rb.isKinematic = true;
             UnityEngine.Object.Destroy(hold);
+            Plugin.Log?.LogInfo("Wreck " + label + " type=" + unit.GetType().Name + " prefab=" + prefab.name);
             return go;
         }
 

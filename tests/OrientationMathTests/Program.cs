@@ -51,6 +51,8 @@ namespace NOReplay.OrientationTests
             ShipSinkTests.Run();
             _failed += ShipSinkTests.Failed;
             TrackCoastTests.Run();
+            MapGearTests.Run();
+            _failed += MapGearTests.Failed;
             _failed += TrackCoastTests.Failed;
             if (_failed > 0)
             {

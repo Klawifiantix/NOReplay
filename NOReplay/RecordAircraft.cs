@@ -15,6 +15,8 @@ namespace NOReplay
         private float lastTAS = float.NaN;
         private float lastAOA = float.NaN;
         private float lastThrottle = float.NaN;
+        string _lastTilt = "";
+        bool _tiltLogged;
         private float lastPitch = float.NaN;
         private float lastYaw = float.NaN;
         private float lastRoll = float.NaN;
@@ -209,6 +211,48 @@ namespace NOReplay
             catch { }
         }
 
+        void RecordNacelleTilt()
+        {
+            TiltWingController? wing = null;
+            try { wing = aircraft.GetComponentInChildren<TiltWingController>(true); }
+            catch { return; }
+            if (wing == null) return;
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+            if (typeof(TiltWingController).GetField("rotatingJoints", flags)?.GetValue(wing) is not System.Array joints || joints.Length == 0)
+            {
+                if (!_tiltLogged)
+                {
+                    _tiltLogged = true;
+                    Record.Log?.LogInfo("TiltWing has no rotators on " + aircraft.definition?.unitName);
+                }
+                return;
+            }
+            var text = new System.Text.StringBuilder();
+            int n = 0;
+            for (int i = 0; i < joints.Length && n < 4; i++)
+            {
+                var item = joints.GetValue(i);
+                if (item == null) continue;
+                var part = item.GetType().GetField("part", flags)?.GetValue(item) as UnitPart;
+                if (part == null) continue;
+                float x = part.transform.localEulerAngles.x;
+                if (x > 180f) x -= 360f;
+                if (n > 0) text.Append('|');
+                text.Append(x.ToString("0.##", CultureInfo.InvariantCulture));
+                n++;
+            }
+            if (n == 0) return;
+            string now = text.ToString();
+            if (now == _lastTilt) return;
+            _lastTilt = now;
+            props["Tilt"] = now;
+            if (!_tiltLogged)
+            {
+                _tiltLogged = true;
+                Record.Log?.LogInfo("Tilt " + aircraft.definition?.unitName + " " + now);
+            }
+        }
+
         void UpdateAircraft()
         {
             if (aircraft.speed != lastTAS && RecordConfig.RecordSpeed.Value == true)
@@ -238,6 +282,8 @@ namespace NOReplay
                 props.Add("LandingGear", aircraft.gearDeployed ? "1" : "0");
                 lastGear = aircraft.gearDeployed;
             }
+
+            RecordNacelleTilt();
 
             if (aircraft.radar != lastRadar && RecordConfig.RecordRadarMode.Value == true)
             {

@@ -18,5 +18,7 @@
     <Compile Include="..\..\NOReplay\ApproachPattern.cs" Link="ApproachPattern.cs" />
     <Compile Include="..\..\NOReplay\ShipSink.cs" Link="ShipSink.cs" />
     <Compile Include="..\..\NOReplay\TrackCoast.cs" Link="TrackCoast.cs" />
+    <Compile Include="..\..\NOReplay\TireMath.cs" Link="TireMath.cs" />
+    <Compile Include="..\..\NOReplay\TiltText.cs" Link="TiltText.cs" />
   </ItemGroup>
 </Project>

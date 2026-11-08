@@ -57,6 +57,7 @@ namespace NOReplay
             _shipDeadVisual = true;
             Plugin.SetMapIcon(gameObject, false);
             ApplyTurretAngles(ShipFrozenTime(t));
+            OrphanLiveRounds();
             HaltGuns(false);
             StopShipFx(false);
             StopGroundAudio();

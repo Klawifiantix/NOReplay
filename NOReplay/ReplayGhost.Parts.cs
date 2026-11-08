@@ -154,6 +154,7 @@ namespace NOReplay
 
         void TickStructural(bool allowSpawn)
         {
+            QuietLooseGear();
             if (!_air && !_ship && !_ordnance)
                 TickWheels();
             if (Track == null)
@@ -962,6 +963,7 @@ namespace NOReplay
             var skip = DisintegrateIds(part);
             var root = new GameObject("NOReplay_Debris");
             root.transform.SetPositionAndRotation(part.transform.position, part.transform.rotation);
+            root.transform.localScale = SanitizedScale(part.transform, "part " + part.name);
             int copied = CopyMeshes(part.transform, root.transform, skip, 80);
             if (copied == 0)
             {
@@ -976,9 +978,12 @@ namespace NOReplay
             if (_bits.Count >= DebrisCap || seg == null) return;
             var root = new GameObject("NOReplay_Debris");
             root.transform.SetPositionAndRotation(seg.position, seg.rotation);
+            root.transform.localScale = SanitizedScale(seg, "segment " + seg.name);
             int copied = CopyMeshes(seg, root.transform, null, 8);
+            // CopyMeshes skips a renderer that is off. This fallback still copies
+            // that one mesh. seg is the source root, the debris is only the destination.
             if (copied == 0 && rend != null)
-                copied = CopyOne(rend, root.transform) ? 1 : 0;
+                copied = CopyOne(rend, seg, root.transform, new Dictionary<int, Transform>()) ? 1 : 0;
             if (copied == 0)
             {
                 UnityEngine.Object.Destroy(root);
@@ -1012,9 +1017,11 @@ namespace NOReplay
             rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             rb.velocity = vel;
             rb.angularVelocity = UnityEngine.Random.insideUnitSphere * 2.5f;
+            var life = root.AddComponent<ReplayDebrisLife>();
+            life.Born = when;
+            life.Life = DebrisLife;
             if (!air)
             {
-                UnityEngine.Object.Destroy(root, DebrisLife);
                 _bits.Add(new FallingBit { Go = root, Time = when });
                 return root;
             }
@@ -1031,6 +1038,7 @@ namespace NOReplay
 
         static int CopyMeshes(Transform src, Transform dst, HashSet<int>? skip, int cap)
         {
+            var map = new Dictionary<int, Transform>();
             var rends = src.GetComponentsInChildren<Renderer>(true);
             int n = 0;
             for (int i = 0; i < rends.Length && n < cap; i++)
@@ -1040,12 +1048,94 @@ namespace NOReplay
                 if (skip != null && skip.Contains(r.GetInstanceID())) continue;
                 string tn = r.GetType().Name;
                 if (tn == "ParticleSystemRenderer" || tn == "TrailRenderer" || tn == "LineRenderer") continue;
-                if (CopyOne(r, dst)) n++;
+                if (CopyOne(r, src, dst, map)) n++;
             }
             return n;
         }
 
-        static bool CopyOne(Renderer r, Transform dst)
+        static int _scaleLogs;
+        static FieldInfo? _gearHinge;
+        readonly HashSet<int> _gearNoted = new HashSet<int>();
+
+        static Vector3 SanitizedScale(Transform src, string label)
+        {
+            var s = src.localScale;
+            if (!GearScale.Absurd(s.x, s.y, s.z)) return s;
+            if (_scaleLogs < 6)
+            {
+                _scaleLogs++;
+                var w = src.lossyScale;
+                Plugin.Log?.LogInfo("Debris-scale " + label
+                    + " local=" + s.ToString("0.##")
+                    + " lossy=" + w.ToString("0.##")
+                    + " parent=" + (src.parent != null ? src.parent.name : "-"));
+            }
+            return Vector3.one;
+        }
+
+        void QuietLooseGear()
+        {
+            var t = Plugin.FindGameType("LandingGear");
+            if (t == null) return;
+            if (_gearHinge == null)
+                _gearHinge = t.GetField("gearHinge", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (_gearHinge == null) return;
+            var gears = GetComponentsInChildren(t, true);
+            float now = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+            for (int i = 0; i < gears.Length; i++)
+            {
+                var gear = gears[i] as Component;
+                if (gear == null) continue;
+                var hinge = _gearHinge.GetValue(gear) as Transform;
+                if (hinge == null) continue;
+                int id = hinge.GetInstanceID();
+                var rb = hinge.GetComponent<Rigidbody>();
+                var sc = hinge.lossyScale;
+                bool loose = hinge.parent == null || rb != null;
+                bool absurd = GearScale.Absurd(sc.x, sc.y, sc.z);
+                if (!loose && !absurd) continue;
+                if (!_gearNoted.Add(id)) continue;
+                Plugin.Log?.LogInfo("Gear-loose " + hinge.name
+                    + " parent=" + (hinge.parent != null ? hinge.parent.name : "-")
+                    + " body=" + (rb != null)
+                    + " lossy=" + sc.ToString("0.##"));
+                if (absurd) hinge.localScale = Vector3.one;
+                if (rb != null)
+                {
+                    rb.isKinematic = true;
+                    rb.detectCollisions = false;
+                    rb.velocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                }
+                var cols = hinge.GetComponentsInChildren<Collider>(true);
+                for (int c = 0; c < cols.Length; c++)
+                    if (cols[c] != null) cols[c].enabled = false;
+                if (loose && hinge.GetComponent<ReplayDebrisLife>() == null)
+                {
+                    var life = hinge.gameObject.AddComponent<ReplayDebrisLife>();
+                    life.Born = now;
+                    life.Life = DebrisLife;
+                }
+            }
+        }
+
+        static Transform MirrorChain(Transform src, Transform srcRoot, Transform dstRoot, Dictionary<int, Transform> map)
+        {
+            if (src == srcRoot) return dstRoot;
+            int id = src.GetInstanceID();
+            if (map.TryGetValue(id, out var have) && have != null) return have;
+            Transform parentSrc = src.parent != null ? src.parent : srcRoot;
+            Transform parentDst = MirrorChain(parentSrc, srcRoot, dstRoot, map);
+            var go = new GameObject(src.name);
+            go.transform.SetParent(parentDst, false);
+            go.transform.localPosition = src.localPosition;
+            go.transform.localRotation = src.localRotation;
+            go.transform.localScale = SanitizedScale(src, src.name);
+            map[id] = go.transform;
+            return go.transform;
+        }
+
+        static bool CopyOne(Renderer r, Transform srcRoot, Transform dstRoot, Dictionary<int, Transform> map)
         {
             Mesh? mesh = null;
             var filter = r.GetComponent<MeshFilter>();
@@ -1057,13 +1147,16 @@ namespace NOReplay
             }
             if (mesh == null) return false;
             Material[]? mats = r.sharedMaterials;
-            var child = new GameObject(r.name);
-            child.transform.SetPositionAndRotation(r.transform.position, r.transform.rotation);
-            child.transform.localScale = r.transform.lossyScale;
-            child.transform.SetParent(dst, true);
-            var mf = child.AddComponent<MeshFilter>();
+            Transform leaf = MirrorChain(r.transform, srcRoot, dstRoot, map);
+            if (leaf.GetComponent<MeshFilter>() != null)
+            {
+                var extra = new GameObject(r.name);
+                extra.transform.SetParent(leaf, false);
+                leaf = extra.transform;
+            }
+            var mf = leaf.gameObject.AddComponent<MeshFilter>();
             mf.sharedMesh = mesh;
-            var mr = child.AddComponent<MeshRenderer>();
+            var mr = leaf.gameObject.AddComponent<MeshRenderer>();
             mr.sharedMaterials = mats;
             return true;
         }

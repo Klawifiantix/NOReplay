@@ -1116,6 +1116,7 @@ namespace NOReplay
                     StopShipFx(false);
                     StopGroundAudio();
                 }
+                OrphanLiveRounds();
                 HaltGuns(false);
                 if (_visible)
                 {
@@ -1164,21 +1165,6 @@ namespace NOReplay
                 Plugin.SetMapIcon(gameObject, false);
             if (_asleep && (_air || _ship))
                 ExitSleep();
-            if (!_air && !_ship && !_ordnance)
-            {
-                if (_asleep)
-                {
-                    if (((Time.frameCount + gameObject.GetInstanceID()) & 15) != 0)
-                        return;
-                    if (IsFar()) return;
-                    ExitSleep();
-                }
-                else if (IsFar())
-                {
-                    EnterSleep();
-                    return;
-                }
-            }
             if (!Track.TrySample(Plugin.Clock.Time, out var s)) return;
             if (!_colsOff)
             {
@@ -1189,7 +1175,9 @@ namespace NOReplay
                 }
                 _colsOff = true;
             }
-            var p = Plugin.GlobalToLocal(s.X, s.Y, s.Z);
+            bool coasted = TryVehicleCoast(Plugin.Clock.Time, out float cx, out float cy, out float cz, out var coastVel);
+            TrackCoast.Apply(coasted, cx, cy, cz, s.X, s.Y, s.Z, out float gx, out float gy, out float gz);
+            var p = Plugin.GlobalToLocal(gx, gy, gz);
             Quaternion q;
             if (s.HasQuat)
                 q = new Quaternion(s.Qx, s.Qy, s.Qz, s.Qw);
@@ -1215,7 +1203,26 @@ namespace NOReplay
                 _nextRadarScan = 0f;
             }
             drive.SetPositionAndRotation(p, q);
+            if (!_air && !_ship && !_ordnance)
+            {
+                if (IsFar())
+                {
+                    if (!_asleep) EnterSleep();
+                }
+                else if (_asleep)
+                    ExitSleep();
+            }
             if (_ship) SyncCasePattern(drive);
+            if (_asleep && !_air && !_ship && !_ordnance)
+            {
+                HoldAsleepBodies();
+                _prevX = gx;
+                _prevY = gy;
+                _prevZ = gz;
+                _prevLocalPos = p;
+                _prevT = Plugin.Clock.Time;
+                return;
+            }
             if (!_ordnance)
             {
                 EnsureGunsCurrent(false);
@@ -1258,9 +1265,9 @@ namespace NOReplay
                     _velMs = Vector3.zero;
                     _spdMs = 0f;
                 }
-                _prevX = s.X;
-                _prevY = s.Y;
-                _prevZ = s.Z;
+                _prevX = gx;
+                _prevY = gy;
+                _prevZ = gz;
                 _prevLocalPos = p;
                 _prevT = nowT;
             }
@@ -1271,9 +1278,9 @@ namespace NOReplay
                     _velMs = initVel;
                     _spdMs = initVel.magnitude;
                 }
-                _prevX = s.X;
-                _prevY = s.Y;
-                _prevZ = s.Z;
+                _prevX = gx;
+                _prevY = gy;
+                _prevZ = gz;
                 _prevLocalPos = p;
                 _prevT = nowT;
             }
@@ -1293,9 +1300,9 @@ namespace NOReplay
                     _velMs = seekVel;
                     _spdMs = seekVel.magnitude;
                 }
-                _prevX = s.X;
-                _prevY = s.Y;
-                _prevZ = s.Z;
+                _prevX = gx;
+                _prevY = gy;
+                _prevZ = gz;
                 _prevLocalPos = p;
                 _prevT = nowT;
             }
@@ -1303,6 +1310,11 @@ namespace NOReplay
             if (_ordnance && _visible && !_ordAudioOn) IgniteMissileFx();
             if (_ordnance) TickOrdnanceAudio(s);
 
+            if (coasted)
+            {
+                _velMs = coastVel;
+                _spdMs = coastVel.magnitude;
+            }
             Velocities[GetInstanceID()] = _velMs;
             if (_air && gameObject == Plugin._ghost)
                 CheckCameraReposition(_velMs);
@@ -1365,6 +1377,39 @@ namespace NOReplay
             if ((_subFail & bit) != 0) return;
             _subFail |= bit;
             Plugin.Log.LogWarning(where + " " + ex.GetType().Name + ": " + ex.Message);
+        }
+
+        bool TryVehicleCoast(float time, out float x, out float y, out float z, out Vector3 vel)
+        {
+            x = 0f;
+            y = 0f;
+            z = 0f;
+            vel = Vector3.zero;
+            if (_air || _ship || _ordnance || Track == null) return false;
+            if (Track.KilledAt >= 0f || Track.RemovedAt < 0f) return false;
+            var samples = Track.Samples;
+            int n = samples.Count;
+            if (n < 2) return false;
+            var a = samples[n - 2];
+            var b = samples[n - 1];
+            if (!TrackCoast.Try(time, Track.RemovedAt, a.Time, a.X, a.Y, a.Z, b.Time, b.X, b.Y, b.Z,
+                    out x, out y, out z, out float vx, out float vy, out float vz))
+                return false;
+            vel = new Vector3(vx, vy, vz);
+            return true;
+        }
+
+        void HoldAsleepBodies()
+        {
+            for (int i = 0; i < _rbs.Length; i++)
+            {
+                var rb = _rbs[i];
+                if (rb == null || IsIgnored(rb.transform)) continue;
+                rb.isKinematic = true;
+                rb.detectCollisions = false;
+                rb.velocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+            }
         }
 
         bool IsFar()

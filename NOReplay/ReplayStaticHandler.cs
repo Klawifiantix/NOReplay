@@ -269,6 +269,9 @@ namespace NOReplay
             {
                 var r = rends[i];
                 if (r == null || !r.enabled) continue;
+                string rn = r.GetType().Name;
+                if (rn == "ParticleSystemRenderer" || rn == "TrailRenderer") continue;
+                if (r.GetComponentInParent<DamageParticles>() != null) continue;
                 r.enabled = false;
                 hidden.Add(r);
             }

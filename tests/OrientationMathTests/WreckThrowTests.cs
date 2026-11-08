@@ -45,6 +45,12 @@ namespace NOReplay.OrientationTests
             Expect(!GhostTrack.SkipInvalidDuplicate("7E", true), "a real id is kept");
             Expect(BuildingHit.Covers(33.645f, 35.916f, 35.36f), "the burst that is firing when the tank falls");
             Expect(!BuildingHit.Covers(70f, 72f, 35.36f), "a later burst is not the tank hit");
+            Expect(BuildingMesh.IsIntactMesh("MeshRenderer"), "the tank mesh is hidden");
+            Expect(BuildingMesh.IsIntactMesh("SkinnedMeshRenderer"), "a skinned tank mesh is hidden");
+            Expect(!BuildingMesh.IsIntactMesh("ParticleSystemRenderer"), "fire on the tank is left alone");
+            WreckThrow.Place(1f, 0f, 10f, 0f, WreckThrow.Seed(7, 0, 10f), 0f, out float fx, out float fy, out float fz);
+            Expect(System.Math.Abs(fx) + System.Math.Abs(fz) > 0.5f, "one second of flight leaves the spawn point");
+            Expect(fy > 0f, "the piece is still in the air at one second");
         }
 
         static bool Near(float a, float b) => System.Math.Abs(a - b) < 0.05f;

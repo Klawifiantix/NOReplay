@@ -43,6 +43,8 @@ namespace NOReplay.OrientationTests
             Expect(GhostTrack.SkipInvalidDuplicate("1", true), "id 1 is dropped only when the same aircraft exists");
             Expect(!GhostTrack.SkipInvalidDuplicate("1", false), "a lone id 1 aircraft is kept");
             Expect(!GhostTrack.SkipInvalidDuplicate("7E", true), "a real id is kept");
+            Expect(BuildingHit.Covers(33.645f, 35.916f, 35.36f), "the burst that is firing when the tank falls");
+            Expect(!BuildingHit.Covers(70f, 72f, 35.36f), "a later burst is not the tank hit");
         }
 
         static bool Near(float a, float b) => System.Math.Abs(a - b) < 0.05f;

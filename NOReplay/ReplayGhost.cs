@@ -531,6 +531,7 @@ namespace NOReplay
             ReleaseWheelMaterials();
             DestroyDownwashTransforms();
             ReleaseGunVisuals();
+            ReleaseLasers();
             if (_trail != null)
             {
                 UnityEngine.Object.Destroy(_trail.gameObject);
@@ -1243,6 +1244,11 @@ namespace NOReplay
                 _nextRadarScan = 0f;
             }
             drive.SetPositionAndRotation(p, q);
+            if (!_ordnance)
+            {
+                if (_asleep) QuietLasers();
+                else DriveLasers();
+            }
             if (!_air && !_ship && !_ordnance)
             {
                 if (IsFar())
@@ -1476,6 +1482,7 @@ namespace NOReplay
         {
             _asleep = true;
             HaltGuns(false);
+            QuietLasers();
             SilenceSources();
             SetVisible(false);
             var tr = transform;

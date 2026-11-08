@@ -59,4 +59,27 @@ namespace NOReplay
             return speed > 0f;
         }
     }
+
+    /// <summary>
+    /// A new vehicle recording writes Dying=1 when the unit is disabled and
+    /// Visible=0 only when SpawnWreckage runs. The boom is the removal, not the dying mark.
+    /// An old file has no dying mark, so the boom stays on removal.
+    /// </summary>
+    public static class WreckMark
+    {
+        public static bool MeshShown(float time, float removedAt)
+        {
+            return removedAt < 0f || time < removedAt;
+        }
+
+        public static bool Quiet(float time, float dyingAt)
+        {
+            return dyingAt >= 0f && time >= dyingAt;
+        }
+
+        public static bool Boom(float time, float removedAt)
+        {
+            return removedAt >= 0f && time >= removedAt;
+        }
+    }
 }

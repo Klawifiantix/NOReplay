@@ -373,7 +373,10 @@ namespace NOReplay
         void PlaceBreakFx(GameObject? prefab, UnitPart part, Vector3 pos, Quaternion rot, float when, GameObject? debris, HashSet<int> seen)
         {
             if (prefab == null || !seen.Add(prefab.GetInstanceID())) return;
-            if (PrefabRidesPart(prefab))
+            // DamageParticles anywhere in the prefab is the part's smoke and fire.
+            // The game parents that to the part. A root that is not DamageParticles
+            // used to be a world burst destroyed after 8s, which cut the smoke off.
+            if (PrefabRidesPart(prefab) || prefab.GetComponentInChildren<DamageParticles>(true) != null)
             {
                 if (debris != null)
                 {
@@ -941,6 +944,9 @@ namespace NOReplay
             {
                 if (dps[i] == null) continue;
                 try { _fireDamage?.SetValue(dps[i], 0f); } catch { }
+                // A kinematic replay body makes DamageParticles start its 1.5s cull.
+                // The game only stops these when the parent is actually culled.
+                try { _fStopCulled?.SetValue(dps[i], false); } catch { }
             }
             var mbs = go.GetComponentsInChildren<MonoBehaviour>(true);
             for (int i = 0; i < mbs.Length; i++)

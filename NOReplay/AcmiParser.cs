@@ -261,6 +261,12 @@ namespace NOReplay
                         // Our recorder. Tacview skips the property. It is not a removal.
                         obj.KilledAt = time;
                     }
+                    else if (AcmiScan.KeyIs(key, "Dying") && obj.DyingAt < 0f
+                        && val.Length > 0 && val[0] == '1')
+                    {
+                        // Vehicle is disabled. The wreck spawn is a later Visible=0. Tacview ignores Dying.
+                        obj.DyingAt = time;
+                    }
                     else if ((key.Length == 1 && key[0] == 'T') || AcmiScan.KeyIs(key, "Transform"))
                     {
                         if (ParseTransform(val, ref sample))

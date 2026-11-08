@@ -39,6 +39,8 @@ namespace NOReplay
             catch (Exception ex) { Plugin.Log.LogError("RecordListener.Install: " + ex); }
             try { RecordParts.Install(); }
             catch (Exception ex) { Plugin.Log.LogError("RecordParts.Install: " + ex); }
+            try { RecordWreck.Install(); }
+            catch (Exception ex) { Plugin.Log.LogError("RecordWreck.Install: " + ex); }
             try { RecordTrap.Install(); }
             catch (Exception ex) { Plugin.Log.LogError("RecordTrap.Install: " + ex); }
             Plugin.Log.LogInfo("Aufnahme bereit. " + RecordKeyLabel() + " startet und stoppt.");

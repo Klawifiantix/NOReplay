@@ -558,6 +558,9 @@ namespace NOReplay
         {
             ClearSpawnedWreck();
             TrySpawnVehicleWreckAndFire(pos, rot);
+            // The unit's own wreck prefab is the blast the game spawns.
+            // vehicleWreckDestroyed is a later wreck-decay effect, not a second explosion.
+            if (_spawnedWreck != null) return;
 
             if (!_wreckTried)
             {

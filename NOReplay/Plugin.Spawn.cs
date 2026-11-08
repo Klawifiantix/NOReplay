@@ -445,6 +445,13 @@ namespace NOReplay
                 if (obj.Samples.Count == 0) { _pendingAir.RemoveAt(i); continue; }
                 if (t + 0.05f < TrackBorn(obj)) { i++; continue; }
                 if (AlreadySpawned(obj)) { _pendingAir.RemoveAt(i); continue; }
+                if (SkipInvalidDuplicate(obj))
+                {
+                    Log.LogInfo("Ghost skip id=" + obj.Id + " " + (obj.Name ?? "")
+                        + " reason=persistent id 0 was recorded again under another id");
+                    _pendingAir.RemoveAt(i);
+                    continue;
+                }
                 bool follow = _ghost == null;
                 GameObject? go = null;
                 if (IsFlareType(obj.Type, obj.Name))
@@ -473,6 +480,22 @@ namespace NOReplay
                 _pendingAir.RemoveAt(i);
                 budget--;
             }
+        }
+
+        static bool SkipInvalidDuplicate(ReplayObject obj)
+        {
+            if (CurrentDoc == null || !IsAircraft(obj.Type, obj.Name)) return false;
+            bool other = false;
+            foreach (var o in CurrentDoc.Objects)
+            {
+                if (o == null || ReferenceEquals(o, obj)) continue;
+                if (!IsAircraft(o.Type, o.Name)) continue;
+                if (!string.Equals(o.Name, obj.Name, StringComparison.OrdinalIgnoreCase)) continue;
+                if (string.Equals(o.Id, obj.Id, StringComparison.OrdinalIgnoreCase)) continue;
+                other = true;
+                break;
+            }
+            return GhostTrack.SkipInvalidDuplicate(obj.Id, other);
         }
 
         static bool AlreadySpawned(ReplayObject obj)
@@ -664,7 +687,10 @@ namespace NOReplay
 
             go.name = "NOReplay_" + (obj.Name ?? obj.Id);
             if (aircraft)
-                Log.LogInfo("Ghost " + go.name + " id=" + (obj.Id ?? "") + " pos=" + pos.ToString("0.#"));
+                Log.LogInfo("Ghost " + go.name + " id=" + (obj.Id ?? "")
+                    + " samples=" + obj.Samples.Count
+                    + " pilot=" + (string.IsNullOrEmpty(obj.Pilot) ? "-" : obj.Pilot)
+                    + " pos=" + pos.ToString("0.#"));
             if (!flare && !ordnance) SilenceAiOnly(go);
             if (visualOnly)
             {

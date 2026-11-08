@@ -117,7 +117,78 @@ namespace NOReplay
             ReadMain(manager, flags, t);
             ReadDust(manager, flags, t);
             Plugin.Log?.LogInfo("Wreck pieces=" + _pieces.Length + " dust=" + _dust.Length
-                + " " + gameObject.name);
+                + " main=" + (_main != null ? _main.name : "none")
+                + " rise=" + _mainTime.ToString("0.##")
+                + " " + Census());
+        }
+
+        public string Census()
+        {
+            int rootEn = 0, rootN = 0, fragEn = 0, fragN = 0, ps = 0, psOn = 0, dp = 0, dpOn = 0;
+            CountMesh(gameObject, ref rootEn, ref rootN, true);
+            for (int i = 0; i < _pieces.Length; i++)
+            {
+                if (_pieces[i].Tr == null) continue;
+                CountMesh(_pieces[i].Tr.gameObject, ref fragEn, ref fragN, true);
+            }
+            var pt = Type.GetType("UnityEngine.ParticleSystem, UnityEngine.ParticleSystemModule")
+                ?? Plugin.FindGameType("ParticleSystem");
+            if (pt != null)
+            {
+                TallyParticles(gameObject, pt, ref ps, ref psOn);
+                for (int i = 0; i < _pieces.Length; i++)
+                    if (_pieces[i].Tr != null) TallyParticles(_pieces[i].Tr.gameObject, pt, ref ps, ref psOn);
+            }
+            var dps = GetComponentsInChildren<DamageParticles>(true);
+            dp += dps.Length;
+            for (int i = 0; i < dps.Length; i++)
+                if (dps[i] != null && dps[i].enabled) dpOn++;
+            for (int i = 0; i < _pieces.Length; i++)
+            {
+                if (_pieces[i].Tr == null) continue;
+                var extra = _pieces[i].Tr.GetComponentsInChildren<DamageParticles>(true);
+                dp += extra.Length;
+                for (int j = 0; j < extra.Length; j++)
+                    if (extra[j] != null && extra[j].enabled) dpOn++;
+            }
+            string main = "none";
+            if (_main != null)
+            {
+                var mr = _main.GetComponentInChildren<Renderer>();
+                main = _main.name + (mr != null && mr.enabled ? ":on" : ":off");
+            }
+            return "rendRoot=" + rootEn + "/" + rootN
+                + " rendFrag=" + fragEn + "/" + fragN
+                + " ps=" + psOn + "/" + ps
+                + " dmg=" + dpOn + "/" + dp
+                + " main=" + main;
+        }
+
+        static void CountMesh(GameObject host, ref int enabled, ref int total, bool turnOn)
+        {
+            var rends = host.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < rends.Length; i++)
+            {
+                var r = rends[i];
+                if (r == null) continue;
+                string tn = r.GetType().Name;
+                if (tn == "ParticleSystemRenderer" || tn == "TrailRenderer" || tn == "LineRenderer") continue;
+                total++;
+                if (turnOn && !r.enabled) r.enabled = true;
+                if (r.enabled) enabled++;
+            }
+        }
+
+        static void TallyParticles(GameObject host, Type pt, ref int count, ref int playing)
+        {
+            var raw = host.GetComponentsInChildren(pt, true);
+            for (int i = 0; i < raw.Length; i++)
+            {
+                if (raw[i] == null) continue;
+                count++;
+                var prop = pt.GetProperty("isPlaying");
+                if (prop?.GetValue(raw[i]) is bool on && on) playing++;
+            }
         }
 
         void ReadMain(Component manager, BindingFlags flags, Type t)

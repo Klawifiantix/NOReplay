@@ -40,6 +40,9 @@ namespace NOReplay.OrientationTests
             Expect(!WreckPose.FlamesStay(true, true), "cull-stop shuts the flames off");
             Expect(!WreckPose.CollapseDust(0), "no collapse-dust entries means no dust");
             Expect(WreckPose.CollapseDust(2), "collapse dust needs the prefab entries");
+            Expect(GhostTrack.SkipInvalidDuplicate("1", true), "id 1 is dropped only when the same aircraft exists");
+            Expect(!GhostTrack.SkipInvalidDuplicate("1", false), "a lone id 1 aircraft is kept");
+            Expect(!GhostTrack.SkipInvalidDuplicate("7E", true), "a real id is kept");
         }
 
         static bool Near(float a, float b) => System.Math.Abs(a - b) < 0.05f;

@@ -50,6 +50,8 @@ namespace NOReplay.OrientationTests
             _failed += ApproachPatternTests.Failed;
             ShipSinkTests.Run();
             _failed += ShipSinkTests.Failed;
+            TrackCoastTests.Run();
+            _failed += TrackCoastTests.Failed;
             if (_failed > 0)
             {
                 Console.Error.WriteLine("FAILED " + _failed);

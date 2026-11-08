@@ -63,6 +63,14 @@ namespace NOReplay
                 if (_selected == rg) ClearReplaySelection(false);
                 return;
             }
+            if (ShiftHeld() && InFreeFlight())
+            {
+                _selected = rg;
+                _ownOrbit = false;
+                if (_lookLock) _lookLock = false;
+                Log.LogInfo("select " + LabelOf(rg) + " frei");
+                return;
+            }
             if (_lookLock)
             {
                 _lookLock = false;
@@ -224,6 +232,20 @@ namespace NOReplay
                 catch (Exception ex) { Log.LogWarning("Kamera lösen: " + ex.Message); }
                 ClearReplaySelection(true);
             }
+        }
+
+        static bool ShiftHeld()
+        {
+            return Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+        }
+
+        static bool InFreeFlight()
+        {
+            var cam = Cam();
+            if (cam == null) return false;
+            var free = cam.GetType().GetField("freeState", Inst)?.GetValue(cam);
+            var cur = cam.GetType().GetProperty("currentState", Inst)?.GetValue(cam);
+            return free != null && ReferenceEquals(cur, free);
         }
 
         static void LeaveFollowKeepPose()

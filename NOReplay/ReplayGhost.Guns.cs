@@ -219,6 +219,18 @@ namespace NOReplay
             SpawnVisualBullets(rt, burst);
         }
 
+        internal void OrphanLiveRounds()
+        {
+            if (_gunRt == null) return;
+            for (int i = 0; i < _gunRt.Length; i++)
+            {
+                var rt = _gunRt[i];
+                if (rt == null || rt.Sim == null) continue;
+                ReplayRounds.Adopt(rt.Sim);
+                rt.Sim = null;
+            }
+        }
+
         internal void HaltGuns(bool clearBullets)
         {
             _gunAimUntil = 0f;

@@ -17,5 +17,6 @@
     <Compile Include="..\..\NOReplay\CarrierOps.cs" Link="CarrierOps.cs" />
     <Compile Include="..\..\NOReplay\ApproachPattern.cs" Link="ApproachPattern.cs" />
     <Compile Include="..\..\NOReplay\ShipSink.cs" Link="ShipSink.cs" />
+    <Compile Include="..\..\NOReplay\TrackCoast.cs" Link="TrackCoast.cs" />
   </ItemGroup>
 </Project>

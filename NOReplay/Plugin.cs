@@ -179,6 +179,7 @@ namespace NOReplay
             _aircraftQueued = false;
             _holdClock = false;
             _pickerOpen = false;
+            ReplayRounds.Clear();
             CurrentDoc = null;
             _staticHandlerStarted = false;
             Clock.Reset(0f);
@@ -237,6 +238,7 @@ namespace NOReplay
                 TickTrails();
                 WarmOrdnance();
                 ShellReplay.Tick(CurrentDoc, Clock.Time);
+                ReplayRounds.Tick(Clock.Time, Clock.Paused);
                 TickPanel();
                 if (perfStamp != 0) NotePerf(perfStamp);
             }
@@ -464,6 +466,7 @@ namespace NOReplay
                 if (go.activeSelf == on) continue;
                 if (!on)
                 {
+                    rg.OrphanLiveRounds();
                     rg.ForceWreck();
                     rg.NoteOrdnanceAsleep();
                     ReleaseCameraIfOn(go);

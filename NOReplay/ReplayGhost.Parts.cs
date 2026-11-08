@@ -962,6 +962,7 @@ namespace NOReplay
             var skip = DisintegrateIds(part);
             var root = new GameObject("NOReplay_Debris");
             root.transform.SetPositionAndRotation(part.transform.position, part.transform.rotation);
+            root.transform.localScale = part.transform.localScale;
             int copied = CopyMeshes(part.transform, root.transform, skip, 80);
             if (copied == 0)
             {
@@ -976,6 +977,7 @@ namespace NOReplay
             if (_bits.Count >= DebrisCap || seg == null) return;
             var root = new GameObject("NOReplay_Debris");
             root.transform.SetPositionAndRotation(seg.position, seg.rotation);
+            root.transform.localScale = seg.localScale;
             int copied = CopyMeshes(seg, root.transform, null, 8);
             if (copied == 0 && rend != null)
                 copied = CopyOne(rend, root.transform) ? 1 : 0;
@@ -1031,6 +1033,7 @@ namespace NOReplay
 
         static int CopyMeshes(Transform src, Transform dst, HashSet<int>? skip, int cap)
         {
+            var map = new Dictionary<int, Transform>();
             var rends = src.GetComponentsInChildren<Renderer>(true);
             int n = 0;
             for (int i = 0; i < rends.Length && n < cap; i++)
@@ -1040,12 +1043,31 @@ namespace NOReplay
                 if (skip != null && skip.Contains(r.GetInstanceID())) continue;
                 string tn = r.GetType().Name;
                 if (tn == "ParticleSystemRenderer" || tn == "TrailRenderer" || tn == "LineRenderer") continue;
-                if (CopyOne(r, dst)) n++;
+                if (CopyOne(r, src, dst, map)) n++;
             }
             return n;
         }
 
-        static bool CopyOne(Renderer r, Transform dst)
+        // Gear hinges are rotated and non-uniformly scaled. lossyScale is wrong
+        // there and made detached Cricket wheels enormous. Copy each local scale
+        // instead, from the part root down to the mesh.
+        static Transform MirrorChain(Transform src, Transform srcRoot, Transform dstRoot, Dictionary<int, Transform> map)
+        {
+            if (src == srcRoot) return dstRoot;
+            int id = src.GetInstanceID();
+            if (map.TryGetValue(id, out var have) && have != null) return have;
+            Transform parentSrc = src.parent != null ? src.parent : srcRoot;
+            Transform parentDst = MirrorChain(parentSrc, srcRoot, dstRoot, map);
+            var go = new GameObject(src.name);
+            go.transform.SetParent(parentDst, false);
+            go.transform.localPosition = src.localPosition;
+            go.transform.localRotation = src.localRotation;
+            go.transform.localScale = src.localScale;
+            map[id] = go.transform;
+            return go.transform;
+        }
+
+        static bool CopyOne(Renderer r, Transform srcRoot, Transform dstRoot, Dictionary<int, Transform> map)
         {
             Mesh? mesh = null;
             var filter = r.GetComponent<MeshFilter>();
@@ -1057,13 +1079,16 @@ namespace NOReplay
             }
             if (mesh == null) return false;
             Material[]? mats = r.sharedMaterials;
-            var child = new GameObject(r.name);
-            child.transform.SetPositionAndRotation(r.transform.position, r.transform.rotation);
-            child.transform.localScale = r.transform.lossyScale;
-            child.transform.SetParent(dst, true);
-            var mf = child.AddComponent<MeshFilter>();
+            Transform leaf = MirrorChain(r.transform, srcRoot, dstRoot, map);
+            if (leaf.GetComponent<MeshFilter>() != null)
+            {
+                var extra = new GameObject(r.name);
+                extra.transform.SetParent(leaf, false);
+                leaf = extra.transform;
+            }
+            var mf = leaf.gameObject.AddComponent<MeshFilter>();
             mf.sharedMesh = mesh;
-            var mr = child.AddComponent<MeshRenderer>();
+            var mr = leaf.gameObject.AddComponent<MeshRenderer>();
             mr.sharedMaterials = mats;
             return true;
         }

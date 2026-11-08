@@ -50,9 +50,17 @@ namespace NOReplay
             {
                 if (unit.disabled)
                 {
+                    bool first = !base.disabled;
                     base.disabled = true;
-                    props.Add("Visible", "0.0");
-                    props.Add("Type", null);
+                    if (first && unit != null)
+                    {
+                        props.Clear();
+                        UpdatePose(true);
+                    }
+                    if (!props.ContainsKey("Visible"))
+                        props.Add("Visible", "0.0");
+                    if (!props.ContainsKey("Type"))
+                        props.Add("Type", null!);
                     Engine.invokeWriterUpdate(this);
                     props.Clear();
                     if (base.destroyedEvent && !purge)

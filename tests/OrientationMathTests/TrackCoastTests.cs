@@ -14,6 +14,7 @@ namespace NOReplay.OrientationTests
             CapsASpike();
             ParkedDoesNotDrift();
             SeekIsStable();
+            RejectedCoastKeepsTheSample();
         }
 
         static void HoldsUntilTheGap()
@@ -87,6 +88,14 @@ namespace NOReplay.OrientationTests
             Check(WreckMark.Quiet(6f, 5f) && !WreckMark.Boom(6f, 12f), "Dying does not play the explosion");
             Check(!WreckMark.MeshShown(12f, 12f) && WreckMark.Boom(12f, 12f), "the wreck time hides the mesh and plays once");
             Check(!WreckMark.Quiet(3f, -1f) && WreckMark.Boom(4f, 4f), "an old file with no Dying mark still booms at removal");
+        }
+
+        static void RejectedCoastKeepsTheSample()
+        {
+            TrackCoast.Apply(false, 0f, 0f, 0f, 100f, 20f, 30f, out float x, out float y, out float z);
+            Check(x == 100f && y == 20f && z == 30f, "a rejected coast keeps the sampled position");
+            TrackCoast.Apply(true, 4f, 5f, 6f, 100f, 20f, 30f, out float cx, out float cy, out float cz);
+            Check(cx == 4f && cy == 5f && cz == 6f, "an accepted coast replaces the sample");
         }
 
         static void Check(bool ok, string message)

@@ -46,9 +46,10 @@ namespace NOReplay
         }
         public virtual void LateUpdate()
         {
+            if (!Record.Active) return;
             try
             {
-                if (unit.disabled)
+                if (unit == null || !unit.disabled) return;
                 {
                     bool first = !base.disabled;
                     base.disabled = true;

@@ -75,9 +75,9 @@ namespace NOReplay
             {
                 if (obj.RemovedAt < 0f) continue;
                 string type = obj.Type ?? "";
-                bool parked = type.IndexOf("Static", StringComparison.OrdinalIgnoreCase) >= 0
-                    || obj.IsParkedStatic();
-                if (!parked && ObjectMoved(obj)) continue;
+                bool structure = type.IndexOf("Building", StringComparison.OrdinalIgnoreCase) >= 0
+                    || type.IndexOf("Scenery", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (!structure) continue;
                 removed++;
 
                 Unit match = null;
@@ -115,7 +115,7 @@ namespace NOReplay
                 else
                 {
                     _waiting.Add(obj);
-                    NoteUnmatched(obj);
+                    NoteUnmatched(obj, allUnits);
                 }
             }
             Plugin.Log?.LogInfo("ReplayStaticHandler: " + matched + " zugeordnet, warten " + _waiting.Count + " von " + removed);
@@ -142,19 +142,35 @@ namespace NOReplay
             return false;
         }
 
-        void NoteUnmatched(ReplayObject obj)
+        void NoteUnmatched(ReplayObject obj, Unit[] allUnits)
         {
             string name = obj.Name ?? "";
-            if (name.Length == 0) return;
-            bool care = name.IndexOf("Tank", StringComparison.OrdinalIgnoreCase) >= 0
-                || name.IndexOf("Storage", StringComparison.OrdinalIgnoreCase) >= 0
-                || name.IndexOf("Depot", StringComparison.OrdinalIgnoreCase) >= 0
-                || name.IndexOf("Fuel", StringComparison.OrdinalIgnoreCase) >= 0
-                || name.IndexOf("Ammo", StringComparison.OrdinalIgnoreCase) >= 0;
-            if (!care) return;
             string id = obj.Id ?? "";
             if (!_missLogged.Add(id + "|" + name)) return;
-            Plugin.Log?.LogInfo("Wreck unmatched " + name + " id=" + id + " type=" + (obj.Type ?? ""));
+            if (_missLogged.Count > 12) return;
+            string where = "no-sample";
+            float nearest = -1f;
+            string nearName = "";
+            if (obj.Samples.Count > 0)
+            {
+                var s = obj.Samples[0];
+                Vector3 want = Plugin.GlobalToLocal(s.X, s.Y, s.Z);
+                where = want.ToString("0.#");
+                foreach (var u in allUnits)
+                {
+                    if (u == null || u.definition == null) continue;
+                    if (!NameMatches(u, obj)) continue;
+                    float d = Vector3.Distance(u.transform.position, want);
+                    if (nearest < 0f || d < nearest)
+                    {
+                        nearest = d;
+                        nearName = u.definition.unitName + " @" + u.transform.position.ToString("0.#");
+                    }
+                }
+            }
+            Plugin.Log?.LogInfo("Wreck unmatched " + name + " id=" + id
+                + " want=" + where
+                + " nearest=" + (nearest < 0f ? "none" : nearest.ToString("0.#") + " " + nearName));
         }
 
         private bool ObjectMoved(ReplayObject obj)
@@ -304,6 +320,9 @@ namespace NOReplay
                 Plugin.Log?.LogInfo("Wreck no prefab " + label + " type=" + unit.GetType().Name);
                 return null;
             }
+            // Stay inactive until the instance is already at the building.
+            // SetParent(null) on an active instance runs FragmentManager.OnEnable
+            // immediately, and that unparents the pieces where they are.
             var hold = new GameObject("NOReplay_WreckHold");
             hold.SetActive(false);
             GameObject go;
@@ -313,6 +332,7 @@ namespace NOReplay
                 UnityEngine.Object.Destroy(hold);
                 return null;
             }
+            go.SetActive(false);
             go.name = "NOReplay_BuildingWreck";
             var flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
             foreach (var mb in go.GetComponentsInChildren<MonoBehaviour>(true))
@@ -328,20 +348,19 @@ namespace NOReplay
                 if (n == "Wreckage")
                     mb.enabled = false;
             }
-            go.transform.SetParent(null, false);
             go.transform.SetPositionAndRotation(unit.transform.position, unit.transform.rotation);
+            go.transform.SetParent(null, true);
             go.SetActive(true);
+            var fm = go.GetComponentInChildren<FragmentManager>(true);
+            if (fm is Behaviour fmBeh) fmBeh.enabled = false;
             var motion = go.GetComponent<ReplayWreckMotion>();
             if (motion == null) motion = go.AddComponent<ReplayWreckMotion>();
-            var fm = go.GetComponentInChildren<FragmentManager>(true);
+            motion.Born = born;
             if (fm != null)
-            {
-                motion.Born = born;
                 motion.Arm(fm, unit.GetInstanceID());
-                if (fm is Behaviour beh) beh.enabled = false;
-            }
             else
                 Plugin.Log?.LogInfo("Wreck no FragmentManager " + label + " prefab=" + prefab.name);
+            motion.PlayPieces();
             foreach (var rb in go.GetComponentsInChildren<Rigidbody>(true))
             {
                 if (rb == null) continue;
@@ -352,7 +371,15 @@ namespace NOReplay
             foreach (var c in go.GetComponentsInChildren<Collider>(true))
                 if (c != null) c.enabled = false;
             UnityEngine.Object.Destroy(hold);
-            Plugin.Log?.LogInfo("Wreck " + label + " type=" + unit.GetType().Name + " prefab=" + prefab.name);
+            float now = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+            Plugin.Log?.LogInfo("Wreck " + label + " type=" + unit.GetType().Name + " prefab=" + prefab.name
+                + " unit=" + unit.transform.position.ToString("0.#")
+                + " wreck=" + go.transform.position.ToString("0.#")
+                + " piece0=" + motion.FirstPiece.ToString("0.#")
+                + " datum=" + Datum.originPosition.ToString("0.#")
+                + " born=" + born.ToString("0.00")
+                + " now=" + now.ToString("0.00")
+                + " pieces=" + motion.PieceCount);
             return go;
         }
 

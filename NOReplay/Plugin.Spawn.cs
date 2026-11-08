@@ -663,6 +663,8 @@ namespace NOReplay
             go.SetActive(true);
 
             go.name = "NOReplay_" + (obj.Name ?? obj.Id);
+            if (aircraft)
+                Log.LogInfo("Ghost " + go.name + " id=" + (obj.Id ?? "") + " pos=" + pos.ToString("0.#"));
             if (!flare && !ordnance) SilenceAiOnly(go);
             if (visualOnly)
             {

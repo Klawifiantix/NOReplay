@@ -27,8 +27,13 @@ namespace NOReplay
             public bool Dead;
             public GameObject? Wreck;
             public GameObject? Fx;
+            public Unit? Unit;
             public Component[] Particles = Array.Empty<Component>();
-            public Renderer[] Hidden = Array.Empty<Renderer>();
+            public readonly List<Renderer> Hidden = new List<Renderer>();
+            public LODGroup[] Lods = Array.Empty<LODGroup>();
+            public bool[] LodWas = Array.Empty<bool>();
+            public Collider[] Blocked = Array.Empty<Collider>();
+            public bool Held;
             public bool HitPending;
             public int HitTries;
         }
@@ -223,6 +228,7 @@ namespace NOReplay
                     Restore(unit, shown);
                 else if (dead && shown.HitPending)
                     RetryHit(unit, shown, obj);
+                if (shown.Dead) HoldIntact(shown);
                 if (!shown.Dead || shown.Particles.Length == 0) continue;
                 if (paused)
                     ReplayGhost.PauseParticleSystems(shown.Particles);
@@ -262,28 +268,77 @@ namespace NOReplay
         void ShowWreck(Unit unit, Shown shown, ReplayObject obj)
         {
             shown.Dead = true;
+            shown.Unit = unit;
             try
             {
                 if (!unit.disabled)
                     unit.Networkdisabled = true;
             }
             catch { }
-            var rends = unit.GetComponentsInChildren<Renderer>(true);
-            var hidden = new List<Renderer>();
-            for (int i = 0; i < rends.Length; i++)
-            {
-                var r = rends[i];
-                if (r == null || !r.enabled) continue;
-                string rn = r.GetType().Name;
-                if (rn == "ParticleSystemRenderer" || rn == "TrailRenderer") continue;
-                if (r.GetComponentInParent<DamageParticles>() != null) continue;
-                r.enabled = false;
-                hidden.Add(r);
-            }
-            shown.Hidden = hidden.ToArray();
+            // Hide the live mesh before the wreck samples the ground, so the
+            // ray is not answered by the tank that is being removed.
+            HoldIntact(shown);
             shown.Wreck = SpawnWreck(unit, obj.RemovedAt);
             shown.Fx = SpawnPartEffects(unit, obj);
             RefreshFx(shown);
+            HoldIntact(shown);
+        }
+
+        void LateUpdate()
+        {
+            if (Plugin.CurrentDoc == null) return;
+            foreach (var shown in _shown.Values)
+            {
+                if (shown.Dead) HoldIntact(shown);
+            }
+        }
+
+        // LOD groups turn the active level back on after a one-shot disable.
+        // The fire lives on the separate effect object, so every mesh on the
+        // building itself stays off for as long as the wreck is showing.
+        void HoldIntact(Shown shown)
+        {
+            var unit = shown.Unit;
+            if (unit == null) return;
+            if (!shown.Held)
+            {
+                shown.Held = true;
+                var lods = unit.GetComponentsInChildren<LODGroup>(true);
+                shown.Lods = lods;
+                shown.LodWas = new bool[lods.Length];
+                for (int i = 0; i < lods.Length; i++)
+                {
+                    if (lods[i] == null) continue;
+                    shown.LodWas[i] = lods[i].enabled;
+                    lods[i].enabled = false;
+                }
+                var cols = unit.GetComponentsInChildren<Collider>(true);
+                var blocked = new List<Collider>();
+                for (int i = 0; i < cols.Length; i++)
+                {
+                    var c = cols[i];
+                    if (c == null || !c.enabled) continue;
+                    c.enabled = false;
+                    blocked.Add(c);
+                }
+                shown.Blocked = blocked.ToArray();
+            }
+            var rends = unit.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < rends.Length; i++)
+            {
+                var r = rends[i];
+                if (r == null || !BuildingMesh.IsIntactMesh(r.GetType().Name)) continue;
+                if (!r.enabled)
+                {
+                    if (!shown.Hidden.Contains(r)) continue;
+                }
+                else
+                {
+                    r.enabled = false;
+                    if (!shown.Hidden.Contains(r)) shown.Hidden.Add(r);
+                }
+                r.enabled = false;
+            }
         }
 
         void RetryHit(Unit unit, Shown shown, ReplayObject obj)
@@ -327,12 +382,25 @@ namespace NOReplay
                 shown.Fx = null;
             }
             shown.Particles = Array.Empty<Component>();
-            for (int i = 0; i < shown.Hidden.Length; i++)
+            for (int i = 0; i < shown.Hidden.Count; i++)
             {
                 var r = shown.Hidden[i];
                 if (r != null) r.enabled = true;
             }
-            shown.Hidden = Array.Empty<Renderer>();
+            shown.Hidden.Clear();
+            for (int i = 0; i < shown.Lods.Length; i++)
+            {
+                if (shown.Lods[i] != null && i < shown.LodWas.Length && shown.LodWas[i])
+                    shown.Lods[i].enabled = true;
+            }
+            shown.Lods = Array.Empty<LODGroup>();
+            shown.LodWas = Array.Empty<bool>();
+            for (int i = 0; i < shown.Blocked.Length; i++)
+            {
+                if (shown.Blocked[i] != null) shown.Blocked[i].enabled = true;
+            }
+            shown.Blocked = Array.Empty<Collider>();
+            shown.Held = false;
             try
             {
                 if (unit.disabled)
@@ -386,9 +454,12 @@ namespace NOReplay
                     try { mb.GetType().GetField("stopWhenParentCulled", flags)?.SetValue(mb, false); } catch { }
                     continue;
                 }
-                if (n == "Wreckage")
+                // Off before the object wakes, so FragmentManager.Start cannot
+                // push the pieces with a live force we then freeze in place.
+                if (n == "Wreckage" || n == "FragmentManager")
                     mb.enabled = false;
             }
+            go.isStatic = false;
             go.transform.SetPositionAndRotation(unit.transform.position, unit.transform.rotation);
             go.transform.SetParent(null, true);
             go.SetActive(true);

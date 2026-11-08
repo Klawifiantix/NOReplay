@@ -39,6 +39,7 @@ namespace NOReplay
         struct Piece
         {
             public Transform Tr;
+            public Rigidbody Rb;
             public Vector3 P0;
             public Quaternion R0;
             public float GroundY;
@@ -73,6 +74,7 @@ namespace NOReplay
         Vector3 _toppleAxis;
         float _prevAge = -1f;
         bool _dustMiss;
+        bool _flewLogged;
         static bool _speedLogged;
 
         public void Arm(Component manager, int seed)
@@ -97,20 +99,35 @@ namespace NOReplay
                     var rb = item.GetType().GetField("rb", flags)?.GetValue(item) as Rigidbody;
                     if (rb == null) continue;
                     var tr = rb.transform;
+                    // OnEnable already dropped the parent. Do it again so a
+                    // disabled manager cannot leave the piece on the shell.
+                    tr.SetParent(null, true);
+                    tr.gameObject.isStatic = false;
+                    var cols = tr.GetComponentsInChildren<Collider>(true);
+                    for (int c = 0; c < cols.Length; c++)
+                        if (cols[c] != null) cols[c].enabled = false;
+                    var joints = tr.GetComponents<Joint>();
+                    for (int j = 0; j < joints.Length; j++)
+                        if (joints[j] != null) UnityEngine.Object.Destroy(joints[j]);
+                    rb.isKinematic = true;
+                    rb.interpolation = RigidbodyInterpolation.None;
+                    rb.constraints = RigidbodyConstraints.None;
+                    rb.detectCollisions = false;
+                    rb.useGravity = false;
+                    rb.velocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
                     float ground = tr.position.y;
-                    if (Physics.Raycast(tr.position + Vector3.up * 2f, Vector3.down, out var hit, 80f, ~0, QueryTriggerInteraction.Ignore))
+                    if (Physics.Raycast(tr.position + Vector3.up * 4f, Vector3.down, out var hit, 80f, ~0, QueryTriggerInteraction.Ignore))
                         ground = hit.point.y;
                     pieces.Add(new Piece
                     {
                         Tr = tr,
+                        Rb = rb,
                         P0 = tr.position,
                         R0 = tr.rotation,
                         GroundY = ground,
                         Throw = WreckThrow.Seed(seed, i, speed)
                     });
-                    rb.isKinematic = true;
-                    rb.detectCollisions = false;
-                    rb.useGravity = false;
                 }
             }
             _pieces = pieces.ToArray();
@@ -125,11 +142,11 @@ namespace NOReplay
         public string Census()
         {
             int rootEn = 0, rootN = 0, fragEn = 0, fragN = 0, ps = 0, psOn = 0, dp = 0, dpOn = 0;
-            CountMesh(gameObject, ref rootEn, ref rootN, true);
+            CountMesh(gameObject, ref rootEn, ref rootN, false);
             for (int i = 0; i < _pieces.Length; i++)
             {
                 if (_pieces[i].Tr == null) continue;
-                CountMesh(_pieces[i].Tr.gameObject, ref fragEn, ref fragN, true);
+                CountMesh(_pieces[i].Tr.gameObject, ref fragEn, ref fragN, false);
             }
             var pt = Type.GetType("UnityEngine.ParticleSystem, UnityEngine.ParticleSystemModule")
                 ?? Plugin.FindGameType("ParticleSystem");
@@ -158,10 +175,27 @@ namespace NOReplay
                 main = _main.name + (mr != null && mr.enabled ? ":on" : ":off");
             }
             return "rendRoot=" + rootEn + "/" + rootN
+                + " root=" + RootNames()
                 + " rendFrag=" + fragEn + "/" + fragN
                 + " ps=" + psOn + "/" + ps
                 + " dmg=" + dpOn + "/" + dp
                 + " main=" + main;
+        }
+
+        string RootNames()
+        {
+            var rends = GetComponentsInChildren<Renderer>(true);
+            var names = new System.Text.StringBuilder();
+            int n = 0;
+            for (int i = 0; i < rends.Length && n < 3; i++)
+            {
+                var r = rends[i];
+                if (r == null || !BuildingMesh.IsIntactMesh(r.GetType().Name)) continue;
+                if (names.Length > 0) names.Append(',');
+                names.Append(r.name);
+                n++;
+            }
+            return n == 0 ? "-" : names.ToString();
         }
 
         static void CountMesh(GameObject host, ref int enabled, ref int total, bool turnOn)
@@ -257,7 +291,10 @@ namespace NOReplay
             return false;
         }
 
-        void Update()
+        // Late, and onto the rigidbody. Writing only the transform is undone
+        // when physics copies the body's old pose back, so the pieces stay
+        // where they spawned.
+        void LateUpdate()
         {
             if (Plugin.CurrentDoc == null) return;
             float now = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
@@ -269,11 +306,23 @@ namespace NOReplay
                 var p = _pieces[i];
                 if (p.Tr == null) continue;
                 WreckThrow.Place(age, p.P0.x, p.P0.y, p.P0.z, p.Throw, p.GroundY, out float x, out float y, out float z);
-                p.Tr.position = new Vector3(x, y, z);
                 float spinAge = age;
                 float hit = WreckThrow.ImpactTime(p.P0.y, p.Throw.Vy, p.GroundY);
                 if (spinAge > hit) spinAge = hit;
-                p.Tr.rotation = Quaternion.AngleAxis(p.Throw.Spin * spinAge * Mathf.Rad2Deg, new Vector3(p.Throw.Ax, p.Throw.Ay, p.Throw.Az)) * p.R0;
+                var pos = new Vector3(x, y, z);
+                var rot = Quaternion.AngleAxis(p.Throw.Spin * spinAge * Mathf.Rad2Deg, new Vector3(p.Throw.Ax, p.Throw.Ay, p.Throw.Az)) * p.R0;
+                if (p.Rb != null)
+                {
+                    p.Rb.position = pos;
+                    p.Rb.rotation = rot;
+                }
+                p.Tr.SetPositionAndRotation(pos, rot);
+            }
+            if (!_flewLogged && age > 0.75f && _pieces.Length > 0 && _pieces[0].Tr != null)
+            {
+                _flewLogged = true;
+                var off = _pieces[0].Tr.position - _pieces[0].P0;
+                Plugin.Log?.LogInfo("Wreck fly age=" + age.ToString("0.00") + " off=" + off.ToString("0.0"));
             }
             if (_haveMain && _main != null && _mainTime > 0f)
             {

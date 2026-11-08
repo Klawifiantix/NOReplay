@@ -979,8 +979,10 @@ namespace NOReplay
             root.transform.SetPositionAndRotation(seg.position, seg.rotation);
             root.transform.localScale = seg.localScale;
             int copied = CopyMeshes(seg, root.transform, null, 8);
+            // CopyMeshes skips a renderer that is off. This fallback still copies
+            // that one mesh. seg is the source root, the debris is only the destination.
             if (copied == 0 && rend != null)
-                copied = CopyOne(rend, root.transform) ? 1 : 0;
+                copied = CopyOne(rend, seg, root.transform, new Dictionary<int, Transform>()) ? 1 : 0;
             if (copied == 0)
             {
                 UnityEngine.Object.Destroy(root);

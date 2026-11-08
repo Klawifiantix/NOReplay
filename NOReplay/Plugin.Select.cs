@@ -20,6 +20,13 @@ namespace NOReplay
         static float _orbYaw, _orbPitch, _orbDist = 40f;
         static Vector3 _clickCamPos;
         static bool _clickCamPosOk;
+        static bool _shiftMapSelect;
+        static bool _heldCam;
+        static Vector3 _heldPos;
+        static Quaternion _heldRot;
+        static Transform? _heldParent;
+        static object? _heldState;
+        static object? _heldFollow;
         static string? _selErr;
         static Vector3 _prevMouse;
         static bool _prevMouseOk;
@@ -63,12 +70,11 @@ namespace NOReplay
                 if (_selected == rg) ClearReplaySelection(false);
                 return;
             }
-            if (ShiftHeld() && InFreeFlight())
+            if (ShiftHeld())
             {
-                _selected = rg;
-                _ownOrbit = false;
-                if (_lookLock) _lookLock = false;
-                Log.LogInfo("select " + LabelOf(rg) + " frei");
+                KeepSelection(rg);
+                RestoreHeldCamera();
+                Log.LogInfo("select " + LabelOf(rg) + " shift");
                 return;
             }
             if (_lookLock)
@@ -237,6 +243,102 @@ namespace NOReplay
         static bool ShiftHeld()
         {
             return Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+        }
+
+        static void SelectInPlace(object icon)
+        {
+            if (icon is not Component c) return;
+            object? unit = null;
+            try { unit = c.GetType().GetProperty("unit", Inst)?.GetValue(c); }
+            catch { return; }
+            if (unit is not Component uc || !TryPick(uc, out var rg))
+            {
+                Log.LogInfo("shift click ohne Ghost");
+                return;
+            }
+            KeepSelection(rg);
+            MarkMapIcon(uc);
+            bool free = InFreeFlight();
+            Log.LogInfo("select " + LabelOf(rg) + " shift free=" + free);
+        }
+
+        static void KeepSelection(ReplayGhost rg)
+        {
+            _selected = rg;
+            _ownOrbit = false;
+            if (_lookLock) _lookLock = false;
+        }
+
+        static void MarkMapIcon(Component unit)
+        {
+            var mapT = FindGameType("DynamicMap");
+            if (mapT == null) return;
+            object? map = null;
+            try { map = mapT.GetProperty("i", Stat)?.GetValue(null); }
+            catch { return; }
+            if (map == null) return;
+            try { mapT.GetMethod("UnselectAll", Inst)?.Invoke(map, null); }
+            catch { }
+            foreach (var m in mapT.GetMethods(Inst))
+            {
+                if (m.Name != "SelectIcon") continue;
+                var ps = m.GetParameters();
+                if (ps.Length != 1 || !ps[0].ParameterType.IsInstanceOfType(unit)) continue;
+                try { m.Invoke(map, new object[] { unit }); }
+                catch (Exception ex) { Log.LogWarning("Kartenmarkierung: " + ex.Message); }
+                return;
+            }
+        }
+
+        static void HoldCamera()
+        {
+            _heldCam = false;
+            var cam = Cam();
+            if (cam == null) return;
+            _heldCam = true;
+            var tr = cam.transform;
+            _heldPos = tr.position;
+            _heldRot = tr.rotation;
+            _heldParent = tr.parent;
+            _heldState = cam.GetType().GetProperty("currentState", Inst)?.GetValue(cam);
+            _heldFollow = cam.GetType().GetField("followingUnit", Inst)?.GetValue(cam);
+        }
+
+        static void RestoreHeldCamera()
+        {
+            if (!_heldCam) return;
+            var cam = Cam();
+            _heldCam = false;
+            if (cam == null) return;
+            var tr = cam.transform;
+            var cur = cam.GetType().GetProperty("currentState", Inst)?.GetValue(cam);
+            var follow = cam.GetType().GetField("followingUnit", Inst)?.GetValue(cam);
+            bool moved = (tr.position - _heldPos).sqrMagnitude > 0.01f
+                || Quaternion.Angle(tr.rotation, _heldRot) > 0.5f
+                || tr.parent != _heldParent;
+            bool stateChanged = _heldState != null && !ReferenceEquals(cur, _heldState);
+            bool followChanged = !ReferenceEquals(follow, _heldFollow);
+            if (!moved && !stateChanged && !followChanged) return;
+            if (stateChanged)
+            {
+                var free = cam.GetType().GetField("freeState", Inst)?.GetValue(cam);
+                if (free != null && ReferenceEquals(_heldState, free))
+                {
+                    free.GetType().GetField("DontResetRotationFlag", Inst)?.SetValue(free, true);
+                    cam.GetType().GetField("previousFollowingUnit", Inst)?.SetValue(cam, null);
+                }
+                try { cam.GetType().GetMethod("SwitchState", Inst)?.Invoke(cam, new object[] { _heldState }); }
+                catch (Exception ex) { Log.LogWarning("Kamera-Zustand: " + ex.Message); }
+            }
+            if (followChanged)
+            {
+                try { cam.GetType().GetField("followingUnit", Inst)?.SetValue(cam, _heldFollow); }
+                catch { }
+            }
+            tr.SetParent(_heldParent, true);
+            tr.SetPositionAndRotation(_heldPos, _heldRot);
+            ZeroVelocity(cam);
+            SyncFreeAngles(cam, _heldRot);
         }
 
         static bool InFreeFlight()

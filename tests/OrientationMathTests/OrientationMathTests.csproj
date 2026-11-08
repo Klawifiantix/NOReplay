@@ -24,5 +24,6 @@
     <Compile Include="..\..\NOReplay\WreckThrow.cs" Link="WreckThrow.cs" />
     <Compile Include="..\..\NOReplay\WreckPose.cs" Link="WreckPose.cs" />
     <Compile Include="..\..\NOReplay\GhostTrack.cs" Link="GhostTrack.cs" />
+    <Compile Include="..\..\NOReplay\BuildingHit.cs" Link="BuildingHit.cs" />
   </ItemGroup>
 </Project>

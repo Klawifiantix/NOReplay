@@ -420,6 +420,11 @@ namespace NOReplay
 
         void DriveVehicleAudio(float spd)
         {
+            if (VehicleIsDying(Plugin.Clock.Time))
+            {
+                StopGroundAudio();
+                return;
+            }
             BindGroundAudio();
             if (Plugin.Clock.Paused || spd < 0.05f)
             {

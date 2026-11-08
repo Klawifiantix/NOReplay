@@ -36,7 +36,8 @@ namespace NOReplay
 
         public void RegisterUnitFromListener(Unit unit)
         {
-            if (unit == null || unitObjects.ContainsKey(unit.persistentID.Id)) return;
+            if (unit == null || !unit.persistentID.IsValid) return;
+            if (unitObjects.ContainsKey(unit.persistentID.Id)) return;
             GameObject? acmi = null;
             switch (unit)
             {
@@ -72,7 +73,8 @@ namespace NOReplay
             int captured = 0;
             foreach (var unit in all)
             {
-                if (unit == null || unitObjects.ContainsKey(unit.persistentID.Id)) continue;
+                if (unit == null || !unit.persistentID.IsValid) continue;
+                if (unitObjects.ContainsKey(unit.persistentID.Id)) continue;
                 GameObject? acmi = null;
                 switch (unit)
                 {

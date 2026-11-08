@@ -130,11 +130,33 @@ namespace NOReplay
             this.enabled = true;
             base.enabled = true;
             RecordTurrets.Attach(this, vehicle);
+            RecordWreck.Register(this, unit.persistentID.Id);
         }
+
+        bool _dying;
+        bool _wrecked;
+        const float DyingSampleSeconds = 0.2f;
+
         public override void Update()
         {
-            if (!this.enabled || unit.disabled)
+            if (!enabled || _wrecked) return;
+            if (unit == null)
             {
+                if (_dying) OnWreckSpawned();
+                return;
+            }
+            if (_dying || unit.disabled)
+            {
+                if (!_dying) BeginDying();
+                timer += Time.deltaTime;
+                if (timer < DyingSampleSeconds) return;
+                timer = 0f;
+                UpdatePose();
+                if (props.Count > 0)
+                {
+                    Engine.invokeWriterUpdate(this);
+                    props.Clear();
+                }
                 return;
             }
             timer += Time.deltaTime;
@@ -201,6 +223,53 @@ namespace NOReplay
                 }
             }
             targets = [];
+        }
+
+        public override void LateUpdate()
+        {
+            // Visible=0 is OnWreckSpawned, when GroundVehicle.SpawnWreckage runs.
+        }
+
+        void BeginDying()
+        {
+            _dying = true;
+            props.Clear();
+            if (unit != null) UpdatePose(true);
+            props["Dying"] = "1";
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
+            if (destroyedEvent)
+                Engine.invokeWriterDestroy(this);
+        }
+
+        internal void OnWreckSpawned()
+        {
+            if (_wrecked) return;
+            _wrecked = true;
+            try
+            {
+                props.Clear();
+                if (unit != null) UpdatePose(true);
+                props["Visible"] = "0.0";
+                props["Type"] = null!;
+                Engine.invokeWriterUpdate(this);
+                props.Clear();
+            }
+            catch (Exception ex)
+            {
+                Record.Log?.LogDebug("Vehicle wreck: " + ex.Message);
+            }
+            if (unit != null) RecordWreck.Forget(unit.persistentID.Id);
+            enabled = false;
+            UnityEngine.Object.Destroy(gameObject);
+        }
+
+        void OnDestroy()
+        {
+            if (!_wrecked && _dying)
+                OnWreckSpawned();
+            else if (unit != null)
+                RecordWreck.Forget(unit.persistentID.Id);
         }
     }
 }

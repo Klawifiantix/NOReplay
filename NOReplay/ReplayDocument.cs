@@ -146,6 +146,8 @@ namespace NOReplay
         public float RemovedAt = -1f;
         /// <summary>Replay time of Sinking=1. -1 when the file has no kill marker. The hull may keep moving until <see cref="RemovedAt"/>.</summary>
         public float KilledAt = -1f;
+        /// <summary>Replay time of Dying=1. The mesh stays until <see cref="RemovedAt"/>, which a new recording writes when the wreck spawns.</summary>
+        public float DyingAt = -1f;
         public bool HasPart;
         public byte PartId;
         public string? PartKind;

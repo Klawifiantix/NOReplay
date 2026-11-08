@@ -1238,6 +1238,11 @@ namespace NOReplay
             }
             if (_ship && ShipIsDead(Plugin.Clock.Time))
                 QuietDeadShip(Plugin.Clock.Time);
+            else if (VehicleIsDying(Plugin.Clock.Time))
+            {
+                OrphanLiveRounds();
+                HaltGuns(false);
+            }
             else
             {
                 ReleaseDeadShipGuns();
@@ -1377,6 +1382,13 @@ namespace NOReplay
             if ((_subFail & bit) != 0) return;
             _subFail |= bit;
             Plugin.Log.LogWarning(where + " " + ex.GetType().Name + ": " + ex.Message);
+        }
+
+        internal bool VehicleIsDying(float t)
+        {
+            if (_air || _ship || _ordnance || Track == null) return false;
+            if (Track.DyingAt < 0f) return false;
+            return t + 0.0001f >= Track.DyingAt;
         }
 
         bool TryVehicleCoast(float time, out float x, out float y, out float z, out Vector3 vel)

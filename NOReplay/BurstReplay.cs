@@ -53,7 +53,7 @@ namespace NOReplay
                 if (time < start) continue;
                 var ghost = GhostFor(FindParent(o));
                 if (ghost == null || !ghost.gameObject.activeInHierarchy || ghost.IsWrecked || !ghost.IsTrackAlive()
-                    || ghost.ShipIsDead(time))
+                    || ghost.ShipIsDead(time) || ghost.VehicleIsDying(time))
                 {
                     _nextShot[o.Id] = time;
                     continue;

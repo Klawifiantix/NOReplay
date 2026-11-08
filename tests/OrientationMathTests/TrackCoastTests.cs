@@ -79,6 +79,15 @@ namespace NOReplay.OrientationTests
                 out float bx, out float by, out _, out _, out _, out _);
             Check(a && b && ax == bx && ay == by, "two reads of the same time match");
             Check(MathF.Abs(ay - 7f) < 0.001f, "vertical speed coasts too");
+            DyingIsNotTheBoom();
+        }
+
+        static void DyingIsNotTheBoom()
+        {
+            Check(WreckMark.MeshShown(6f, 12f), "the mesh stays up after Dying until the wreck");
+            Check(WreckMark.Quiet(6f, 5f) && !WreckMark.Boom(6f, 12f), "Dying does not play the explosion");
+            Check(!WreckMark.MeshShown(12f, 12f) && WreckMark.Boom(12f, 12f), "the wreck time hides the mesh and plays once");
+            Check(!WreckMark.Quiet(3f, -1f) && WreckMark.Boom(4f, 4f), "an old file with no Dying mark still booms at removal");
         }
 
         static void RejectedCoastKeepsTheSample()

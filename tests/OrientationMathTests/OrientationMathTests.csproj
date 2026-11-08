@@ -21,5 +21,10 @@
     <Compile Include="..\..\NOReplay\MapClickGate.cs" Link="MapClickGate.cs" />
     <Compile Include="..\..\NOReplay\GearScale.cs" Link="GearScale.cs" />
     <Compile Include="..\..\NOReplay\DebrisLife.cs" Link="DebrisLife.cs" />
+    <Compile Include="..\..\NOReplay\WreckThrow.cs" Link="WreckThrow.cs" />
+    <Compile Include="..\..\NOReplay\WreckPose.cs" Link="WreckPose.cs" />
+    <Compile Include="..\..\NOReplay\GhostTrack.cs" Link="GhostTrack.cs" />
+    <Compile Include="..\..\NOReplay\BuildingHit.cs" Link="BuildingHit.cs" />
+    <Compile Include="..\..\NOReplay\BuildingMesh.cs" Link="BuildingMesh.cs" />
   </ItemGroup>
 </Project>

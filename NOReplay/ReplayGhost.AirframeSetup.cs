@@ -457,7 +457,7 @@ namespace NOReplay
                         DisableParticleEmission(c);
                         continue;
                     }
-                    if (KeepFxName(path.ToLowerInvariant()) || IsOpticalLight(tr))
+                    if (KeepFxName(path.ToLowerInvariant()) || IsOpticalLight(tr) || IsReplayFx(c))
                     {
                         EnableParticleEmission(c);
                         continue;
@@ -469,7 +469,7 @@ namespace NOReplay
             for (int i = 0; i < _killPs.Length; i++)
             {
                 var c = _killPs[i];
-                if (c == null || IsMuzzleParticle(c)) continue;
+                if (c == null || IsMuzzleParticle(c) || IsReplayFx(c)) continue;
                 try
                 {
                     _pPsEnableEmission?.SetValue(c, false);

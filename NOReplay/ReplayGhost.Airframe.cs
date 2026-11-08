@@ -39,6 +39,18 @@ namespace NOReplay
                 || p.IndexOf("afterburn", StringComparison.Ordinal) >= 0;
         }
 
+        static bool IsReplayFx(Component c)
+        {
+            var t = c.transform;
+            while (t != null)
+            {
+                string n = t.name ?? "";
+                if (n.StartsWith("NOReplay_", StringComparison.Ordinal)) return true;
+                t = t.parent;
+            }
+            return false;
+        }
+
         void AdoptOrphanFx()
         {
             AdoptType(_shaftType, ref _shafts);

@@ -14,6 +14,28 @@ namespace NOReplay
     internal sealed class ReplayWreckMotion : MonoBehaviour
     {
         public float Born;
+        public int PieceCount => _pieces.Length;
+        public Vector3 FirstPiece => _pieces.Length > 0 && _pieces[0].Tr != null ? _pieces[0].Tr.position : Vector3.zero;
+
+        public void PlayPieces()
+        {
+            var pt = Type.GetType("UnityEngine.ParticleSystem, UnityEngine.ParticleSystemModule")
+                ?? Plugin.FindGameType("ParticleSystem");
+            if (pt == null) return;
+            PlayOn(gameObject, pt);
+            for (int i = 0; i < _pieces.Length; i++)
+            {
+                if (_pieces[i].Tr == null) continue;
+                PlayOn(_pieces[i].Tr.gameObject, pt);
+            }
+        }
+
+        static void PlayOn(GameObject host, Type pt)
+        {
+            var raw = host.GetComponentsInChildren(pt, true);
+            for (int i = 0; i < raw.Length; i++)
+                if (raw[i] is Component c) ReplayGhost.PlayParticleSystem(c);
+        }
         struct Piece
         {
             public Transform Tr;

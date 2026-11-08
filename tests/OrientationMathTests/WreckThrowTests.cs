@@ -27,6 +27,19 @@ namespace NOReplay.OrientationTests
             WreckThrow.Place(0.1f, 0f, 2f, 0f, a, 0f, out float xb, out float yb, out float zb);
             Expect(xa == xb && ya == yb && za == zb, "scrubbing to the same age repeats the place");
             if (Failed == 0) System.Console.WriteLine("wreck throw ok");
+            PoseAndFx();
+        }
+
+        static void PoseAndFx()
+        {
+            WreckPose.Fragment(0f, 0f, 0f, 0f, 0f, 0f, 100f, 2f, 50f, false, out float x, out float y, out float z);
+            Expect(Near(x, 0f) && Near(y, 0f) && Near(z, 0f), "unparented debris stays where it was spawned");
+            WreckPose.Fragment(0f, 0f, 0f, 0f, 0f, 0f, 100f, 2f, 50f, true, out float px, out float py, out float pz);
+            Expect(Near(px, 100f) && Near(py, 2f) && Near(pz, 50f), "parented debris moves with the wreck");
+            Expect(WreckPose.FlamesStay(true, false), "flames continue when they are not stopped on cull");
+            Expect(!WreckPose.FlamesStay(true, true), "cull-stop shuts the flames off");
+            Expect(!WreckPose.CollapseDust(0), "no collapse-dust entries means no dust");
+            Expect(WreckPose.CollapseDust(2), "collapse dust needs the prefab entries");
         }
 
         static bool Near(float a, float b) => System.Math.Abs(a - b) < 0.05f;

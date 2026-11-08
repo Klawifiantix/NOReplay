@@ -20,6 +20,15 @@ namespace NOReplay
         public const float TouchdownAgl = 3f;
         public const float Lookback = 0.4f;
 
+        /// <summary>LandingGear adds at most this much wheel speed per second.</summary>
+        public const float SpinRate = 100f;
+
+        /// <summary>A sample this far above the current height is still in the descent.</summary>
+        public const float DescentStep = 0.2f;
+
+        /// <summary>How far back the height trace is trusted when every sample is level.</summary>
+        public const float SurfaceWindow = 1.6f;
+
         public readonly struct Result
         {
             public readonly bool Rolling;
@@ -51,6 +60,49 @@ namespace NOReplay
         {
             if (!hasNow || !hasThen) return false;
             return aglThen > TouchdownAgl && aglNow <= TouchdownAgl;
+        }
+
+        /// <summary>
+        /// Slip after the tyre has been on the surface for <paramref name="secondsOnSurface"/>.
+        /// The wheel starts at rest and catches the ground speed at <see cref="SpinRate"/>.
+        /// </summary>
+        public static float SpinSlip(float groundSpeed, float secondsOnSurface)
+        {
+            float spun = MathF.Min(MathF.Abs(groundSpeed), SpinRate * MathF.Max(secondsOnSurface, 0f));
+            float slip = MathF.Abs(groundSpeed) - spun;
+            return groundSpeed < 0f ? -slip : slip;
+        }
+
+        public static bool TouchdownSlip(float groundSpeed, float secondsOnSurface)
+        {
+            return MathF.Abs(SpinSlip(groundSpeed, secondsOnSurface)) > SmokeSlip;
+        }
+
+        /// <summary>
+        /// Time since the aircraft was still descending. A level trace, such as a
+        /// rollout or a deck that is not the sea, returns the whole window so the
+        /// tyre is treated as spun up. Rolling sound does not use this.
+        /// </summary>
+        public static float SecondsSinceDescent(float now, float yNow, float[] times, float[] ys, int n)
+        {
+            if (times == null || ys == null || n <= 0) return SurfaceWindow;
+            int count = n;
+            if (count > times.Length) count = times.Length;
+            if (count > ys.Length) count = ys.Length;
+            float crossed = -1f;
+            float oldest = times[0];
+            for (int i = 0; i < count; i++)
+            {
+                float dt = now - times[i];
+                if (dt < 0.02f) continue;
+                if (times[i] < oldest) oldest = times[i];
+                float need = DescentStep * (dt / 0.2f);
+                if (need < DescentStep) need = DescentStep;
+                if (ys[i] > yNow + need && times[i] > crossed)
+                    crossed = times[i];
+            }
+            if (crossed < 0f) return MathF.Max(0f, now - oldest);
+            return MathF.Max(0f, now - crossed);
         }
 
         public static Result At(bool contact, bool tarmac, float groundSpeed, float lateral, bool recentAir, bool running, float replayDt)

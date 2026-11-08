@@ -154,6 +154,7 @@ namespace NOReplay
 
         void TickStructural(bool allowSpawn)
         {
+            QuietLooseGear();
             if (!_air && !_ship && !_ordnance)
                 TickWheels();
             if (Track == null)
@@ -962,7 +963,7 @@ namespace NOReplay
             var skip = DisintegrateIds(part);
             var root = new GameObject("NOReplay_Debris");
             root.transform.SetPositionAndRotation(part.transform.position, part.transform.rotation);
-            root.transform.localScale = part.transform.localScale;
+            root.transform.localScale = SanitizedScale(part.transform, "part " + part.name);
             int copied = CopyMeshes(part.transform, root.transform, skip, 80);
             if (copied == 0)
             {
@@ -977,7 +978,7 @@ namespace NOReplay
             if (_bits.Count >= DebrisCap || seg == null) return;
             var root = new GameObject("NOReplay_Debris");
             root.transform.SetPositionAndRotation(seg.position, seg.rotation);
-            root.transform.localScale = seg.localScale;
+            root.transform.localScale = SanitizedScale(seg, "segment " + seg.name);
             int copied = CopyMeshes(seg, root.transform, null, 8);
             // CopyMeshes skips a renderer that is off. This fallback still copies
             // that one mesh. seg is the source root, the debris is only the destination.
@@ -1016,9 +1017,11 @@ namespace NOReplay
             rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             rb.velocity = vel;
             rb.angularVelocity = UnityEngine.Random.insideUnitSphere * 2.5f;
+            var life = root.AddComponent<ReplayDebrisLife>();
+            life.Born = when;
+            life.Life = DebrisLife;
             if (!air)
             {
-                UnityEngine.Object.Destroy(root, DebrisLife);
                 _bits.Add(new FallingBit { Go = root, Time = when });
                 return root;
             }
@@ -1050,9 +1053,72 @@ namespace NOReplay
             return n;
         }
 
-        // Gear hinges are rotated and non-uniformly scaled. lossyScale is wrong
-        // there and made detached Cricket wheels enormous. Copy each local scale
-        // instead, from the part root down to the mesh.
+        static int _scaleLogs;
+        static FieldInfo? _gearHinge;
+        readonly HashSet<int> _gearNoted = new HashSet<int>();
+
+        static Vector3 SanitizedScale(Transform src, string label)
+        {
+            var s = src.localScale;
+            if (!GearScale.Absurd(s.x, s.y, s.z)) return s;
+            if (_scaleLogs < 6)
+            {
+                _scaleLogs++;
+                var w = src.lossyScale;
+                Plugin.Log?.LogInfo("Debris-scale " + label
+                    + " local=" + s.ToString("0.##")
+                    + " lossy=" + w.ToString("0.##")
+                    + " parent=" + (src.parent != null ? src.parent.name : "-"));
+            }
+            return Vector3.one;
+        }
+
+        void QuietLooseGear()
+        {
+            var t = Plugin.FindGameType("LandingGear");
+            if (t == null) return;
+            if (_gearHinge == null)
+                _gearHinge = t.GetField("gearHinge", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (_gearHinge == null) return;
+            var gears = GetComponentsInChildren(t, true);
+            float now = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+            for (int i = 0; i < gears.Length; i++)
+            {
+                var gear = gears[i] as Component;
+                if (gear == null) continue;
+                var hinge = _gearHinge.GetValue(gear) as Transform;
+                if (hinge == null) continue;
+                int id = hinge.GetInstanceID();
+                var rb = hinge.GetComponent<Rigidbody>();
+                var sc = hinge.lossyScale;
+                bool loose = hinge.parent == null || rb != null;
+                bool absurd = GearScale.Absurd(sc.x, sc.y, sc.z);
+                if (!loose && !absurd) continue;
+                if (!_gearNoted.Add(id)) continue;
+                Plugin.Log?.LogInfo("Gear-loose " + hinge.name
+                    + " parent=" + (hinge.parent != null ? hinge.parent.name : "-")
+                    + " body=" + (rb != null)
+                    + " lossy=" + sc.ToString("0.##"));
+                if (absurd) hinge.localScale = Vector3.one;
+                if (rb != null)
+                {
+                    rb.isKinematic = true;
+                    rb.detectCollisions = false;
+                    rb.velocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                }
+                var cols = hinge.GetComponentsInChildren<Collider>(true);
+                for (int c = 0; c < cols.Length; c++)
+                    if (cols[c] != null) cols[c].enabled = false;
+                if (loose && hinge.GetComponent<ReplayDebrisLife>() == null)
+                {
+                    var life = hinge.gameObject.AddComponent<ReplayDebrisLife>();
+                    life.Born = now;
+                    life.Life = DebrisLife;
+                }
+            }
+        }
+
         static Transform MirrorChain(Transform src, Transform srcRoot, Transform dstRoot, Dictionary<int, Transform> map)
         {
             if (src == srcRoot) return dstRoot;
@@ -1064,7 +1130,7 @@ namespace NOReplay
             go.transform.SetParent(parentDst, false);
             go.transform.localPosition = src.localPosition;
             go.transform.localRotation = src.localRotation;
-            go.transform.localScale = src.localScale;
+            go.transform.localScale = SanitizedScale(src, src.name);
             map[id] = go.transform;
             return go.transform;
         }

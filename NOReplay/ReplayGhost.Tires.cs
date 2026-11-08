@@ -12,6 +12,12 @@ namespace NOReplay
         static bool _tireSmokeTried;
         bool _tireTarmac = true;
         bool _tireClips;
+        bool _rollSpoke;
+        bool _squealSpoke;
+        bool _missSpoke;
+        bool _audioSpoke;
+        readonly float[] _surfT = new float[8];
+        readonly float[] _surfY = new float[8];
 
         void DriveTires(ReplaySample s, bool gearDown, float agl, bool running)
         {
@@ -22,9 +28,7 @@ namespace NOReplay
                 return;
             }
             BindTireFields();
-            bool recent = false;
-            if (Track != null && Track.TrySample(Plugin.Clock.Time - TireMath.Lookback, out var ago))
-                recent = TireMath.RecentAir(agl, true, ago.HasAgl ? ago.Agl : agl, ago.HasAgl);
+            float age = SurfaceAge(Plugin.Clock.Time, s.Y);
             float dt = running ? Time.unscaledDeltaTime * Mathf.Abs(Plugin.Clock.Speed) : 0f;
             bool any = false;
             for (int i = 0; i < _gears.Length; i++)
@@ -34,13 +38,83 @@ namespace NOReplay
                 if (Touching(gear, gearDown, out var hit, out bool tarmac, out float along, out float lateral))
                 {
                     any = true;
-                    var fx = TireMath.At(true, tarmac, along, lateral, recent, running, dt);
+                    // Rolling is the continuous wheel clip. Squeal and smoke need
+                    // the wheel still catching up, which a carrier deck never shows
+                    // as an altitude under 3 m.
+                    bool fresh = TireMath.TouchdownSlip(along, age);
+                    var fx = TireMath.At(true, tarmac, along, lateral, fresh, running, dt);
+                    NoteTire(gear, fx, tarmac, along, age, hit);
                     DriveOneTire(gear, tarmac, fx, hit);
                 }
                 else
                     SilenceGear(gear);
             }
-            if (!any) StopTireAudio();
+            if (!any)
+            {
+                if (_rollSpoke || _squealSpoke)
+                {
+                    _rollSpoke = false;
+                    _squealSpoke = false;
+                }
+                if (!_missSpoke && gearDown && _spdMs > 25f)
+                {
+                    _missSpoke = true;
+                    Plugin.Log?.LogInfo("Tire miss " + gameObject.name
+                        + " agl=" + agl.ToString("0.0")
+                        + " spd=" + _spdMs.ToString("0"));
+                }
+                StopTireAudio();
+            }
+        }
+
+        float SurfaceAge(float now, float yNow)
+        {
+            int n = 0;
+            if (Track != null)
+            {
+                for (int i = 1; i <= _surfT.Length; i++)
+                {
+                    float t = now - i * 0.2f;
+                    if (t < 0f) break;
+                    if (!Track.TrySample(t, out var old)) continue;
+                    _surfT[n] = t;
+                    _surfY[n] = old.Y;
+                    n++;
+                }
+            }
+            return TireMath.SecondsSinceDescent(now, yNow, _surfT, _surfY, n);
+        }
+
+        void NoteTire(Component gear, TireMath.Result fx, bool tarmac, float along, float age, RaycastHit hit)
+        {
+            if (!_audioSpoke)
+            {
+                _audioSpoke = true;
+                bool noise = _fNoise?.GetValue(gear) != null;
+                bool skid = _fSkid?.GetValue(gear) != null;
+                if (!noise || !skid)
+                    Plugin.Log?.LogInfo("Tire audio missing " + gameObject.name
+                        + " roll=" + noise + " squeal=" + skid);
+            }
+            string hitName = hit.collider != null ? hit.collider.name : "-";
+            if (fx.Rolling && !_rollSpoke)
+            {
+                _rollSpoke = true;
+                Plugin.Log?.LogInfo("Tire roll " + gameObject.name
+                    + " tarmac=" + (tarmac ? 1 : 0)
+                    + " along=" + along.ToString("0")
+                    + " hit=" + hitName);
+            }
+            if ((fx.Smoke || fx.Skid) && !_squealSpoke)
+            {
+                _squealSpoke = true;
+                Plugin.Log?.LogInfo("Tire squeal " + gameObject.name
+                    + " tarmac=" + (tarmac ? 1 : 0)
+                    + " along=" + along.ToString("0")
+                    + " age=" + age.ToString("0.00")
+                    + " smoke=" + fx.SmokeCount
+                    + " hit=" + hitName);
+            }
         }
 
         bool Touching(Component gear, bool gearDown, out RaycastHit hit, out bool tarmac, out float along, out float lateral)
@@ -55,21 +129,25 @@ namespace NOReplay
             var cast = _fCast?.GetValue(gear) as Transform;
             if (cast == null) cast = gear.transform;
             float travel = _fTravel?.GetValue(gear) is float tv && tv > 0.05f ? tv : 1.2f;
-            var hits = Physics.RaycastAll(cast.position, -cast.up, travel, ~0, QueryTriggerInteraction.Ignore);
+            // The gear solver is not running, so the cast point can sit inside
+            // the deck. The ray covers the strut above the cast as well as below it.
+            Vector3 dir = -cast.up;
+            Vector3 origin = cast.position - dir * travel;
+            float reach = travel * 2f;
+            var ray = new Ray(origin, dir);
+            var hits = Physics.RaycastAll(ray, reach, ~0, QueryTriggerInteraction.Ignore);
             float best = float.MaxValue;
             bool found = false;
             for (int i = 0; i < hits.Length; i++)
             {
                 var h = hits[i];
-                if (h.collider == null) continue;
-                if (h.collider.transform == transform || h.collider.transform.IsChildOf(transform)) continue;
-                if (h.distance < best)
-                {
-                    best = h.distance;
-                    hit = h;
-                    found = true;
-                }
+                if (!AcceptHit(h, best)) continue;
+                best = h.distance;
+                hit = h;
+                found = true;
             }
+            if (!found)
+                found = ClosestDeck(ray, reach, ref hit, ref best);
             if (!found) return false;
             tarmac = true;
             try
@@ -83,6 +161,44 @@ namespace NOReplay
             along = Vector3.Dot(flat, cast.forward);
             lateral = Vector3.Dot(flat, cast.right);
             return true;
+        }
+
+        bool AcceptHit(RaycastHit h, float best)
+        {
+            if (h.collider == null || h.distance >= best) return false;
+            var tr = h.collider.transform;
+            if (tr == transform || tr.IsChildOf(transform)) return false;
+            return true;
+        }
+
+        static ReplayGhost[] _decks = Array.Empty<ReplayGhost>();
+        static int _deckFrame = -100;
+
+        bool ClosestDeck(Ray ray, float reach, ref RaycastHit hit, ref float best)
+        {
+            if (Time.frameCount - _deckFrame > 15)
+            {
+                _deckFrame = Time.frameCount;
+                _decks = UnityEngine.Object.FindObjectsByType<ReplayGhost>(FindObjectsSortMode.None);
+            }
+            bool found = false;
+            for (int g = 0; g < _decks.Length; g++)
+            {
+                var ship = _decks[g];
+                if (ship == null || ship == this || !ship.HasDeck) continue;
+                var cols = ship.DeckColliders();
+                for (int i = 0; i < cols.Length; i++)
+                {
+                    var c = cols[i];
+                    if (c == null || !c.enabled) continue;
+                    if (!c.Raycast(ray, out var h, reach)) continue;
+                    if (!AcceptHit(h, best)) continue;
+                    best = h.distance;
+                    hit = h;
+                    found = true;
+                }
+            }
+            return found;
         }
 
         void DriveOneTire(Component gear, bool tarmac, TireMath.Result fx, RaycastHit hit)

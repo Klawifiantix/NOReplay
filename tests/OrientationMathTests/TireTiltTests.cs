@@ -15,6 +15,38 @@ namespace NOReplay.OrientationTests
             PauseEmitsNothing();
             SeekRepeats();
             TiltParse();
+            WheelCatchesUp();
+            LevelDeckDoesNotSqueal();
+            DescentIsATouchdown();
+        }
+
+        static void WheelCatchesUp()
+        {
+            Check(MathF.Abs(TireMath.SpinSlip(60f, 0f) - 60f) < 0.01f, "a resting wheel slips at the full ground speed");
+            Check(MathF.Abs(TireMath.SpinSlip(60f, 0.4f) - 20f) < 0.01f, "0.4s of spin leaves the 20 m/s smoke line");
+            Check(MathF.Abs(TireMath.SpinSlip(60f, 0.5f) - 10f) < 0.01f, "half a second has almost caught 60 m/s");
+            Check(TireMath.TouchdownSlip(60f, 0f), "the first contact still squeals");
+            Check(!TireMath.TouchdownSlip(60f, 0.5f), "after the wheel catches there is no squeal");
+            var roll = TireMath.At(true, true, 60f, 0f, false, true, 0.02f);
+            Check(roll.Rolling && !roll.Smoke && !roll.Skid, "established rolling is not a squeal");
+        }
+
+        static void LevelDeckDoesNotSqueal()
+        {
+            float[] times = { 10f, 10.4f, 10.8f };
+            float[] ys = { 20f, 20.05f, 19.95f };
+            float age = TireMath.SecondsSinceDescent(11f, 20f, times, ys, 3);
+            Check(age > 0.8f, "a level deck is not a fresh descent, age " + age.ToString("0.00"));
+            Check(!TireMath.TouchdownSlip(55f, age), "rolling along the deck does not squeal");
+        }
+
+        static void DescentIsATouchdown()
+        {
+            float[] times = { 9.6f, 9.8f };
+            float[] ys = { 28f, 24f };
+            float age = TireMath.SecondsSinceDescent(10f, 20f, times, ys, 2);
+            Check(age < 0.45f, "the last descending sample is the contact age, age " + age.ToString("0.00"));
+            Check(TireMath.TouchdownSlip(70f, age), "that arrival still has wheel slip");
         }
 
         static void AirborneIsSilent()

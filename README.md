@@ -129,8 +129,7 @@ Weapons
 * Flares instantiate the airframe's own flare prefab and call the game's launch on the next ejector point, left then right. Sound is played.
 * Gun bursts call the game's bullet simulation in visual-only mode, from every muzzle of the gun that fired. Tracers, impacts, muzzle flash, barrel spin and recoil come from the weapon. The shot does not damage anything. Sound uses the gun's own fire clips. A sustained loop starts only while the burst is still going, and it stops when the burst ends, the unit is lost, the camera is far, the replay pauses, or the time jumps. Rate of fire comes from the gun: a one-round magazine uses the reload time, so a tank cannon does not hose shells. The ammo counter uses that same cadence. Older ACMI files without per-turret angles still aim every turret along the recorded burst direction. Older files that held a single shot open for half a second still fire one shell.
 * Engine, rotor, propeller, fan and jet-nozzle audio is driven from the recorded throttle and the component's own volume and pitch fields. The prefab's 3D rolloff is not replaced. Following a unit in the fly-by or free camera keeps the sound in the world. Orbit flattens only the sounds the game itself flattens.
-* Lasers on tanks and ships are disabled. The beam child of the LFD is deactivated.
-
+* Lasers use the recorded Lasers channel. The game's own Laser script stays off on every ghost, so a ghost never fires a laser or deals damage on its own. The beam, muzzle particles and sounds are shown only when the recording says the laser was firing. An older file without Lasers keeps every beam off.
 ---
 
 Files

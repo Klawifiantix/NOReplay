@@ -241,16 +241,59 @@ namespace NOReplay
                     }
 
                     bool loaded = setMount != null || hpMount != null;
+                    var watched = new List<Renderer>();
+                    var beforeOn = new List<bool>();
+                    void Watch(Renderer? r)
+                    {
+                        if (r == null) return;
+                        watched.Add(r);
+                        beforeOn.Add(r.enabled);
+                    }
+                    Watch(fPlug?.GetValue(hp) as Renderer);
+                    Array? optList = fPylonOpts?.GetValue(hp) as Array;
+                    if (optList != null)
+                    {
+                        for (int k = 0; k < optList.Length; k++)
+                        {
+                            var opt = optList.GetValue(k);
+                            if (opt == null) continue;
+                            fPylonRend ??= opt.GetType().GetField("renderer", flags);
+                            Watch(fPylonRend?.GetValue(opt) as Renderer);
+                        }
+                    }
                     try { mShowPylon?.Invoke(hp, new object[] { loaded }); } catch { }
+
+                    var note = new System.Text.StringBuilder();
+                    note.Append("Pylon ").Append(name).Append(" hp=").Append(j)
+                        .Append(" loaded=").Append(loaded ? 1 : 0);
+                    for (int w = 0; w < watched.Count; w++)
+                    {
+                        var r = watched[w];
+                        if (r == null) continue;
+                        bool was = beforeOn[w];
+                        bool now = r.enabled;
+                        note.Append(' ').Append(r.name).Append(':')
+                            .Append(was ? 1 : 0).Append("->").Append(now ? 1 : 0);
+                        // ShowPylon(false) turns every pylon renderer off. The
+                        // three-build test showed that set includes the laser
+                        // turret mesh. Plug stays as ShowPylon left it, which
+                        // is what keeps the HLT-HEL body on.
+                        if (!now && LaserMountRenderer(r))
+                        {
+                            r.enabled = true;
+                            note.Append(" restore:1");
+                        }
+                    }
+                    Plugin.Log?.LogInfo(note.ToString());
 
                     if (fPlug?.GetValue(hp) is Renderer plug && plug != null)
                         ApplyHardpointRendererState(plug, plug.enabled);
 
-                    if (fPylonOpts?.GetValue(hp) is Array opts)
+                    if (optList != null)
                     {
-                        for (int k = 0; k < opts.Length; k++)
+                        for (int k = 0; k < optList.Length; k++)
                         {
-                            var opt = opts.GetValue(k);
+                            var opt = optList.GetValue(k);
                             if (opt == null) continue;
                             fPylonRend ??= opt.GetType().GetField("renderer", flags);
                             if (fPylonRend?.GetValue(opt) is Renderer pr && pr != null)
@@ -294,6 +337,20 @@ namespace NOReplay
                           || (doorFR != null && _disabledInPrefab.Contains(doorFR));
                 if (showR) ApplyHardpointRendererState(slideR, true);
             }
+        }
+
+        // Hardpoint.ShowPylon(false) disables every HardpointPylon.renderer and
+        // enables Plug. The three-build test showed those pylon renderers are
+        // the laser turret meshes, and Plug is what keeps the HLT-HEL body on.
+        // Only the renderer on the turret or on the Laser object is put back.
+        // beamRenderer is a child and is not one of those two objects.
+        bool LaserMountRenderer(Renderer r)
+        {
+            if (r == null) return false;
+            var host = r.gameObject;
+            if (host.GetComponent<Laser>() != null) return true;
+            var turret = host.GetComponent<Turret>();
+            return turret != null && turret.GetComponentInChildren<Laser>(true) != null;
         }
 
         void ApplyHardpointRendererState(Renderer r, bool shouldRender)

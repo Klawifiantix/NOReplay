@@ -30,6 +30,7 @@ namespace NOReplay
             PatchSkip("Spawner", "TrySpawnPlayerControlled");
             PatchReplaySpectatorUI();
             BlockEjectMethods();
+            BlockAirdropOnGhosts();
             BlockBreakMethods();
             BlockComplexPhysics();
             BlockFireMethods();
@@ -821,6 +822,49 @@ namespace NOReplay
             catch (Exception ex)
             {
                 Log.LogInfo("ComplexPhys-Block Fehler: " + ex.Message);
+            }
+        }
+
+        static void BlockAirdropOnGhosts()
+        {
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var gv = FindGameType("GroundVehicle");
+            var check = gv?.GetMethod("CheckAirdrop", flags);
+            if (check != null)
+            {
+                try
+                {
+                    Harmony.Patch(check, prefix: new HarmonyMethod(typeof(Plugin), nameof(SkipIfGhost)));
+                    Log.LogInfo("Airdrop-Block GroundVehicle.CheckAirdrop");
+                }
+                catch (Exception ex) { Log.LogInfo("Airdrop-Block " + ex.Message); }
+            }
+            var box = FindGameType("Container");
+            var init = box?.GetMethod("InitializeUnit", flags);
+            if (init != null)
+            {
+                try
+                {
+                    Harmony.Patch(init, postfix: new HarmonyMethod(typeof(Plugin), nameof(MuteGhostChute)));
+                    Log.LogInfo("Airdrop-Block Container.InitializeUnit");
+                }
+                catch (Exception ex) { Log.LogInfo("Airdrop-Block " + ex.Message); }
+            }
+        }
+
+        static void MuteGhostChute(object __instance)
+        {
+            if (CurrentDoc == null) return;
+            var c = __instance as Component;
+            if (c == null) return;
+            if (c.GetComponent<ReplayGhost>() == null && c.GetComponentInParent<ReplayGhost>() == null)
+                return;
+            foreach (var beh in c.GetComponentsInChildren<MonoBehaviour>(true))
+            {
+                if (beh == null) continue;
+                string n = beh.GetType().Name;
+                if (n == "Parachute" || n == "CargoDeploymentSystem")
+                    beh.enabled = false;
             }
         }
 

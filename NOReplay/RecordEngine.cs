@@ -62,6 +62,14 @@ namespace NOReplay
                     acmi.AddComponent<RecordMissile>().Init(missile);
                     Record.Log?.LogInfo("Listener: Missile " + (missile.definition?.unitName ?? "?"));
                     break;
+                case PilotDismounted pilot:
+                    acmi = new GameObject();
+                    acmi.AddComponent<RecordPilot>().Init(pilot);
+                    break;
+                case Container cargo:
+                    acmi = new GameObject();
+                    acmi.AddComponent<RecordContainer>().Init(cargo);
+                    break;
             }
             if (acmi != null)
                 unitObjects.Add(unit.persistentID.Id, acmi);
@@ -101,6 +109,14 @@ namespace NOReplay
                     case Missile missile:
                         acmi = new GameObject();
                         acmi.AddComponent<RecordMissile>().Init(missile);
+                        break;
+                    case PilotDismounted pilot:
+                        acmi = new GameObject();
+                        acmi.AddComponent<RecordPilot>().Init(pilot);
+                        break;
+                    case Container cargo:
+                        acmi = new GameObject();
+                        acmi.AddComponent<RecordContainer>().Init(cargo);
                         break;
                 }
                 if (acmi != null)
@@ -214,18 +230,20 @@ namespace NOReplay
                                 isNew = true;
                                 break;
                             case PilotDismounted pilot:
-                                if (RecordConfig.RecordEjectedPilots.Value == true)
-                                {
-                                    acmi = new GameObject();
-                                    acmi.AddComponent<RecordPilot>();
-                                    acmi.GetComponent<RecordPilot>().Init(pilot);
-                                    acmi.GetComponent<RecordPilot>().enabled = true;
-                                    Record.Log?.LogDebug($"RECORDED UNIT,{unit.definition.name}," +
-                                        $"{unit.definition.unitName}," +
-                                        $"{unit.definition.code}");
-                                    unitObjects.Add(unit.persistentID.Id, acmi);
-                                    isNew = true;
-                                }
+                                acmi = new GameObject();
+                                acmi.AddComponent<RecordPilot>();
+                                acmi.GetComponent<RecordPilot>().Init(pilot);
+                                acmi.GetComponent<RecordPilot>().enabled = true;
+                                unitObjects.Add(unit.persistentID.Id, acmi);
+                                isNew = true;
+                                break;
+                            case Container cargo:
+                                acmi = new GameObject();
+                                acmi.AddComponent<RecordContainer>();
+                                acmi.GetComponent<RecordContainer>().Init(cargo);
+                                acmi.GetComponent<RecordContainer>().enabled = true;
+                                unitObjects.Add(unit.persistentID.Id, acmi);
+                                isNew = true;
                                 break;
                             case Building building:
                                 acmi = new GameObject();

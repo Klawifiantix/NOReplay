@@ -110,6 +110,7 @@ namespace NOReplay
 
         static bool IsAircraft(string type, string? name)
         {
+            if ((type ?? "").IndexOf("Parachutist", StringComparison.OrdinalIgnoreCase) >= 0) return false;
             if ((type ?? "").IndexOf("GunBurst", StringComparison.OrdinalIgnoreCase) >= 0) return false;
             if ((type ?? "").IndexOf("Explosion", StringComparison.OrdinalIgnoreCase) >= 0) return false;
             if ((type ?? "").IndexOf("Misc", StringComparison.OrdinalIgnoreCase) >= 0) return false;

@@ -151,6 +151,11 @@ namespace NOReplay
                 found = FindDefInTypes(obj, "VehicleDefinition", "BuildingDefinition", "UnitDefinition");
             else if (IsBuilding(t, obj.Name))
                 found = FindDefInTypes(obj, "BuildingDefinition", "SceneryDefinition", "UnitDefinition");
+            else if (t.IndexOf("Parachutist", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                found = FindDefInTypes(obj, "UnitDefinition", "VehicleDefinition");
+                if (found == null) found = PilotDismountedPrefab();
+            }
             else if (t.IndexOf("Sea", StringComparison.OrdinalIgnoreCase) >= 0
                   || t.IndexOf("Watercraft", StringComparison.OrdinalIgnoreCase) >= 0)
                 found = FindDefInTypes(obj, "ShipDefinition", "UnitDefinition");
@@ -166,6 +171,17 @@ namespace NOReplay
             else
                 Log.LogWarning("Keine Def für " + obj.Name + " typ=" + obj.Type);
             return found;
+        }
+
+        static UnityEngine.Object? PilotDismountedPrefab()
+        {
+            var t = FindGameType("GameAssets");
+            if (t == null) return null;
+            var flags = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+            object? inst = t.GetProperty("i", flags)?.GetValue(null);
+            if (inst == null) inst = t.GetField("i", flags)?.GetValue(null);
+            if (inst == null) return null;
+            return t.GetField("pilotDismounted", flags)?.GetValue(inst) as GameObject;
         }
 
         /// <summary>
@@ -410,14 +426,16 @@ namespace NOReplay
                 string typ = obj.Type ?? "";
                 if (typ.IndexOf("GunBurst", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                 if (typ.IndexOf("Explosion", StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                if (typ.IndexOf("Misc", StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                // Queue aircraft, vehicles, and ships for ghost creation
-                bool isAircraft = IsAircraft(obj.Type, obj.Name);
+                bool isPilot = typ.IndexOf("Parachutist", StringComparison.OrdinalIgnoreCase) >= 0;
+                bool isContainer = typ.IndexOf("Container", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (typ.IndexOf("Misc", StringComparison.OrdinalIgnoreCase) >= 0 && !isContainer) continue;
+                // Queue aircraft, vehicles, ships, dropped containers and ejected pilots.
+                bool isAircraft = !isPilot && IsAircraft(obj.Type, obj.Name);
                 bool isVehicle = (obj.Type ?? "").IndexOf("Vehicle", StringComparison.OrdinalIgnoreCase) >= 0
                               || (obj.Type ?? "") == "Ground";
                 bool isShip = (obj.Type ?? "").IndexOf("Sea", StringComparison.OrdinalIgnoreCase) >= 0
                            || (obj.Type ?? "").IndexOf("Watercraft", StringComparison.OrdinalIgnoreCase) >= 0;
-                if (!isAircraft && !isVehicle && !isShip) continue;
+                if (!isAircraft && !isVehicle && !isShip && !isPilot && !isContainer) continue;
                 // All vehicles and ships get a ghost (no longer skipped for static).
                 // They are no longer placed by the mission JSON.
                 _pendingAir.Add(obj);
@@ -674,9 +692,11 @@ namespace NOReplay
                 || (def != null && def.GetType().Name.IndexOf("Aircraft", StringComparison.OrdinalIgnoreCase) >= 0);
             bool ordnance = !aircraft && IsOrdnance(obj.Type, obj.Name);
             bool visualOnly = IsScenery(obj.Type, obj.Name);
+            bool pilotPrefab = (obj.Type ?? "").IndexOf("Parachutist", StringComparison.OrdinalIgnoreCase) >= 0
+                && def is GameObject;
             if (ordnance && !flare)
                 go = TryGameSpawnMissile(obj, def, pos, rot);
-            else if (aircraft)
+            else if (aircraft || pilotPrefab)
                 go = InstantiatePrefab(obj, def, pos, rot);
             else if (!visualOnly && !_gameSpawnDead)
                 go = TryGameSpawn(obj, def, pos, rot);
@@ -822,6 +842,8 @@ namespace NOReplay
                             || tn.IndexOf("Task", StringComparison.OrdinalIgnoreCase) >= 0
                             || tn.IndexOf("Mission", StringComparison.OrdinalIgnoreCase) >= 0
                             || tn.IndexOf("Eject", StringComparison.OrdinalIgnoreCase) >= 0
+                            || tn == "Parachute"
+                            || tn == "CargoDeploymentSystem"
                             || tn.IndexOf("Damage", StringComparison.OrdinalIgnoreCase) >= 0
                             || tn.IndexOf("Health", StringComparison.OrdinalIgnoreCase) >= 0
                             || tn.IndexOf("Wreck", StringComparison.OrdinalIgnoreCase) >= 0

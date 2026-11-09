@@ -295,7 +295,7 @@ namespace NOReplay
             _CompressIDs = config.Bind(OptionalDataSettings, "CompressIDs", DefaultCompressIDs, "Compress IDs to reduce filesize with less determinism.");
             Record.Log?.LogDebug($"CompressIDs = {_CompressIDs.Value}");
 
-            RecordEjectedPilots = config.Bind(GeneralSettings, "RecordEjectedPilots", DefaultRecordEjectedPilots, "Toggle Recording Ejected Pilots.");
+            RecordEjectedPilots = config.Bind(GeneralSettings, "RecordEjectedPilots", DefaultRecordEjectedPilots, "Logged at recording start. Ejected pilots are recorded either way, because playback needs the track.");
             Record.Log?.LogDebug($"RecordEjectedPilots = {RecordEjectedPilots.Value}");
 
             DestructionEvents = config.Bind(GeneralSettings, "DestructionEvents", DefaultDestructionEvents, "Toggle Recording Destruction Events for Buildings and Ships.");

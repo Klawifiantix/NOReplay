@@ -484,7 +484,8 @@ namespace NOReplay
             string t = Track?.Type ?? "";
             string nm = Track?.Name ?? "";
             string gn = gameObject.name ?? "";
-            _air = gn.IndexOf("COIN", StringComparison.OrdinalIgnoreCase) >= 0
+            bool parachutist = t.IndexOf("Parachutist", StringComparison.OrdinalIgnoreCase) >= 0;
+            _air = !parachutist && (gn.IndexOf("COIN", StringComparison.OrdinalIgnoreCase) >= 0
                 || gn.IndexOf("Helo", StringComparison.OrdinalIgnoreCase) >= 0
                 || gn.IndexOf("VTOL", StringComparison.OrdinalIgnoreCase) >= 0
                 || gn.IndexOf("trainer", StringComparison.OrdinalIgnoreCase) >= 0
@@ -500,7 +501,7 @@ namespace NOReplay
                 || t.IndexOf("Rotorcraft", StringComparison.OrdinalIgnoreCase) >= 0
                 || t.IndexOf("+Air+", StringComparison.OrdinalIgnoreCase) >= 0
                 || Plugin.IsAircraftPublic(t, Track?.Name)
-                || Plugin.IsAircraftPublic(gn, Track?.Name ?? gn);
+                || Plugin.IsAircraftPublic(gn, Track?.Name ?? gn));
             if (!_air)
                 _ship = CheckIsShip(t, nm, gn);
             string coal = Track?.Coalition ?? "";
@@ -601,6 +602,7 @@ namespace NOReplay
             DestroyDownwashTransforms();
             ReleaseGunVisuals();
             ReleaseLasers();
+            ReleaseChutes();
             if (_trail != null)
             {
                 UnityEngine.Object.Destroy(_trail.gameObject);
@@ -1317,7 +1319,10 @@ namespace NOReplay
             }
             drive.SetPositionAndRotation(p, q);
             if (!_ordnance && _asleep)
+            {
                 QuietLasers();
+                QuietChutes();
+            }
             if (!_air && !_ship && !_ordnance)
             {
                 if (IsFar())
@@ -1365,7 +1370,10 @@ namespace NOReplay
                 TickGunVisuals();
             }
             if (!_ordnance && !_asleep)
+            {
                 DriveLasers();
+                DriveChutes();
+            }
 
             float nowT = Plugin.Clock.Time;
             bool rewound = _prevT >= 0f && nowT + 0.02f < _prevT;

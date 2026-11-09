@@ -136,6 +136,16 @@ namespace NOReplay
             }
         }
 
+        internal void SetChuteWheels(bool locked)
+        {
+            _wheelsLocked = locked;
+            var gv = GetComponentInChildren<GroundVehicle>(true);
+            if (gv != null)
+            {
+                try { gv.SetWheelsLocked(locked); } catch { }
+            }
+        }
+
         void BindWheels()
         {
             _wheelsBound = true;
@@ -147,10 +157,7 @@ namespace NOReplay
                 return;
             }
             if (_fWheelsLocked?.GetValue(gv) is bool locked && locked)
-            {
                 _wheelsLocked = true;
-                return;
-            }
             if (_fWheelRadius?.GetValue(gv) is float radius && radius > 0.02f)
                 _wheelRadius = radius;
 

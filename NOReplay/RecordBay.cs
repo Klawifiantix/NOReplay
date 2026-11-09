@@ -103,11 +103,11 @@ namespace NOReplay
             var doorType = Plugin.FindGameType("BayDoor");
             if (doorType != null)
             {
-                foreach (var o in SceneObjects(doorType))
+                foreach (var entry in SceneObjects(doorType))
                 {
-                    if (o is not Component door) continue;
+                    if (entry is not Component door) continue;
                     if (rampType != null && rampType.IsInstanceOfType(door)) continue;
-                    float open = door.GetType().GetField("openAmount", Flags)?.GetValue(door) is float o ? o : 0f;
+                    float open = door.GetType().GetField("openAmount", Flags)?.GetValue(door) is float amount ? amount : 0f;
                     WriteOpen(door, open);
                 }
             }

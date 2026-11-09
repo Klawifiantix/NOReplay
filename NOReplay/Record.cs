@@ -47,6 +47,8 @@ namespace NOReplay
             catch (Exception ex) { Plugin.Log.LogError("RecordLasers.Install: " + ex); }
             try { RecordChutes.Install(); }
             catch (Exception ex) { Plugin.Log.LogError("RecordChutes.Install: " + ex); }
+            try { RecordBay.Install(); }
+            catch (Exception ex) { Plugin.Log.LogError("RecordBay.Install: " + ex); }
             Plugin.Log.LogInfo("Aufnahme bereit. " + RecordKeyLabel() + " startet und stoppt.");
         }
 
@@ -92,6 +94,8 @@ namespace NOReplay
             catch (Exception ex) { Plugin.Log.LogWarning("Laser-Record flush: " + ex.Message); }
             try { RecordChutes.Flush(); }
             catch (Exception ex) { Plugin.Log.LogWarning("Chute-Record flush: " + ex.Message); }
+            try { RecordBay.Flush(); }
+            catch (Exception ex) { Plugin.Log.LogWarning("Bay-Record flush: " + ex.Message); }
             Active = false;
             RecordParts.Reset();
             var host = Host;

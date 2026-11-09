@@ -28,6 +28,7 @@ namespace NOReplay
         static readonly Dictionary<RecordUnit, List<string>> _pending = new Dictionary<RecordUnit, List<string>>();
         static readonly Dictionary<int, UnitRec> _units = new Dictionary<int, UnitRec>();
         static readonly HashSet<int> _missLog = new HashSet<int>();
+        static readonly HashSet<int> _frameOff = new HashSet<int>();
         static int _writes;
 
         struct UnitRec
@@ -70,6 +71,7 @@ namespace NOReplay
             n += Patch(harmony, "Parachute", "Update", nameof(AfterCanopy));
             n += Patch(harmony, "Parachute", "DeployChute", nameof(AfterCanopy));
             n += Patch(harmony, "Parachute", "OnDestroy", nameof(AfterCanopyGone));
+            n += Patch(harmony, "CargoDeploymentSystem", "OnDestroy", nameof(AfterFrameGone));
             n += Patch(harmony, "PilotDismounted", "Update", nameof(AfterPilot));
             n += Patch(harmony, "EjectionSeat", "Fire", nameof(AfterSeatFire));
             n += Patch(harmony, "EjectionSeat", "LateUpdate", nameof(AfterSeat));
@@ -104,6 +106,7 @@ namespace NOReplay
             _pending.Clear();
             _units.Clear();
             _missLog.Clear();
+            _frameOff.Clear();
             _writes = 0;
         }
 
@@ -132,6 +135,30 @@ namespace NOReplay
         {
             if (!Record.Active || __instance is not Component chute) return;
             try { SampleCanopy(chute, gone: false); }
+            catch { }
+        }
+
+        static void AfterFrameGone(object __instance)
+        {
+            if (!Record.Active || __instance is not Component sys) return;
+            try
+            {
+                var unit = sys.GetType().GetField("attachedUnit", Flags)?.GetValue(sys) as Unit;
+                if (unit == null) return;
+                _frameOff.Add(unit.GetInstanceID());
+                var host = RecorderFor(unit);
+                if (host == null)
+                {
+                    Note(unit, wrote: false, sawOpen: false, skip: true, deploy: 0f);
+                    if (_missLog.Add(unit.GetInstanceID()))
+                        Record.Log?.LogInfo("Chute frame no-recorder " + NameOf(unit));
+                    return;
+                }
+                Record.Log?.LogInfo("Chute frame off " + NameOf(unit)
+                    + " t=" + Time.time.ToString("0.00", CultureInfo.InvariantCulture));
+                Queue(host, "r:0");
+                FlushPending();
+            }
             catch { }
         }
 
@@ -180,7 +207,7 @@ namespace NOReplay
             var canopy = t.GetField("canopy", Flags)?.GetValue(chute) as GameObject;
             var lines = t.GetField("lines", Flags)?.GetValue(chute) as GameObject;
             bool open = !gone && canopy != null && canopy.activeSelf;
-            bool rig = !gone;
+            bool rig = !gone && (unit == null || !_frameOff.Contains(unit.GetInstanceID()));
             var pose = PoseOf(canopy, lines, chute);
             _canopy.TryGetValue(chute.GetInstanceID(), out var prev);
             bool changed = !prev.Seen || prev.Open != open || prev.Rig != rig;

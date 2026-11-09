@@ -17,6 +17,7 @@ namespace NOReplay.OrientationTests
             PilotStateHolds();
             SeatDetachesAndReturns();
             FireOnlyOnAShortForwardStep();
+            FrameStaysUntilTheLandingTimer();
             if (Failed == 0) System.Console.WriteLine("ChuteClock ok");
         }
 
@@ -128,6 +129,14 @@ namespace NOReplay.OrientationTests
             Expect(!ChuteClock.Crossed(ev, 3f, 2.05f, -0.95f, false), "reverse does not replay the seat");
             Expect(!ChuteClock.Crossed(ev, 0f, 5f, 5f, false), "a seek does not replay the seat");
             Expect(!ChuteClock.Crossed(null, 1f, 3f, 0.1f, false), "no fire sample stays quiet");
+        }
+
+        static void FrameStaysUntilTheLandingTimer()
+        {
+            Expect(ChuteClock.HideFrame(false, 10f, -1f), "a rig-off sample removes the frame");
+            Expect(!ChuteClock.HideFrame(true, 12f, 8f), "the frame stays during the five seconds after collapse");
+            Expect(ChuteClock.HideFrame(true, 13f, 8f), "the frame goes once those five seconds have passed");
+            Expect(!ChuteClock.HideFrame(true, 20f, -1f), "an open canopy with no collapse keeps the frame");
         }
 
         static ChuteClock.Event Open(float time, float x)

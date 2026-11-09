@@ -18,6 +18,10 @@ namespace NOReplay
         ChutePart[] _chutes = Array.Empty<ChutePart>();
         GameObject? _chuteRoot;
         bool _chuteRootOwned;
+        GameObject[] _frames = Array.Empty<GameObject>();
+        float _chutePeak;
+        float _chuteCollapse = -1f;
+        bool _frameHideLogged;
         bool _chuteBound;
         bool _chuteNone;
         bool _chuteLogged;
@@ -45,11 +49,10 @@ namespace NOReplay
             _chutePrevClock = time;
             bool paused = Plugin.Clock.Paused;
             bool rig = Track.TryChute("r", time, out var rigView) && rigView.On;
-            if (_chuteRootOwned && _chuteRoot != null && _chuteRoot.activeSelf != rig)
-                _chuteRoot.SetActive(rig);
             SetChuteWheels(rig);
             for (int i = 0; i < _chutes.Length; i++)
                 PlaceCanopy(ref _chutes[i], "c" + i.ToString(System.Globalization.CultureInfo.InvariantCulture), time);
+            ApplyFrame(rig, time);
             if (Track.TryChute("p", time, out var pilot))
                 PlacePilot(pilot, dt, paused);
             if (Track.TryChute("s", time, out var seat))
@@ -62,6 +65,81 @@ namespace NOReplay
                 _chuteMeshAgain = -1f;
                 LogChuteMeshes("t+3s");
             }
+        }
+
+        void ApplyFrame(bool rig, float time)
+        {
+            float scale = 0f;
+            if (Track != null)
+            {
+                int n = Math.Max(_chutes.Length, 1);
+                for (int i = 0; i < n; i++)
+                {
+                    string key = "c" + i.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    if (!Track.TryChute(key, time, out var view) || !view.On) continue;
+                    if (view.Sz > scale) scale = view.Sz;
+                }
+            }
+            if (scale > _chutePeak) _chutePeak = scale;
+            if (_chuteCollapse >= 0f && time + 0.02f < _chuteCollapse)
+                _chuteCollapse = -1f;
+            if (_chutePeak > 0.2f && scale > _chutePeak * 0.8f)
+                _chuteCollapse = -1f;
+            else if (_chutePeak > 0.2f && scale > 0f && scale < _chutePeak * 0.5f && _chuteCollapse < 0f)
+                _chuteCollapse = time;
+            bool hide = ChuteClock.HideFrame(rig, time, _chuteCollapse);
+            if (hide)
+            {
+                for (int i = 0; i < _chutes.Length; i++)
+                {
+                    if (_chutes[i].Canopy != null && _chutes[i].Canopy.activeSelf)
+                        _chutes[i].Canopy.SetActive(false);
+                    if (_chutes[i].Lines != null && _chutes[i].Lines.activeSelf)
+                        _chutes[i].Lines.SetActive(false);
+                }
+            }
+            ShowFrame(!hide);
+            if (hide && !_frameHideLogged)
+            {
+                _frameHideLogged = true;
+                string unitName = Track != null && !string.IsNullOrEmpty(Track.Name) ? Track.Name : name;
+                string why = rig ? "landed+5" : "rig-off";
+                Plugin.Log?.LogInfo("Chute frame " + unitName + " hide t="
+                    + time.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)
+                    + " reason=" + why);
+            }
+            if (!hide) _frameHideLogged = false;
+        }
+
+        void ShowFrame(bool on)
+        {
+            if (_chuteRootOwned && _chuteRoot != null && _chuteRoot.activeSelf != on)
+                _chuteRoot.SetActive(on);
+            for (int i = 0; i < _frames.Length; i++)
+            {
+                var go = _frames[i];
+                if (go == null || go == gameObject) continue;
+                if (go.activeSelf != on) go.SetActive(on);
+            }
+        }
+
+        void CacheFrames()
+        {
+            var t = Plugin.FindGameType("CargoDeploymentSystem");
+            var list = new System.Collections.Generic.List<GameObject>();
+            if (t != null)
+            {
+                var all = GetComponentsInChildren(t, true);
+                for (int i = 0; i < all.Length; i++)
+                {
+                    if (all[i] is not Component sys) continue;
+                    if (sys.gameObject != gameObject) list.Add(sys.gameObject);
+                    if (sys.GetType().GetField("liftingFrame", ChuteFlags)?.GetValue(sys) is GameObject frame
+                        && frame != null)
+                        list.Add(frame);
+                }
+            }
+            _frames = list.ToArray();
         }
 
         void QuietChutes()
@@ -117,6 +195,7 @@ namespace NOReplay
                     found = FindChuteParts();
                 }
             }
+            CacheFrames();
             _chuteBound = true;
             _chutes = found;
             BindSeat();

@@ -1196,6 +1196,7 @@ namespace NOReplay
         {
             if (_lasersBound && _lasers.Length > 0 && !_asleep)
                 ShowLaserMounts();
+            DriveGlass();
             if (Track == null) return;
             if (_ordnance) TickWings(Plugin.Clock.Time);
             NoteSpoolClock(Plugin.Clock.Time);
@@ -1373,6 +1374,7 @@ namespace NOReplay
             {
                 DriveLasers();
                 DriveChutes();
+                DriveBay();
             }
 
             float nowT = Plugin.Clock.Time;

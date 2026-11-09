@@ -62,6 +62,8 @@ namespace NOReplay.OrientationTests
             _failed += LaserClockTests.Failed;
             ChuteClockTests.Run();
             _failed += ChuteClockTests.Failed;
+            DoorClockTests.Run();
+            _failed += DoorClockTests.Failed;
             if (_failed > 0)
             {
                 Console.Error.WriteLine("FAILED " + _failed);

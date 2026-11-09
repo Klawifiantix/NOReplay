@@ -196,6 +196,22 @@ namespace NOReplay
         /// The seat-fire clip plays only when playback walks forward across
         /// the sample. A seek, a reverse step, or a pause does not replay it.
         /// </summary>
+        /// <summary>
+        /// Parachute.Update destroys the chute, and with it the cargo frame,
+        /// once landedTime passes 5 seconds after radarAlt drops below 2.
+        /// A rig-off sample hides the frame immediately. Otherwise the
+        /// collapse of the recorded canopy scale is that landing branch, and
+        /// the frame stays for those same 5 seconds.
+        /// </summary>
+        public const float FrameLandedSeconds = 5f;
+
+        public static bool HideFrame(bool rigOn, float time, float collapseTime)
+        {
+            if (!rigOn) return true;
+            if (collapseTime < 0f) return false;
+            return time >= collapseTime + FrameLandedSeconds - 0.0001f;
+        }
+
         public static bool Crossed(List<Event>? ev, float prev, float now, float dt, bool paused)
         {
             if (paused || ev == null || ev.Count == 0) return false;

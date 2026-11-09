@@ -298,6 +298,11 @@ namespace NOReplay
             {
                 processShockWaves = ShockWaveDiscovery();
             }
+            if (Record.Active)
+            {
+                try { RecordBay.Sample(); }
+                catch { }
+            }
             // Unit discovery is now event-driven via RecordListener (UnitRegistry.RegisterUnit).
             // Periodic FindObjectsByType scan disabled.
             // if (unitDiscoveryTimer >= RecordConfig.unitDiscoveryDelta.Value)

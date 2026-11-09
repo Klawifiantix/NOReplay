@@ -730,6 +730,13 @@ namespace NOReplay
                 try { TryRegisterGhostOnMap(go, false); } catch { }
                 rg.StartCoroutine(SimpleLiveryFix(go));
             }
+            bool parachutist = (obj.Type ?? "").IndexOf("Parachutist", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (parachutist)
+            {
+                try { TryRegisterGhostOnMap(go, false); }
+                catch (Exception ex) { Log.LogWarning("Pilot map " + go.name + " " + ex.Message); }
+                Log.LogInfo("Pilot map " + go.name);
+            }
             if (ordnance && !flare)
             {
                 ApplyHq(go, obj.Coalition);

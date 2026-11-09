@@ -442,6 +442,173 @@ namespace NOReplay
             return null;
         }
 
+        Dictionary<string, List<ChuteClock.Event>>? _chutes;
+
+        public bool HasChute => _chutes != null && _chutes.Count > 0;
+
+        public void AddChuteLine(float time, string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            var scratch = new List<ChuteClock.Event>();
+            if (ChuteClock.Parse(text, time, scratch) == 0) return;
+            _chutes ??= new Dictionary<string, List<ChuteClock.Event>>(StringComparer.Ordinal);
+            for (int i = 0; i < scratch.Count; i++)
+            {
+                var ev = scratch[i];
+                if (string.IsNullOrEmpty(ev.Key)) continue;
+                if (!_chutes.TryGetValue(ev.Key, out var list))
+                {
+                    list = new List<ChuteClock.Event>();
+                    _chutes[ev.Key] = list;
+                }
+                list.Add(ev);
+            }
+        }
+
+        public int ChuteCount(string key)
+        {
+            var list = FindChute(key);
+            return list != null ? list.Count : 0;
+        }
+
+        public float ChuteDeploy(string key)
+        {
+            var list = FindChute(key);
+            if (list == null) return -1f;
+            for (int i = 0; i < list.Count; i++)
+                if (list[i].On && list[i].Kind == ChuteClock.Kind.Canopy) return list[i].Time;
+            return -1f;
+        }
+
+        public bool TryChute(string key, float time, out ChuteClock.View view)
+        {
+            view = default;
+            var list = FindChute(key);
+            if (list == null) return false;
+            view = ChuteClock.At(list, time, RemovedAt);
+            return true;
+        }
+
+        public bool ChuteCrossed(string key, float prev, float now, float dt, bool paused)
+        {
+            return ChuteClock.Crossed(FindChute(key), prev, now, dt, paused);
+        }
+
+        List<ChuteClock.Event>? FindChute(string key)
+        {
+            if (_chutes == null || string.IsNullOrEmpty(key)) return null;
+            if (_chutes.TryGetValue(key, out var exact)) return exact;
+            if (_chutes.Count == 1 && (key.Length > 0 && key[0] == 'c'))
+            {
+                foreach (var pair in _chutes)
+                {
+                    if (pair.Key.Length > 0 && pair.Key[0] == 'c')
+                        return pair.Value;
+                }
+            }
+            return null;
+        }
+
+        Dictionary<string, List<DoorClock.Event>>? _doors;
+        Dictionary<string, List<ChuteClock.Event>>? _glass;
+
+        public bool HasDoors => _doors != null && _doors.Count > 0;
+        public bool HasGlass => _glass != null && _glass.Count > 0;
+
+        public void AddDoorLine(float time, string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            var scratch = new List<DoorClock.Event>();
+            if (DoorClock.Parse(text, time, scratch) == 0) return;
+            _doors ??= new Dictionary<string, List<DoorClock.Event>>(StringComparer.Ordinal);
+            for (int i = 0; i < scratch.Count; i++)
+            {
+                var ev = scratch[i];
+                if (string.IsNullOrEmpty(ev.Key)) continue;
+                if (!_doors.TryGetValue(ev.Key, out var list))
+                {
+                    list = new List<DoorClock.Event>();
+                    _doors[ev.Key] = list;
+                }
+                list.Add(ev);
+            }
+        }
+
+        public void AddGlassLine(float time, string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            var scratch = new List<ChuteClock.Event>();
+            if (ChuteClock.Parse(text, time, scratch) == 0) return;
+            _glass ??= new Dictionary<string, List<ChuteClock.Event>>(StringComparer.Ordinal);
+            for (int i = 0; i < scratch.Count; i++)
+            {
+                var ev = scratch[i];
+                if (string.IsNullOrEmpty(ev.Key)) continue;
+                if (!_glass.TryGetValue(ev.Key, out var list))
+                {
+                    list = new List<ChuteClock.Event>();
+                    _glass[ev.Key] = list;
+                }
+                list.Add(ev);
+            }
+        }
+
+        public int DoorCount()
+        {
+            if (_doors == null) return 0;
+            int n = 0;
+            foreach (var pair in _doors) n += pair.Value.Count;
+            return n;
+        }
+
+        public int GlassCount()
+        {
+            if (_glass == null) return 0;
+            int n = 0;
+            foreach (var pair in _glass) n += pair.Value.Count;
+            return n;
+        }
+
+        public bool TryDoor(string key, float time, out DoorClock.View view)
+        {
+            view = default;
+            if (_doors == null || !_doors.TryGetValue(key, out var list)) return false;
+            view = DoorClock.At(list, time, RemovedAt);
+            return view.Present;
+        }
+
+        public float GlassStart(string key)
+        {
+            if (_glass == null || !_glass.TryGetValue(key, out var list) || list.Count == 0) return -1f;
+            return list[0].Time;
+        }
+
+        public bool TryGlass(string key, float time, out ChuteClock.View view)
+        {
+            view = default;
+            if (_glass == null || !_glass.TryGetValue(key, out var list)) return false;
+            view = ChuteClock.At(list, time, RemovedAt);
+            return true;
+        }
+
+        public bool GlassCrossed(string key, float prev, float now, float dt, bool paused)
+        {
+            if (_glass == null || !_glass.TryGetValue(key, out var list)) return false;
+            return ChuteClock.Crossed(list, prev, now, dt, paused);
+        }
+
+        public IEnumerable<string> DoorKeys()
+        {
+            if (_doors == null) yield break;
+            foreach (var pair in _doors) yield return pair.Key;
+        }
+
+        public IEnumerable<string> GlassKeys()
+        {
+            if (_glass == null) yield break;
+            foreach (var pair in _glass) yield return pair.Key;
+        }
+
         public float EventTime()
         {
             if (SpawnAt >= 0f) return SpawnAt;

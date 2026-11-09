@@ -18,9 +18,12 @@ namespace NOReplay
             base.tacviewId = unit.persistentID.Id + 1;
             lastState = unit.unitState;
             Faction? faction = this.unit.NetworkHQ?.faction;
+            string pilotName = unit.definition != null && !string.IsNullOrEmpty(unit.definition.unitName)
+                ? unit.definition.unitName
+                : (string.IsNullOrEmpty(unit.unitName) ? "Pilot" : unit.unitName);
             props = new Dictionary<string, string>()
             {
-                { "Name", this.unit.definition.unitName },
+                { "Name", pilotName },
                 { "Coalition", faction?.factionName ?? "Neutral" },
                 { "Color", faction == null ? "Green" : (faction.factionName == "Boscali" ? "Blue" : "Red") },
                 { "Type", "Ground+Light+Human+Air+Parachutist" },
@@ -30,32 +33,23 @@ namespace NOReplay
             props.Clear();
             this.enabled = true;
             base.enabled = true;
+            Record.Log?.LogInfo("Pilot rec " + pilotName
+                + " id=" + unitId.ToString(CultureInfo.InvariantCulture)
+                + " config=" + (RecordConfig.RecordEjectedPilots.Value ? "1" : "0"));
         }
 
         public override void Update()
         {
-            if (!this.enabled || unit.disabled)
-            {
-                return;
-            }
+            if (!enabled || unit == null || unit.disabled) return;
             timer += Time.deltaTime;
-            if (timer < RecordConfig.vehicleUpdateDelta.Value)
-            {
-                return;
-            }
-            if (pilot.radarAlt <= 1)
-            {
-                props.Add("Visible", "0.0");
-                props.Add("Type", null);
-                Record.Log?.LogDebug($"PARACHUTE LANDED {unitId.ToString(CultureInfo.InvariantCulture)}");
-                Engine.invokeWriterUpdate(this);
-                Engine.invokeWriterRemove(this);
-                GameObject.Destroy(this);
-            }
+            if (timer < RecordConfig.vehicleUpdateDelta.Value) return;
             UpdatePose();
             UpdateState();
-            Engine.invokeWriterUpdate(this);
-            props.Clear();
+            if (props.Count > 0)
+            {
+                Engine.invokeWriterUpdate(this);
+                props.Clear();
+            }
             timer = 0;
         }
     }

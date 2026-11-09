@@ -189,6 +189,18 @@ namespace NOReplay
                     {
                         if (val.Length > 0) obj.AddLaserLine(time, val.ToString());
                     }
+                    else if (AcmiScan.KeyIs(key, "Chute"))
+                    {
+                        if (val.Length > 0) obj.AddChuteLine(time, val.ToString());
+                    }
+                    else if (AcmiScan.KeyIs(key, "Doors"))
+                    {
+                        if (val.Length > 0) obj.AddDoorLine(time, val.ToString());
+                    }
+                    else if (AcmiScan.KeyIs(key, "Glass"))
+                    {
+                        if (val.Length > 0) obj.AddGlassLine(time, val.ToString());
+                    }
                     else if (AcmiScan.KeyIs(key, "Rpm"))
                     {
                         if (AcmiScan.TryFloat(val, out var rpm, false))

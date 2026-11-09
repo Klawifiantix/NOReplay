@@ -30,6 +30,7 @@ namespace NOReplay
             public GameObject Hit;
             public Component[] HitParts;
             public bool HavePrev;
+            public bool FireLogged;
             public float PrevTime;
             public LaserClock.View Prev;
         }
@@ -38,6 +39,7 @@ namespace NOReplay
         bool _lasersBound;
         int _laserMiss;
         bool _laserGapLogged;
+        bool _laserPlayLogged;
         static FieldInfo? _lBeam, _lColor, _lMuzzle, _lHitPrefab, _lStart, _lLoop, _lEnd, _lPitch, _lModify, _lFall, _lMul, _lVolume;
         static bool _lFields;
         static Type? _particleType;
@@ -47,6 +49,21 @@ namespace NOReplay
             if (!_lasersBound || (_lasers.Length == 0 && _laserMiss < 8))
                 BindLasers();
             if (_lasers.Length == 0) return;
+            KeepLaserMounts();
+            if (!_laserPlayLogged)
+            {
+                _laserPlayLogged = true;
+                string unitName = Track != null && !string.IsNullOrEmpty(Track.Name) ? Track.Name : name;
+                for (int i = 0; i < _lasers.Length; i++)
+                {
+                    var em = _lasers[i];
+                    int samples = Track != null ? Track.LaserCount(em.Key) : 0;
+                    Plugin.Log?.LogInfo("Laser play " + unitName
+                        + " key=" + em.Key
+                        + " beam=" + (em.Beam != null ? em.Beam.name : "none")
+                        + " samples=" + samples);
+                }
+            }
             bool alive = Track != null && IsTrackAlive() && !(_ship && ShipIsDead(Plugin.Clock.Time)) && !VehicleIsDying(Plugin.Clock.Time);
             bool paused = Plugin.Clock.Paused;
             float time = Plugin.Clock.Time;
@@ -132,6 +149,7 @@ namespace NOReplay
                 else em.Muzzles = Array.Empty<Component>();
                 BuildLaserAudio(c, ref em);
                 BuildHit(c, ref em);
+                ShowLaserMount(c, beam);
                 list.Add(em);
             }
             _lasers = list.ToArray();
@@ -172,6 +190,14 @@ namespace NOReplay
                 return;
             }
             var audio = LaserClock.Audio(view, em.HavePrev && hadClock, em.Prev, dt, paused);
+            if (!em.FireLogged)
+            {
+                em.FireLogged = true;
+                string unitName = Track != null && !string.IsNullOrEmpty(Track.Name) ? Track.Name : name;
+                Plugin.Log?.LogInfo("Laser on " + unitName + " key=" + em.Key
+                    + " point=" + (view.HasPoint ? 1 : 0)
+                    + " t=" + time.ToString("0.00"));
+            }
             PlaceBeam(ref em, view);
             if (paused)
             {
@@ -199,11 +225,52 @@ namespace NOReplay
             em.PrevTime = time;
         }
 
+        void ShowLaserMount(Component laser, Renderer? beam)
+        {
+            var turret = laser.GetComponentInParent<Turret>();
+            var root = turret != null ? turret.transform : laser.transform;
+            if (!root.gameObject.activeSelf) root.gameObject.SetActive(true);
+            var rends = root.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < rends.Length; i++)
+            {
+                var r = rends[i];
+                if (r == null || r == beam) continue;
+                _disabledInPrefab.Remove(r);
+                if (!r.gameObject.activeSelf) r.gameObject.SetActive(true);
+                if (_visible) r.enabled = true;
+                for (int p = 0; p < _parts.Length; p++)
+                {
+                    if (_parts[p] == r.transform)
+                        _partSkip[p] = true;
+                }
+            }
+            if (beam != null)
+            {
+                _disabledInPrefab.Remove(beam);
+                for (int p = 0; p < _parts.Length; p++)
+                {
+                    if (_parts[p] == beam.transform)
+                        _partSkip[p] = true;
+                }
+            }
+        }
+
+        void KeepLaserMounts()
+        {
+            for (int i = 0; i < _lasers.Length; i++)
+            {
+                if (_lasers[i].Laser != null)
+                    ShowLaserMount(_lasers[i].Laser, _lasers[i].Beam);
+            }
+        }
+
         void PlaceBeam(ref LaserEmitter em, LaserClock.View view)
         {
             if (em.Beam == null) return;
             bool show = view.HasPoint;
             em.Beam.enabled = show;
+            if (em.BeamTr != null && show && !em.BeamTr.gameObject.activeSelf)
+                em.BeamTr.gameObject.SetActive(true);
             if (!show || em.BeamTr == null) return;
             var at = Plugin.GlobalToLocal(view.X, view.Y, view.Z);
             em.BeamTr.LookAt(at);

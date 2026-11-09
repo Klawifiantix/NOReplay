@@ -408,6 +408,12 @@ namespace NOReplay
             }
         }
 
+        public int LaserCount(string key)
+        {
+            var list = FindLaser(key);
+            return list != null ? list.Count : 0;
+        }
+
         public bool TryLaser(string key, float time, out LaserClock.View view)
         {
             view = default;

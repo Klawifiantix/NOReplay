@@ -30,6 +30,7 @@ namespace NOReplay
         static readonly Dictionary<RecordUnit, List<string>> _pending = new Dictionary<RecordUnit, List<string>>();
         static Pump? _pump;
         static readonly HashSet<int> _logged = new HashSet<int>();
+        static int _writes;
 
         struct State
         {
@@ -85,6 +86,9 @@ namespace NOReplay
             _state.Clear();
             _pending.Clear();
             _logged.Clear();
+            if (_writes > 0)
+                Record.Log?.LogInfo("Laser rec stopped n=" + _writes);
+            _writes = 0;
         }
 
         static void AfterLate(object __instance)
@@ -144,8 +148,10 @@ namespace NOReplay
             }
             prev.Wrote = Time.time;
             _state[id] = prev;
-            if (_logged.Add(id))
-                Record.Log?.LogInfo("Laser " + (unit.definition != null ? unit.definition.unitName : unit.name) + " " + key);
+            _writes++;
+            if (_logged.Add(id) || _writes <= 24 || (_writes % 40) == 0)
+                Record.Log?.LogInfo("Laser rec " + (unit.definition != null ? unit.definition.unitName : unit.name)
+                    + " key=" + key + " on=" + (on ? 1 : 0) + " point=" + (has ? 1 : 0) + " n=" + _writes);
             Queue(host, Format(key, on, has, x, y, z, power));
             FlushPending();
         }
@@ -227,13 +233,22 @@ namespace NOReplay
                     drop.Add(host);
                     continue;
                 }
-                if (!Record.Active || host.props.Count > 0) continue;
+                if (!Record.Active) continue;
                 var eng = host.Engine;
                 if (eng == null) continue;
+                // A pose write may already be sitting in props. Keep it, and
+                // emit the laser line on its own so it is not dropped.
+                var saved = new Dictionary<string, string>(host.props);
+                host.props.Clear();
                 host.props["Lasers"] = string.Join(";", list);
                 list.Clear();
                 try { eng.invokeWriterUpdate(host); }
-                finally { host.props.Remove("Lasers"); }
+                finally
+                {
+                    host.props.Clear();
+                    foreach (var kv in saved)
+                        host.props[kv.Key] = kv.Value;
+                }
                 drop.Add(host);
             }
             for (int i = 0; i < drop.Count; i++)

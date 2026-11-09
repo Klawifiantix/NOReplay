@@ -241,7 +241,17 @@ namespace NOReplay
                     }
 
                     bool loaded = setMount != null || hpMount != null;
-                    try { mShowPylon?.Invoke(hp, new object[] { loaded }); } catch { }
+                    bool builtIn = false;
+                    if (ht.GetField("BuiltInTurrets", flags)?.GetValue(hp) is Array builtTurrets && builtTurrets.Length > 0)
+                        builtIn = true;
+                    if (ht.GetField("BuiltInWeapons", flags)?.GetValue(hp) is Array builtWeapons && builtWeapons.Length > 0)
+                        builtIn = true;
+                    // An empty store hides optional pylons. A built-in laser turret
+                    // is not an optional pylon; hiding it removes the emitter mesh.
+                    if (loaded || !builtIn)
+                    {
+                        try { mShowPylon?.Invoke(hp, new object[] { loaded }); } catch { }
+                    }
 
                     if (fPlug?.GetValue(hp) is Renderer plug && plug != null)
                         ApplyHardpointRendererState(plug, plug.enabled);
@@ -1244,11 +1254,8 @@ namespace NOReplay
                 _nextRadarScan = 0f;
             }
             drive.SetPositionAndRotation(p, q);
-            if (!_ordnance)
-            {
-                if (_asleep) QuietLasers();
-                else DriveLasers();
-            }
+            if (!_ordnance && _asleep)
+                QuietLasers();
             if (!_air && !_ship && !_ordnance)
             {
                 if (IsFar())
@@ -1295,6 +1302,8 @@ namespace NOReplay
                 if (!_ordnance) AimGuns();
                 TickGunVisuals();
             }
+            if (!_ordnance && !_asleep)
+                DriveLasers();
 
             float nowT = Plugin.Clock.Time;
             bool rewound = _prevT >= 0f && nowT + 0.02f < _prevT;

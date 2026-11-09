@@ -40,6 +40,7 @@ namespace NOReplay
         int _laserMiss;
         bool _laserGapLogged;
         bool _laserPlayLogged;
+        float _laserMeshAgain = -1f;
         static FieldInfo? _lBeam, _lColor, _lMuzzle, _lHitPrefab, _lStart, _lLoop, _lEnd, _lPitch, _lModify, _lFall, _lMul, _lVolume;
         static bool _lFields;
         static Type? _particleType;
@@ -49,6 +50,12 @@ namespace NOReplay
             if (!_lasersBound || (_lasers.Length == 0 && _laserMiss < 8))
                 BindLasers();
             if (_lasers.Length == 0) return;
+            ShowLaserMounts();
+            if (_laserMeshAgain > 0f && Time.unscaledTime >= _laserMeshAgain)
+            {
+                _laserMeshAgain = -1f;
+                LogLaserMeshes("t+3s");
+            }
             if (!_laserPlayLogged)
             {
                 _laserPlayLogged = true;
@@ -119,6 +126,7 @@ namespace NOReplay
                 {
                     beam.enabled = false;
                     _disabledInPrefab.Remove(beam);
+                    TouchRend(beam, "BindLasers");
                 }
                 var em = new LaserEmitter
                 {
@@ -148,6 +156,7 @@ namespace NOReplay
                 else em.Muzzles = Array.Empty<Component>();
                 BuildLaserAudio(c, ref em);
                 BuildHit(c, ref em);
+                ShowLaserMount(c, beam);
                 list.Add(em);
             }
             _lasers = list.ToArray();
@@ -155,7 +164,11 @@ namespace NOReplay
             else _laserMiss = 8;
             string unitName = Track != null && !string.IsNullOrEmpty(Track.Name) ? Track.Name : name;
             if (_lasers.Length > 0)
+            {
                 Plugin.Log?.LogInfo("Laser playback " + unitName + " n=" + _lasers.Length);
+                LogLaserMeshes("setup");
+                _laserMeshAgain = Time.unscaledTime + 3f;
+            }
             else if (!_laserGapLogged && NamedLaserHull(unitName) && _laserMiss >= 8)
             {
                 _laserGapLogged = true;
@@ -221,6 +234,104 @@ namespace NOReplay
             em.Prev = view;
             em.HavePrev = true;
             em.PrevTime = time;
+        }
+
+        // ddc0143 made the turrets visible by taking their renderers out of
+        // _disabledInPrefab and enabling them. That walk included every child
+        // of the turret. This one only enables the MeshRenderer on the Turret
+        // object and on the Laser object. beamRenderer stays off until a shot.
+        void ShowLaserMount(Component laser, Renderer? beam)
+        {
+            var turret = laser.GetComponentInParent<Turret>();
+            RevealMountObject(turret != null ? turret.gameObject : null, beam);
+            RevealMountObject(laser.gameObject, beam);
+        }
+
+        void ShowLaserMounts()
+        {
+            for (int i = 0; i < _lasers.Length; i++)
+            {
+                if (_lasers[i].Laser != null)
+                    ShowLaserMount(_lasers[i].Laser, _lasers[i].Beam);
+            }
+        }
+
+        void RevealMountObject(GameObject? go, Renderer? beam)
+        {
+            if (go == null) return;
+            if (!go.activeSelf) go.SetActive(true);
+            var rends = go.GetComponents<Renderer>();
+            for (int i = 0; i < rends.Length; i++)
+            {
+                var r = rends[i];
+                if (r == null || r == beam) continue;
+                if (r.GetType().Name == "ParticleSystemRenderer") continue;
+                _disabledInPrefab.Remove(r);
+                if (_visible) r.enabled = true;
+                TouchRend(r, "ShowLaserMount");
+            }
+        }
+
+        void LogLaserMeshes(string when)
+        {
+            string unitName = Track != null && !string.IsNullOrEmpty(Track.Name) ? Track.Name : name;
+            for (int i = 0; i < _lasers.Length; i++)
+            {
+                var laser = _lasers[i].Laser;
+                if (laser == null) continue;
+                var turret = laser.GetComponentInParent<Turret>();
+                LogOneMesh(unitName, when, "turret", turret != null ? turret.gameObject : null);
+                LogOneMesh(unitName, when, "barrel", laser.gameObject);
+            }
+        }
+
+        void LogOneMesh(string unitName, string when, string slot, GameObject? go)
+        {
+            if (go == null)
+            {
+                Plugin.Log?.LogInfo("Laser mesh " + unitName + " " + when + " " + slot + " missing");
+                return;
+            }
+            var r = go.GetComponent<Renderer>();
+            string shader = "-";
+            string lod = "none";
+            string touch = "none";
+            string en = "-";
+            string prefabOff = "-";
+            if (r != null)
+            {
+                en = r.enabled ? "1" : "0";
+                prefabOff = _disabledInPrefab.Contains(r) ? "1" : "0";
+                if (r.sharedMaterial != null && r.sharedMaterial.shader != null)
+                    shader = r.sharedMaterial.shader.name;
+                _rendTouch.TryGetValue(r.GetInstanceID(), out touch);
+                if (string.IsNullOrEmpty(touch)) touch = "none";
+                var groups = GetComponentsInChildren<LODGroup>(true);
+                for (int g = 0; g < groups.Length && lod == "none"; g++)
+                {
+                    var lods = groups[g].GetLODs();
+                    for (int li = 0; li < lods.Length; li++)
+                    {
+                        var rs = lods[li].renderers;
+                        if (rs == null) continue;
+                        for (int k = 0; k < rs.Length; k++)
+                        {
+                            if (rs[k] != r) continue;
+                            lod = groups[g].name + "/LOD" + li.ToString();
+                            break;
+                        }
+                    }
+                }
+            }
+            Plugin.Log?.LogInfo("Laser mesh " + unitName + " " + when + " " + slot
+                + " go=" + go.name
+                + " active=" + (go.activeInHierarchy ? 1 : 0)
+                + " en=" + en
+                + " shader=" + shader
+                + " lod=" + lod
+                + " scale=" + go.transform.localScale.ToString("0.##")
+                + " touch=" + touch
+                + " prefabOff=" + prefabOff);
         }
 
         void PlaceBeam(ref LaserEmitter em, LaserClock.View view)

@@ -85,6 +85,7 @@ namespace NOReplay
         Renderer[] _rend = Array.Empty<Renderer>();
         readonly HashSet<Renderer> _knownRends = new();
         readonly HashSet<Renderer> _disabledInPrefab = new();
+        readonly Dictionary<int, string> _rendTouch = new();
         bool _liveryPainted;
         Component[] _shafts = Array.Empty<Component>();
         Component[] _props = Array.Empty<Component>();
@@ -186,7 +187,10 @@ namespace NOReplay
                 var r = all[i];
                 if (r == null) continue;
                 if (_knownRends.Add(r) && !r.enabled && !RendererForcedOff(r))
+                {
                     _disabledInPrefab.Add(r);
+                    TouchRend(r, "RefreshRenderers");
+                }
             }
             _rend = all;
             SyncHardpointRenderers();
@@ -351,6 +355,12 @@ namespace NOReplay
             if (host.GetComponent<Laser>() != null) return true;
             var turret = host.GetComponent<Turret>();
             return turret != null && turret.GetComponentInChildren<Laser>(true) != null;
+        }
+
+        void TouchRend(Renderer r, string why)
+        {
+            if (r == null || string.IsNullOrEmpty(why)) return;
+            _rendTouch[r.GetInstanceID()] = why;
         }
 
         void ApplyHardpointRendererState(Renderer r, bool shouldRender)
@@ -531,7 +541,9 @@ namespace NOReplay
             {
                 for (int i = 0; i < _rend.Length; i++)
                 {
-                    if (_rend[i] != null) _rend[i].enabled = false;
+                    if (_rend[i] == null) continue;
+                    _rend[i].enabled = false;
+                    TouchRend(_rend[i], "Awake");
                 }
                 _visible = false;
             }
@@ -1083,9 +1095,10 @@ namespace NOReplay
             {
                 var r = _rend[i];
                 if (r == null) continue;
-                if (RendererForcedOff(r)) { r.enabled = false; continue; }
-                if (on && _disabledInPrefab.Contains(r)) continue;
+                if (RendererForcedOff(r)) { r.enabled = false; TouchRend(r, "SetGhostVisible forcedOff"); continue; }
+                if (on && _disabledInPrefab.Contains(r)) { TouchRend(r, "SetGhostVisible prefabOff"); continue; }
                 r.enabled = on;
+                TouchRend(r, "SetGhostVisible");
             }
             if (_ordnance)
             {
@@ -1179,6 +1192,8 @@ namespace NOReplay
 
         void LateUpdate()
         {
+            if (_lasersBound && _lasers.Length > 0 && !_asleep)
+                ShowLaserMounts();
             if (Track == null) return;
             if (_ordnance) TickWings(Plugin.Clock.Time);
             NoteSpoolClock(Plugin.Clock.Time);

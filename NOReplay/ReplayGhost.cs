@@ -835,6 +835,44 @@ namespace NOReplay
             return best;
         }
 
+        // A carrier deck is a ship ghost. Colliders on ghosts are turned off so
+        // they do not shove anything; a tyre linecast then misses the deck and
+        // the landing is silent. The deck is switched back on. The body stays
+        // kinematic and does not detect collisions, so the gear is not a live
+        // suspension. Terrain is not a ghost, which is why a runway can still
+        // be heard when this deck is absent.
+        internal bool HasDeck
+        {
+            get
+            {
+                if (!_ship) return false;
+                float t = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+                return !ShipIsDead(t);
+            }
+        }
+
+        internal Collider[] DeckColliders()
+        {
+            if (_cols == null || _cols.Length == 0)
+                _cols = GetComponentsInChildren<Collider>(true);
+            return _cols;
+        }
+
+        void OpenDeck()
+        {
+            if (!_ship) return;
+            float t = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+            if (ShipIsDead(t)) return;
+            if (_cols == null || _cols.Length == 0)
+                _cols = GetComponentsInChildren<Collider>(true);
+            for (int i = 0; i < _cols.Length; i++)
+            {
+                var c = _cols[i];
+                if (c == null || IsIgnored(c.transform)) continue;
+                if (!c.enabled) c.enabled = true;
+            }
+        }
+
         void FreezePhysics()
         {
             var root = Drive;
@@ -864,6 +902,7 @@ namespace NOReplay
                 if (_cols[i] == null || IsIgnored(_cols[i].transform)) continue;
                 _cols[i].enabled = false;
             }
+            OpenDeck();
         }
 
         static bool HasSurfaceFxComponent(Transform tr)
@@ -1175,6 +1214,7 @@ namespace NOReplay
                 }
                 _colsOff = true;
             }
+            OpenDeck();
             bool coasted = TryVehicleCoast(Plugin.Clock.Time, out float cx, out float cy, out float cz, out var coastVel);
             TrackCoast.Apply(coasted, cx, cy, cz, s.X, s.Y, s.Z, out float gx, out float gy, out float gz);
             var p = Plugin.GlobalToLocal(gx, gy, gz);

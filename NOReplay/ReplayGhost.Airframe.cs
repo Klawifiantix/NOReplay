@@ -1263,6 +1263,11 @@ namespace NOReplay
                 ApplyLandingLights(gearDown);
             }
             if (_ship) DriveShipAudio(spd);
+            if (_air)
+            {
+                DriveTires(s, gearDown, agl, alive && !Plugin.Clock.Paused);
+                ApplyNacelleTilt(s);
+            }
             DriveWingVapor(s, false);
         }
 

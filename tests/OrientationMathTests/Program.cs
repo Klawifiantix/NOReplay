@@ -56,6 +56,8 @@ namespace NOReplay.OrientationTests
             WreckThrowTests.Run();
             _failed += WreckThrowTests.Failed;
             _failed += TrackCoastTests.Failed;
+            TireTiltTests.Run();
+            _failed += TireTiltTests.Failed;
             if (_failed > 0)
             {
                 Console.Error.WriteLine("FAILED " + _failed);

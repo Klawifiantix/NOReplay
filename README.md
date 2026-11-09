@@ -68,7 +68,7 @@ What you see
 * Aircraft, helicopters, vehicles, ships, buildings and scenery from the ACMI.
 * The pilot name from the callsign, in the info panel. State reads Replay. Speed is taken from the recording, metric or imperial as the game is set.
 * Loadout and livery from the recording, including empty pylons.
-* Landing gear from the ACMI LandingGear flag. Doors follow the gear. Gear stays attached through ship elevator traversal.
+* Landing gear from the ACMI LandingGear flag. Doors follow the gear. Gear stays attached through ship elevator traversal. With the gear down, a ray from each wheel plays the game's rolling and skid clips and, on dirt, the wheel dust. Touchdown smoke uses the recorded altitude a moment earlier, because the tyre spin itself is not stored. Pause stops the sound and the dust. A Tarantula recording stores each nacelle angle as Tilt. Playback sets those angles. An older file leaves the nacelles where the prefab put them.
 * Tailhook on an aircraft whose loadout contains TailHook_ (the Ifrit Multirole and the Compass trainer). A recorded Tailhook value is played back. An older file infers it: down between 30 m and 120 m AGL while slowing and descending, up above 100 m/s or below 2 m/s, moving at half a unit per second. Scrubbing, reverse and pause use the same curve.
 * Arresting wires on the Hyperion. A recorded trap uses the wire from the file. Otherwise a sharp stop on the deck with the hook down catches the wire the hook crosses, and a touch-and-go does not. The cable follows the hook, then runs back to rest at 4 m/s.
 * The optical landing ball on the Hyperion. It follows the selected aircraft when that aircraft is on the approach with the hook down, otherwise the nearest such aircraft. Low is red, high is white.

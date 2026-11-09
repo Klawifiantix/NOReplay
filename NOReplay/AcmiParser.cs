@@ -292,6 +292,19 @@ namespace NOReplay
                             telemetry = true;
                         }
                     }
+                    else if (AcmiScan.KeyIs(key, "Tilt"))
+                    {
+                        if (TiltText.Read(val.ToString(), out var tilt) && tilt.Count > 0)
+                        {
+                            sample.HasTilt = true;
+                            sample.TiltCount = tilt.Count > 4 ? 4 : tilt.Count;
+                            sample.Tilt0 = tilt.Count > 0 ? tilt.Angle[0] : 0f;
+                            sample.Tilt1 = tilt.Count > 1 ? tilt.Angle[1] : 0f;
+                            sample.Tilt2 = tilt.Count > 2 ? tilt.Angle[2] : 0f;
+                            sample.Tilt3 = tilt.Count > 3 ? tilt.Angle[3] : 0f;
+                            telemetry = true;
+                        }
+                    }
                     else if (AcmiScan.KeyIs(key, "Throttle"))
                     {
                         if (AcmiScan.TryFloat(val, out var th))

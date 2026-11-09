@@ -229,6 +229,12 @@ namespace NOReplay
                 Agl = a.HasAgl && b.HasAgl ? Mathf.Lerp(a.Agl, b.Agl, u) : (a.HasAgl ? a.Agl : b.Agl),
                 HasTailhook = a.HasTailhook || b.HasTailhook,
                 Tailhook = a.HasTailhook && b.HasTailhook ? Mathf.Lerp(a.Tailhook, b.Tailhook, u) : (a.HasTailhook ? a.Tailhook : b.Tailhook),
+                HasTilt = a.HasTilt || b.HasTilt,
+                TiltCount = a.HasTilt && b.HasTilt ? (a.TiltCount < b.TiltCount ? a.TiltCount : b.TiltCount) : (a.HasTilt ? a.TiltCount : b.TiltCount),
+                Tilt0 = BlendTilt(a, b, 0, u),
+                Tilt1 = BlendTilt(a, b, 1, u),
+                Tilt2 = BlendTilt(a, b, 2, u),
+                Tilt3 = BlendTilt(a, b, 3, u),
                 HasQuat = true,
                 Qx = qx,
                 Qy = qy,
@@ -236,6 +242,16 @@ namespace NOReplay
                 Qw = qw
             };
             return true;
+        }
+
+        static float BlendTilt(ReplaySample a, ReplaySample b, int index, float u)
+        {
+            bool ha = a.HasTilt && index < a.TiltCount;
+            bool hb = b.HasTilt && index < b.TiltCount;
+            if (ha && hb) return TiltText.LerpAngle(a.TiltAt(index), b.TiltAt(index), u);
+            if (ha) return a.TiltAt(index);
+            if (hb) return b.TiltAt(index);
+            return 0f;
         }
 
         static void OrientationOf(ReplaySample s, out float x, out float y, out float z, out float w)
@@ -429,6 +445,14 @@ namespace NOReplay
         public float Agl;
         public bool HasTailhook;
         public float Tailhook;
+        public bool HasTilt;
+        public int TiltCount;
+        public float Tilt0, Tilt1, Tilt2, Tilt3;
+
+        public float TiltAt(int index)
+        {
+            return index == 0 ? Tilt0 : index == 1 ? Tilt1 : index == 2 ? Tilt2 : Tilt3;
+        }
 
         public ReplaySample Clone() => this;
     }

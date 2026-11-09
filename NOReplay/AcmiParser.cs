@@ -185,6 +185,10 @@ namespace NOReplay
                     {
                         ParseTurrets(obj, val, time);
                     }
+                    else if (AcmiScan.KeyIs(key, "Lasers"))
+                    {
+                        if (val.Length > 0) obj.AddLaserLine(time, val.ToString());
+                    }
                     else if (AcmiScan.KeyIs(key, "Rpm"))
                     {
                         if (AcmiScan.TryFloat(val, out var rpm, false))

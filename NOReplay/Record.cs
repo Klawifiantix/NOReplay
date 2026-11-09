@@ -43,6 +43,8 @@ namespace NOReplay
             catch (Exception ex) { Plugin.Log.LogError("RecordWreck.Install: " + ex); }
             try { RecordTrap.Install(); }
             catch (Exception ex) { Plugin.Log.LogError("RecordTrap.Install: " + ex); }
+            try { RecordLasers.Install(); }
+            catch (Exception ex) { Plugin.Log.LogError("RecordLasers.Install: " + ex); }
             Plugin.Log.LogInfo("Aufnahme bereit. " + RecordKeyLabel() + " startet und stoppt.");
         }
 
@@ -84,6 +86,8 @@ namespace NOReplay
         public static void Stop()
         {
             if (!Active) return;
+            try { RecordLasers.Flush(); }
+            catch (Exception ex) { Plugin.Log.LogWarning("Laser-Record flush: " + ex.Message); }
             Active = false;
             RecordParts.Reset();
             var host = Host;

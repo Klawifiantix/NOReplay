@@ -387,6 +387,61 @@ namespace NOReplay
             public bool Moves;
         }
 
+        Dictionary<string, List<LaserClock.Event>>? _laserBeams;
+
+        public void AddLaserLine(float time, string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            var scratch = new List<LaserClock.Event>();
+            if (LaserClock.Parse(text, time, scratch) == 0) return;
+            _laserBeams ??= new Dictionary<string, List<LaserClock.Event>>(StringComparer.Ordinal);
+            for (int i = 0; i < scratch.Count; i++)
+            {
+                var ev = scratch[i];
+                if (string.IsNullOrEmpty(ev.Key)) continue;
+                if (!_laserBeams.TryGetValue(ev.Key, out var list))
+                {
+                    list = new List<LaserClock.Event>();
+                    _laserBeams[ev.Key] = list;
+                }
+                list.Add(ev);
+            }
+        }
+
+        public int LaserCount(string key)
+        {
+            var list = FindLaser(key);
+            return list != null ? list.Count : 0;
+        }
+
+        public bool TryLaser(string key, float time, out LaserClock.View view)
+        {
+            view = default;
+            var list = FindLaser(key);
+            if (list == null) return false;
+            view = LaserClock.At(list, time, RemovedAt);
+            return true;
+        }
+
+        List<LaserClock.Event>? FindLaser(string key)
+        {
+            if (_laserBeams == null || string.IsNullOrEmpty(key)) return null;
+            if (_laserBeams.TryGetValue(key, out var exact)) return exact;
+            foreach (var pair in _laserBeams)
+            {
+                string k = pair.Key;
+                if (string.IsNullOrEmpty(k)) continue;
+                if (EndsWithSegment(k, key) || EndsWithSegment(key, k))
+                    return pair.Value;
+            }
+            if (_laserBeams.Count == 1)
+            {
+                foreach (var pair in _laserBeams)
+                    return pair.Value;
+            }
+            return null;
+        }
+
         public float EventTime()
         {
             if (SpawnAt >= 0f) return SpawnAt;

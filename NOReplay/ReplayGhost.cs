@@ -85,6 +85,7 @@ namespace NOReplay
         Renderer[] _rend = Array.Empty<Renderer>();
         readonly HashSet<Renderer> _knownRends = new();
         readonly HashSet<Renderer> _disabledInPrefab = new();
+        readonly Dictionary<int, string> _rendTouch = new();
         bool _liveryPainted;
         Component[] _shafts = Array.Empty<Component>();
         Component[] _props = Array.Empty<Component>();
@@ -186,7 +187,10 @@ namespace NOReplay
                 var r = all[i];
                 if (r == null) continue;
                 if (_knownRends.Add(r) && !r.enabled && !RendererForcedOff(r))
+                {
                     _disabledInPrefab.Add(r);
+                    TouchRend(r, "RefreshRenderers");
+                }
             }
             _rend = all;
             SyncHardpointRenderers();
@@ -241,16 +245,59 @@ namespace NOReplay
                     }
 
                     bool loaded = setMount != null || hpMount != null;
+                    var watched = new List<Renderer>();
+                    var beforeOn = new List<bool>();
+                    void Watch(Renderer? r)
+                    {
+                        if (r == null) return;
+                        watched.Add(r);
+                        beforeOn.Add(r.enabled);
+                    }
+                    Watch(fPlug?.GetValue(hp) as Renderer);
+                    Array? optList = fPylonOpts?.GetValue(hp) as Array;
+                    if (optList != null)
+                    {
+                        for (int k = 0; k < optList.Length; k++)
+                        {
+                            var opt = optList.GetValue(k);
+                            if (opt == null) continue;
+                            fPylonRend ??= opt.GetType().GetField("renderer", flags);
+                            Watch(fPylonRend?.GetValue(opt) as Renderer);
+                        }
+                    }
                     try { mShowPylon?.Invoke(hp, new object[] { loaded }); } catch { }
+
+                    var note = new System.Text.StringBuilder();
+                    note.Append("Pylon ").Append(name).Append(" hp=").Append(j)
+                        .Append(" loaded=").Append(loaded ? 1 : 0);
+                    for (int w = 0; w < watched.Count; w++)
+                    {
+                        var r = watched[w];
+                        if (r == null) continue;
+                        bool was = beforeOn[w];
+                        bool now = r.enabled;
+                        note.Append(' ').Append(r.name).Append(':')
+                            .Append(was ? 1 : 0).Append("->").Append(now ? 1 : 0);
+                        // ShowPylon(false) turns every pylon renderer off. The
+                        // three-build test showed that set includes the laser
+                        // turret mesh. Plug stays as ShowPylon left it, which
+                        // is what keeps the HLT-HEL body on.
+                        if (!now && LaserMountRenderer(r))
+                        {
+                            r.enabled = true;
+                            note.Append(" restore:1");
+                        }
+                    }
+                    Plugin.Log?.LogInfo(note.ToString());
 
                     if (fPlug?.GetValue(hp) is Renderer plug && plug != null)
                         ApplyHardpointRendererState(plug, plug.enabled);
 
-                    if (fPylonOpts?.GetValue(hp) is Array opts)
+                    if (optList != null)
                     {
-                        for (int k = 0; k < opts.Length; k++)
+                        for (int k = 0; k < optList.Length; k++)
                         {
-                            var opt = opts.GetValue(k);
+                            var opt = optList.GetValue(k);
                             if (opt == null) continue;
                             fPylonRend ??= opt.GetType().GetField("renderer", flags);
                             if (fPylonRend?.GetValue(opt) is Renderer pr && pr != null)
@@ -294,6 +341,26 @@ namespace NOReplay
                           || (doorFR != null && _disabledInPrefab.Contains(doorFR));
                 if (showR) ApplyHardpointRendererState(slideR, true);
             }
+        }
+
+        // Hardpoint.ShowPylon(false) disables every HardpointPylon.renderer and
+        // enables Plug. The three-build test showed those pylon renderers are
+        // the laser turret meshes, and Plug is what keeps the HLT-HEL body on.
+        // Only the renderer on the turret or on the Laser object is put back.
+        // beamRenderer is a child and is not one of those two objects.
+        bool LaserMountRenderer(Renderer r)
+        {
+            if (r == null) return false;
+            var host = r.gameObject;
+            if (host.GetComponent<Laser>() != null) return true;
+            var turret = host.GetComponent<Turret>();
+            return turret != null && turret.GetComponentInChildren<Laser>(true) != null;
+        }
+
+        void TouchRend(Renderer r, string why)
+        {
+            if (r == null || string.IsNullOrEmpty(why)) return;
+            _rendTouch[r.GetInstanceID()] = why;
         }
 
         void ApplyHardpointRendererState(Renderer r, bool shouldRender)
@@ -474,7 +541,9 @@ namespace NOReplay
             {
                 for (int i = 0; i < _rend.Length; i++)
                 {
-                    if (_rend[i] != null) _rend[i].enabled = false;
+                    if (_rend[i] == null) continue;
+                    _rend[i].enabled = false;
+                    TouchRend(_rend[i], "Awake");
                 }
                 _visible = false;
             }
@@ -531,6 +600,7 @@ namespace NOReplay
             ReleaseWheelMaterials();
             DestroyDownwashTransforms();
             ReleaseGunVisuals();
+            ReleaseLasers();
             if (_trail != null)
             {
                 UnityEngine.Object.Destroy(_trail.gameObject);
@@ -1025,9 +1095,10 @@ namespace NOReplay
             {
                 var r = _rend[i];
                 if (r == null) continue;
-                if (RendererForcedOff(r)) { r.enabled = false; continue; }
-                if (on && _disabledInPrefab.Contains(r)) continue;
+                if (RendererForcedOff(r)) { r.enabled = false; TouchRend(r, "SetGhostVisible forcedOff"); continue; }
+                if (on && _disabledInPrefab.Contains(r)) { TouchRend(r, "SetGhostVisible prefabOff"); continue; }
                 r.enabled = on;
+                TouchRend(r, "SetGhostVisible");
             }
             if (_ordnance)
             {
@@ -1121,6 +1192,8 @@ namespace NOReplay
 
         void LateUpdate()
         {
+            if (_lasersBound && _lasers.Length > 0 && !_asleep)
+                ShowLaserMounts();
             if (Track == null) return;
             if (_ordnance) TickWings(Plugin.Clock.Time);
             NoteSpoolClock(Plugin.Clock.Time);
@@ -1243,6 +1316,8 @@ namespace NOReplay
                 _nextRadarScan = 0f;
             }
             drive.SetPositionAndRotation(p, q);
+            if (!_ordnance && _asleep)
+                QuietLasers();
             if (!_air && !_ship && !_ordnance)
             {
                 if (IsFar())
@@ -1289,6 +1364,8 @@ namespace NOReplay
                 if (!_ordnance) AimGuns();
                 TickGunVisuals();
             }
+            if (!_ordnance && !_asleep)
+                DriveLasers();
 
             float nowT = Plugin.Clock.Time;
             bool rewound = _prevT >= 0f && nowT + 0.02f < _prevT;
@@ -1476,6 +1553,7 @@ namespace NOReplay
         {
             _asleep = true;
             HaltGuns(false);
+            QuietLasers();
             SilenceSources();
             SetVisible(false);
             var tr = transform;

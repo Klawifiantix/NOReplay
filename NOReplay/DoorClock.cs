@@ -18,6 +18,7 @@ namespace NOReplay
             public bool Mount;
             public bool On;
             public bool HasPose;
+            public byte Mode;
             public float Angle;
             public float X, Y, Z;
         }
@@ -28,6 +29,7 @@ namespace NOReplay
             public bool Mount;
             public bool On;
             public bool HasPose;
+            public byte Mode;
             public float Angle;
             public float X, Y, Z;
         }
@@ -77,9 +79,29 @@ namespace NOReplay
                 ev.HasPose = true;
                 return true;
             }
+            if (rest.Length > 2 && rest[1] == '|' && (rest[0] == 'c' || rest[0] == 'C'))
+            {
+                var bits = rest.Substring(2).Split('|');
+                if (bits.Length < 2 || !TryF(bits[0], out float cur) || !TryF(bits[1], out float off))
+                    return false;
+                ev.On = true;
+                ev.HasPose = true;
+                ev.Mode = 1;
+                ev.Angle = cur + off;
+                return true;
+            }
+            if (rest.Length > 2 && rest[1] == '|' && (rest[0] == 'o' || rest[0] == 'O'))
+            {
+                if (!TryF(rest.Substring(2), out ev.Angle)) return false;
+                ev.On = true;
+                ev.HasPose = true;
+                ev.Mode = 2;
+                return true;
+            }
             if (!TryF(rest, out ev.Angle)) return false;
             ev.On = true;
             ev.HasPose = true;
+            ev.Mode = 0;
             return true;
         }
 
@@ -90,7 +112,7 @@ namespace NOReplay
             if (removedAt >= 0f && time >= removedAt - 0.0001f)
             {
                 if (ev[0].Mount) return new View { Present = true, Mount = true, On = false };
-                return new View { Present = true, On = true, HasPose = true, Angle = ev[ev.Count - 1].Angle };
+                return new View { Present = true, On = true, HasPose = true, Mode = ev[ev.Count - 1].Mode, Angle = ev[ev.Count - 1].Angle };
             }
             if (time < ev[0].Time)
             {
@@ -114,6 +136,7 @@ namespace NOReplay
                 Mount = cur.Mount,
                 On = true,
                 HasPose = cur.HasPose,
+                Mode = cur.Mode,
                 Angle = cur.Angle,
                 X = cur.X,
                 Y = cur.Y,
@@ -123,7 +146,7 @@ namespace NOReplay
             {
                 var nxt = ev[i + 1];
                 float span = nxt.Time - cur.Time;
-                if (span > 0.0001f && time <= nxt.Time && nxt.On && cur.HasPose && nxt.HasPose)
+                if (span > 0.0001f && time <= nxt.Time && nxt.On && cur.HasPose && nxt.HasPose && nxt.Mode == cur.Mode)
                 {
                     float u = (time - cur.Time) / span;
                     if (u < 0f) u = 0f;

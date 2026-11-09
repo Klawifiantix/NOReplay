@@ -107,36 +107,64 @@ namespace NOReplay
                 {
                     if (o is not Component door) continue;
                     if (rampType != null && rampType.IsInstanceOfType(door)) continue;
-                    float ang = door.transform.localEulerAngles.z;
-                    WriteAngle(door, "b/", ang);
+                    float open = door.GetType().GetField("openAmount", Flags)?.GetValue(door) is float o ? o : 0f;
+                    WriteOpen(door, open);
                 }
             }
             if (rampType == null) return;
             foreach (var o in SceneObjects(rampType))
             {
                 if (o is not Component ramp) continue;
-                var part = ramp.GetType().GetField("rampPart", Flags)?.GetValue(ramp) as Component;
-                if (part == null) continue;
-                WriteAngle(ramp, "r/", part.transform.localEulerAngles.x);
+                float current = ramp.GetType().GetField("currentAngle", Flags)?.GetValue(ramp) is float c ? c : 0f;
+                float offset = ramp.GetType().GetField("defaultAngle", Flags)?.GetValue(ramp) is float d ? d : 0f;
+                WriteHinge(ramp, current, offset);
             }
         }
 
-        static void WriteAngle(Component door, string prefix, float ang)
+        static void WriteHinge(Component ramp, float current, float offset)
+        {
+            int id = ramp.GetInstanceID();
+            bool first = !_seen.ContainsKey(id);
+            float sum = current + offset;
+            _angle.TryGetValue(id, out float prev);
+            if (!first && Math.Abs(sum - prev) < AngleStep) return;
+            var unit = Owner(ramp);
+            var host = Host(unit);
+            if (host == null) return;
+            _seen[id] = true;
+            _angle[id] = sum;
+            string key = "r/" + PathOf(unit!, ramp.transform);
+            if (first)
+                Record.Log?.LogInfo("Ramp rec " + NameOf(unit) + " key=" + key
+                    + " current=" + current.ToString("0.##", CultureInfo.InvariantCulture)
+                    + " default=" + offset.ToString("0.##", CultureInfo.InvariantCulture)
+                    + " axis=right");
+            Write(host, "Doors", key + ":c|"
+                + current.ToString("0.##", CultureInfo.InvariantCulture) + "|"
+                + offset.ToString("0.##", CultureInfo.InvariantCulture));
+        }
+
+        static void WriteOpen(Component door, float open)
         {
             int id = door.GetInstanceID();
             bool first = !_seen.ContainsKey(id);
             _angle.TryGetValue(id, out float prev);
-            if (!first && Math.Abs(Mathf.DeltaAngle(prev, ang)) < AngleStep) return;
+            if (!first && Math.Abs(open - prev) < 0.01f) return;
             var unit = Owner(door);
             var host = Host(unit);
             if (host == null) return;
             _seen[id] = true;
-            _angle[id] = ang;
-            string key = prefix + PathOf(unit!, door.transform);
-            if (first || _logged.Add(id + 100000))
+            _angle[id] = open;
+            string key = "b/" + PathOf(unit!, door.transform);
+            if (first)
+            {
+                float hinge = door.GetType().GetField("hingeAngle", Flags)?.GetValue(door) is float h ? h : 0f;
                 Record.Log?.LogInfo("Ramp rec " + NameOf(unit) + " key=" + key
-                    + " angle=" + ang.ToString("0.0", CultureInfo.InvariantCulture));
-            Write(host, "Doors", key + ":" + ang.ToString("0.##", CultureInfo.InvariantCulture));
+                    + " open=" + open.ToString("0.##", CultureInfo.InvariantCulture)
+                    + " hinge=" + hinge.ToString("0.##", CultureInfo.InvariantCulture)
+                    + " axis=z");
+            }
+            Write(host, "Doors", key + ":o|" + open.ToString("0.###", CultureInfo.InvariantCulture));
         }
 
         static void SampleMounts()

@@ -22,7 +22,11 @@ namespace NOReplay.OrientationTests
             var list = new List<DoorClock.Event>();
             int n = DoorClock.Parse("r/ramp:12.5;m/load:1|0|1|2;m/load:0", 3f, list);
             Expect(n == 3, "ramp, shown cargo, hidden cargo");
-            Expect(!list[0].Mount && Near(list[0].Angle, 12.5f), "ramp angle");
+            Expect(!list[0].Mount && list[0].Mode == 0 && Near(list[0].Angle, 12.5f), "a single number is the old euler sample");
+            var hinge = new List<DoorClock.Event>();
+            DoorClock.Parse("r/ramp:c|10|5;b/door:o|0.25", 1f, hinge);
+            Expect(hinge[0].Mode == 1 && Near(hinge[0].Angle, 15f), "hinge command is current plus default");
+            Expect(hinge[1].Mode == 2 && Near(hinge[1].Angle, 0.25f), "bay door stores the open amount");
             Expect(list[1].Mount && list[1].On && list[1].HasPose && Near(list[1].Y, 1f), "cargo still on the rail");
             Expect(list[2].Mount && !list[2].On, "cargo hidden after release");
         }

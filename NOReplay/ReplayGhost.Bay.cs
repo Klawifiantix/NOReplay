@@ -13,6 +13,8 @@ namespace NOReplay
             public bool Ramp;
             public Component Source;
             public Vector3 Rest;
+            public float Default;
+            public float Hinge;
         }
 
         struct BayLoad
@@ -52,14 +54,27 @@ namespace NOReplay
             float time = Plugin.Clock.Time;
             for (int i = 0; i < _hinges.Length; i++)
             {
-                if (!Track.TryDoor(_hinges[i].Key, time, out var view) || !view.HasPose) continue;
                 var leaf = _hinges[i].Leaf;
                 if (leaf == null) continue;
-                var e = _hinges[i].Rest;
-                if (_hinges[i].Ramp) e.x = view.Angle;
-                else e.z = view.Angle;
-                leaf.localEulerAngles = e;
-                if (_hinges[i].Ramp) AimStruts(_hinges[i].Source);
+                bool have = Track.TryDoor(_hinges[i].Key, time, out var view) && view.HasPose;
+                if (_hinges[i].Ramp)
+                {
+                    // CargoRamp passes Vector3.right into SetHingeJoint. On the
+                    // shared-body path that writes the whole local euler, not
+                    // one axis added to the prefab, and not a world angle.
+                    float angle = _hinges[i].Default;
+                    if (have && view.Mode == 1) angle = view.Angle;
+                    leaf.localEulerAngles = new Vector3(angle, 0f, 0f);
+                    AimStruts(_hinges[i].Source, leaf);
+                }
+                else if (have && view.Mode == 2)
+                {
+                    var e = _hinges[i].Rest;
+                    e.z = view.Angle * _hinges[i].Hinge;
+                    leaf.localEulerAngles = e;
+                }
+                else
+                    leaf.localEulerAngles = _hinges[i].Rest;
             }
             for (int i = 0; i < _loads.Length; i++)
             {
@@ -106,8 +121,15 @@ namespace NOReplay
                     var p = Plugin.GlobalToLocal(view.X, view.Y, view.Z);
                     g.Leaf.SetPositionAndRotation(p, new Quaternion(view.Qx, view.Qy, view.Qz, view.Qw));
                     if (!g.Leaf.gameObject.activeSelf) g.Leaf.gameObject.SetActive(true);
-                    if (had && Track.GlassCrossed(g.Key, time - dt, time, dt, paused))
+                    bool prevOn = false;
+                    if (had && time - dt >= start && Track.TryGlass(g.Key, time - dt, out var prev))
+                        prevOn = prev.On;
+                    if (had && !paused && dt > 0.0001f && dt <= 0.35f && !prevOn)
+                    {
                         PlayGlass(ref g);
+                        Plugin.Log?.LogInfo("Glass sound " + name + " key=" + g.Key
+                            + " t=" + time.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture));
+                    }
                 }
                 else if (g.Loosed)
                 {
@@ -149,14 +171,33 @@ namespace NOReplay
                         if (part != null) leaf = part.transform;
                     }
                     if (door is Behaviour beh) beh.enabled = false;
+                    float def = 0f;
+                    float hinge = 0f;
+                    if (ramp)
+                        def = door.GetType().GetField("defaultAngle", BayFlags)?.GetValue(door) is float d ? d : 0f;
+                    hinge = door.GetType().GetField("hingeAngle", BayFlags)?.GetValue(door) is float h ? h : 0f;
+                    var hingeKey = (ramp ? "r/" : "b/") + BayPath(door.transform);
                     hinges.Add(new BayHinge
                     {
-                        Key = (ramp ? "r/" : "b/") + BayPath(door.transform),
+                        Key = hingeKey,
                         Leaf = leaf,
                         Ramp = ramp,
                         Source = door,
-                        Rest = leaf.localEulerAngles
+                        Rest = leaf.localEulerAngles,
+                        Default = def,
+                        Hinge = hinge
                     });
+                    if (ramp || hinge != 0f)
+                    {
+                        var eu = leaf.localEulerAngles;
+                        Plugin.Log?.LogInfo("Ramp hinge " + name + " key=" + hingeKey
+                            + " type=" + door.GetType().Name
+                            + " default=" + def.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+                            + " hinge=" + hinge.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+                            + " axis=" + (ramp ? "right" : "z")
+                            + " closed=" + (ramp ? "(" + def.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + ",0,0)" : "prefab")
+                            + " prefabEuler=(" + eu.x.ToString("0.#") + "," + eu.y.ToString("0.#") + "," + eu.z.ToString("0.#") + ")");
+                    }
                 }
             }
             if (cargoType != null)
@@ -227,9 +268,10 @@ namespace NOReplay
             _bayBound = true;
         }
 
-        void AimStruts(Component ramp)
+        void AimStruts(Component ramp, Transform leaf)
         {
             if (ramp.GetType().GetField("struts", BayFlags)?.GetValue(ramp) is not System.Array struts) return;
+            Vector3 up = leaf.parent != null ? leaf.parent.up : Vector3.up;
             for (int i = 0; i < struts.Length; i++)
             {
                 object strut = struts.GetValue(i);
@@ -237,8 +279,9 @@ namespace NOReplay
                 var ft = strut.GetType();
                 var tr = ft.GetField("transform", BayFlags)?.GetValue(strut) as Transform;
                 var target = ft.GetField("target", BayFlags)?.GetValue(strut) as Transform;
-                if (tr == null || target == null) continue;
-                tr.LookAt(target);
+                if (tr == null || target == null || tr == leaf) continue;
+                if (leaf.IsChildOf(tr)) continue;
+                tr.LookAt(target, up);
                 float dist = Vector3.Distance(target.position, tr.position);
                 tr.localScale = new Vector3(1f, 1f, dist);
                 if (ft.GetField("maxLength", BayFlags)?.GetValue(strut) is float max && dist > max)

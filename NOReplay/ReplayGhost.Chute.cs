@@ -22,6 +22,7 @@ namespace NOReplay
         float _chutePeak;
         float _chuteCollapse = -1f;
         bool _frameHideLogged;
+        bool _seatOff;
         bool _chuteBound;
         bool _chuteNone;
         bool _chuteLogged;
@@ -53,10 +54,14 @@ namespace NOReplay
             for (int i = 0; i < _chutes.Length; i++)
                 PlaceCanopy(ref _chutes[i], "c" + i.ToString(System.Globalization.CultureInfo.InvariantCulture), time);
             ApplyFrame(rig, time);
+            int pilotState = 0;
             if (Track.TryChute("p", time, out var pilot))
+            {
                 PlacePilot(pilot, dt, paused);
-            if (Track.TryChute("s", time, out var seat))
-                PlaceSeat(seat);
+                pilotState = pilot.State;
+            }
+            bool seatPose = Track.TryChute("s", time, out var seat) && seat.On && seat.HasPose;
+            PlaceSeat(seatPose ? seat : default, pilotState, seatPose);
             bool fire = had && Track.ChuteCrossed("f", _chutePrevClock - dt, time, dt, paused);
             if (fire) PlaySeatFire();
             HoldSeatAudio(paused);
@@ -329,18 +334,37 @@ namespace NOReplay
             }
         }
 
-        void PlaceSeat(ChuteClock.View view)
+        void PlaceSeat(ChuteClock.View view, int pilotState, bool posed)
         {
             if (_seat == null) return;
-            if (!view.On || !view.HasPose)
+            // PilotState.detaching is 2. DetachSeat unparents the seat there,
+            // and parachuting (3) is after that. State 1 is still on the rail.
+            bool detached = pilotState >= 2 || posed;
+            if (!detached)
             {
                 if (_seatParent != null && _seat.transform.parent != _seatParent)
                     _seat.transform.SetParent(_seatParent, false);
+                if (!_seat.gameObject.activeSelf) _seat.gameObject.SetActive(true);
+                _seatOff = false;
                 return;
             }
-            _seat.transform.SetParent(null, true);
-            var p = Plugin.GlobalToLocal(view.X, view.Y, view.Z);
-            _seat.transform.SetPositionAndRotation(p, new Quaternion(view.Qx, view.Qy, view.Qz, view.Qw));
+            if (!_seatOff)
+            {
+                _seatOff = true;
+                string unitName = Track != null && !string.IsNullOrEmpty(Track.Name) ? Track.Name : name;
+                Plugin.Log?.LogInfo("Seat play detach " + unitName
+                    + " t=" + Plugin.Clock.Time.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)
+                    + " state=" + pilotState.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + " pose=" + (posed ? 1 : 0));
+            }
+            if (_seat.transform.parent != null)
+                _seat.transform.SetParent(null, true);
+            if (posed)
+            {
+                if (!_seat.gameObject.activeSelf) _seat.gameObject.SetActive(true);
+                var p = Plugin.GlobalToLocal(view.X, view.Y, view.Z);
+                _seat.transform.SetPositionAndRotation(p, new Quaternion(view.Qx, view.Qy, view.Qz, view.Qw));
+            }
         }
 
         void PlaySeatFire()

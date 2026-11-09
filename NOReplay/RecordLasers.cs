@@ -30,7 +30,17 @@ namespace NOReplay
         static readonly Dictionary<RecordUnit, List<string>> _pending = new Dictionary<RecordUnit, List<string>>();
         static Pump? _pump;
         static readonly HashSet<int> _logged = new HashSet<int>();
+        static readonly HashSet<int> _fired = new HashSet<int>();
+        static readonly Dictionary<int, UnitRec> _units = new Dictionary<int, UnitRec>();
         static int _writes;
+
+        struct UnitRec
+        {
+            public string Name;
+            public int Writes;
+            public int Skips;
+            public bool SawOn;
+        }
 
         struct State
         {
@@ -63,8 +73,12 @@ namespace NOReplay
             _color = t.GetField("color", Flags);
             var harmony = new Harmony("noreplay.lasers");
             harmony.Patch(late, postfix: new HarmonyMethod(typeof(RecordLasers), nameof(AfterLate)));
+            var fix = t.GetMethod("FixedUpdate", Flags);
+            if (fix != null)
+                harmony.Patch(fix, postfix: new HarmonyMethod(typeof(RecordLasers), nameof(AfterFixed)));
             _patched = true;
-            Plugin.Log?.LogInfo("Laser-Record LateUpdate");
+            Plugin.Log?.LogInfo("Laser-Record LateUpdate"
+                + (fix != null ? " FixedUpdate" : " FixedUpdate-missing"));
         }
 
         public static void Flush()
@@ -86,12 +100,28 @@ namespace NOReplay
             _state.Clear();
             _pending.Clear();
             _logged.Clear();
-            if (_writes > 0)
-                Record.Log?.LogInfo("Laser rec stopped n=" + _writes);
+            _fired.Clear();
+            if (_units.Count == 0)
+                Record.Log?.LogInfo("Laser rec stopped units=0 writes=0");
+            else
+            {
+                foreach (var pair in _units)
+                {
+                    var u = pair.Value;
+                    Record.Log?.LogInfo("Laser rec summary " + u.Name
+                        + " writes=" + u.Writes + " skips=" + u.Skips
+                        + " sawOn=" + (u.SawOn ? 1 : 0));
+                }
+            }
+            _units.Clear();
             _writes = 0;
         }
 
-        static void AfterLate(object __instance)
+        static void AfterFixed(object __instance) => Sample(__instance);
+
+        static void AfterLate(object __instance) => Sample(__instance);
+
+        static void Sample(object __instance)
         {
             if (!Record.Active || Plugin.CurrentDoc != null) return;
             var laser = __instance as Component;
@@ -99,9 +129,18 @@ namespace NOReplay
             if (laser.GetComponentInParent<ReplayGhost>() != null) return;
             var weapon = laser as Weapon;
             var unit = weapon != null ? weapon.attachedUnit : null;
-            if (unit == null) return;
-            var host = unit.GetComponent<RecordUnit>();
-            if (host == null) return;
+            // RecordVehicle and RecordShip live on the recorder object, not on the Unit.
+            var host = RecorderFor(unit);
+            if (unit == null || host == null)
+            {
+                Note(unit, wrote: false, sawOn: false, skip: true);
+                int sid = laser.GetInstanceID();
+                if (_logged.Add(sid))
+                    Record.Log?.LogInfo("Laser rec skip "
+                        + (unit != null ? (unit.definition != null ? unit.definition.unitName : unit.name) : "no-unit")
+                        + (host == null ? " no-recorder" : ""));
+                return;
+            }
             EnsurePump();
             EnsureKeys(unit);
             if (!_keys.TryGetValue(laser.GetInstanceID(), out var key) || key.Length == 0) return;
@@ -149,11 +188,39 @@ namespace NOReplay
             prev.Wrote = Time.time;
             _state[id] = prev;
             _writes++;
+            Note(unit, wrote: true, sawOn: on, skip: false);
+            string uname = unit.definition != null ? unit.definition.unitName : unit.name;
+            if (on && _fired.Add(id))
+                Record.Log?.LogInfo("Laser rec fire " + uname + " key=" + key);
             if (_logged.Add(id) || _writes <= 24 || (_writes % 40) == 0)
-                Record.Log?.LogInfo("Laser rec " + (unit.definition != null ? unit.definition.unitName : unit.name)
+                Record.Log?.LogInfo("Laser rec " + uname
                     + " key=" + key + " on=" + (on ? 1 : 0) + " point=" + (has ? 1 : 0) + " n=" + _writes);
             Queue(host, Format(key, on, has, x, y, z, power));
             FlushPending();
+        }
+
+        static RecordUnit? RecorderFor(Unit? unit)
+        {
+            if (unit == null || !unit.persistentID.IsValid) return null;
+            var hostGo = Record.Host;
+            if (hostGo == null) return null;
+            var eng = hostGo.GetComponent<RecordEngine>();
+            if (eng == null || !eng.unitObjects.TryGetValue(unit.persistentID.Id, out var go) || go == null)
+                return null;
+            return go.GetComponent<RecordUnit>();
+        }
+
+        static void Note(Unit? unit, bool wrote, bool sawOn, bool skip)
+        {
+            int id = unit != null ? unit.GetInstanceID() : 0;
+            _units.TryGetValue(id, out var rec);
+            if (unit != null)
+                rec.Name = unit.definition != null ? unit.definition.unitName : unit.name;
+            if (string.IsNullOrEmpty(rec.Name)) rec.Name = "no-unit";
+            if (wrote) rec.Writes++;
+            if (skip) rec.Skips++;
+            if (sawOn) rec.SawOn = true;
+            _units[id] = rec;
         }
 
         static float ReadPower(Component laser)

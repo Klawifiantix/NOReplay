@@ -49,7 +49,6 @@ namespace NOReplay
             if (!_lasersBound || (_lasers.Length == 0 && _laserMiss < 8))
                 BindLasers();
             if (_lasers.Length == 0) return;
-            KeepLaserMounts();
             if (!_laserPlayLogged)
             {
                 _laserPlayLogged = true;
@@ -149,7 +148,6 @@ namespace NOReplay
                 else em.Muzzles = Array.Empty<Component>();
                 BuildLaserAudio(c, ref em);
                 BuildHit(c, ref em);
-                ShowLaserMount(c, beam);
                 list.Add(em);
             }
             _lasers = list.ToArray();
@@ -223,45 +221,6 @@ namespace NOReplay
             em.Prev = view;
             em.HavePrev = true;
             em.PrevTime = time;
-        }
-
-        void ShowLaserMount(Component laser, Renderer? beam)
-        {
-            var turret = laser.GetComponentInParent<Turret>();
-            var root = turret != null ? turret.transform : laser.transform;
-            if (!root.gameObject.activeSelf) root.gameObject.SetActive(true);
-            var rends = root.GetComponentsInChildren<Renderer>(true);
-            for (int i = 0; i < rends.Length; i++)
-            {
-                var r = rends[i];
-                if (r == null || r == beam) continue;
-                _disabledInPrefab.Remove(r);
-                if (!r.gameObject.activeSelf) r.gameObject.SetActive(true);
-                if (_visible) r.enabled = true;
-                for (int p = 0; p < _parts.Length; p++)
-                {
-                    if (_parts[p] == r.transform)
-                        _partSkip[p] = true;
-                }
-            }
-            if (beam != null)
-            {
-                _disabledInPrefab.Remove(beam);
-                for (int p = 0; p < _parts.Length; p++)
-                {
-                    if (_parts[p] == beam.transform)
-                        _partSkip[p] = true;
-                }
-            }
-        }
-
-        void KeepLaserMounts()
-        {
-            for (int i = 0; i < _lasers.Length; i++)
-            {
-                if (_lasers[i].Laser != null)
-                    ShowLaserMount(_lasers[i].Laser, _lasers[i].Beam);
-            }
         }
 
         void PlaceBeam(ref LaserEmitter em, LaserClock.View view)

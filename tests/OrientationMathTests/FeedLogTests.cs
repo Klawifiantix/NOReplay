@@ -96,8 +96,8 @@ namespace NOReplay.OrientationTests
 
         static void RecordedDominationFile()
         {
-            string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "Domination_2026-11-10_23-10.acmi");
-            Expect(File.Exists(path), "recorded acmi is beside the test");
+            string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "synthetic-feed.acmi");
+            Expect(File.Exists(path), "synthetic acmi is beside the test");
             if (!File.Exists(path)) return;
             var feeds = new List<FeedLog.Item>();
             FeedLog.Collect(File.ReadAllText(path), feeds);
@@ -110,7 +110,7 @@ namespace NOReplay.OrientationTests
                 if (i > 0) Expect(feeds[i].Time > feeds[i - 1].Time, "feed times increase");
             }
             Expect(chat == 5 && kill == 4 && mission == 0, "5 chat and 4 kills, chat=" + chat + " kill=" + kill);
-            Expect(feeds.Count > 0 && feeds[0].B == "hiho" && feeds[0].Time > 11f && feeds[0].Time < 12f, "first chat is hiho at 11.8s");
+            Expect(feeds.Count > 0 && feeds[0].B == "hello" && feeds[0].Time > 11f && feeds[0].Time < 12f, "first chat is hello at 11.8s");
         }
 
         static void SystemLineStaysPlain()

@@ -34,7 +34,7 @@
     <Compile Include="..\..\NOReplay\BuildingMesh.cs" Link="BuildingMesh.cs" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="Fixtures\Domination_2026-11-10_23-10.acmi">
+    <Content Include="Fixtures\synthetic-feed.acmi">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

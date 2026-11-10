@@ -119,7 +119,7 @@ Load
 
 Playback
 * The clock is the timeline. Each frame the ghost reads the sample at the current time and writes position and rotation. Physics, joints and AI flight are held off, otherwise the airframe tears itself apart or taxis away on its own.
-* A unit whose spawn time is still ahead is hidden. At that time it is shown, already at the recorded pose. At its death time the ghost releases the camera if needed, hides the map icon, and disables the object. Scrubbing backward enables it again.
+* A unit whose spawn time is still ahead is hidden. At that time it is shown, already at the recorded pose. At its death time the ghost releases the camera if needed and hides the map icon. A ship keeps moving through the recorded sink and is hidden when the hull despawns. A ground vehicle stays until its wreck appears. Other units are disabled at that time. Scrubbing backward brings the unit back.
 * Neutral units are drawn and not driven. No rotor, no sound, no exhaust.
 * Radar dishes are turned by the replay clock. The unit's own radar scan stays off, so a ghost does not search for targets. The dish freezes while the timeline is paused and follows the playback speed. Radar trucks use the same deploy threshold as the game: stopped unfolds the dish, moving stows it.
 * Trails are LineRenderers rebuilt each frame from the samples within the length window. Dead airframes are excluded. Scrubbing rebuilds the trail for the new time.

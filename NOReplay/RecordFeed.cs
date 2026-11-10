@@ -21,6 +21,13 @@ namespace NOReplay
         static string _missionText = "";
         static bool _listLooked;
         static MethodInfo _listContains;
+        static RecordEngine _engine;
+        static int _engineHost;
+        static bool _colorLooked;
+        static FieldInfo _noFaction, _alliedChat, _allChatSaturation;
+        static Harmony _replayHarmony;
+        static MethodInfo _feedUpdate;
+        static bool _replayUi;
         static readonly BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
 
         public static void Install()
@@ -28,19 +35,43 @@ namespace NOReplay
             if (_patched) return;
             var harmony = new Harmony("noreplay.feed");
             int n = 0;
-            n += Patch(harmony, "NuclearOption.Chat.ChatManager", "UserCode_TargetReceiveMessage_1307761090", nameof(BeforeChat));
-            n += Patch(harmony, "NuclearOption.Chat.ChatManager", "UserCode_RpcServerMessage_1244201393", nameof(BeforeServer));
-            n += Patch(harmony, "NuclearOption.Chat.ChatManager", "UserCode_RpcTargetServerMessage__002D537879009", nameof(BeforeServer));
+            n += Patch(harmony, "ChatManager", "UserCode_TargetReceiveMessage_1307761090", nameof(BeforeChat));
+            n += Patch(harmony, "ChatManager", "UserCode_RpcServerMessage_1244201393", nameof(BeforeServer));
+            n += Patch(harmony, "ChatManager", "UserCode_RpcTargetServerMessage__002D537879009", nameof(BeforeServer));
             n += Patch(harmony, "MessageManager", "UserCode_RpcKillMessage_635947223", nameof(BeforeKill));
             n += Patch(harmony, "MissionMessages", "ShowMessgeLocal", nameof(BeforeMission));
-            n += Patch(harmony, "MessageFeed", "Update", nameof(SkipFeedUpdate));
+            // MessageFeed.Update is patched only while a replay is open. Recording
+            // must not pay for a prefix on the per-frame message list.
             _patched = n > 0;
             Plugin.Log?.LogInfo("Feed-Record methods=" + n);
+        }
+
+        public static void SetReplay(bool on)
+        {
+            if (on == _replayUi) return;
+            if (_feedUpdate == null)
+            {
+                var t = Plugin.FindGameType("MessageFeed");
+                _feedUpdate = t?.GetMethod("Update", Flags);
+            }
+            if (_feedUpdate == null) return;
+            if (_replayHarmony == null) _replayHarmony = new Harmony("noreplay.feed.ui");
+            if (on)
+                _replayHarmony.Patch(_feedUpdate, prefix: new HarmonyMethod(typeof(RecordFeed), nameof(SkipFeedUpdate)));
+            else
+                _replayHarmony.Unpatch(_feedUpdate, HarmonyPatchType.Prefix, _replayHarmony.Id);
+            _replayUi = on;
         }
 
         static int Patch(Harmony harmony, string typeName, string method, string prefix)
         {
             var t = Plugin.FindGameType(typeName);
+            if (t == null)
+            {
+                int dot = typeName.LastIndexOf('.');
+                if (dot >= 0 && dot < typeName.Length - 1)
+                    t = Plugin.FindGameType(typeName.Substring(dot + 1));
+            }
             var m = t?.GetMethod(method, Flags);
             if (m == null)
             {
@@ -208,30 +239,50 @@ namespace NOReplay
 
         static void Write(string body)
         {
-            var engine = Record.Host != null ? Record.Host.GetComponent<RecordEngine>() : null;
-            engine?.WriteGlobalEvent("Feed=" + body);
+            var host = Record.Host;
+            if (host == null)
+            {
+                _engine = null;
+                return;
+            }
+            int id = host.GetInstanceID();
+            if (_engine == null || _engineHost != id)
+            {
+                _engine = host.GetComponent<RecordEngine>();
+                _engineHost = id;
+            }
+            _engine?.WriteGlobalEvent("Feed=" + body);
+        }
+
+        static void EnsureColorFields()
+        {
+            if (_colorLooked) return;
+            _colorLooked = true;
+            var t = typeof(ChatManager);
+            _noFaction = t.GetField("noFaction", Flags);
+            _alliedChat = t.GetField("alliedChat", Flags);
+            _allChatSaturation = t.GetField("allChatSaturation", Flags);
         }
 
         static Color ChatColor(FactionHQ hq, bool allChat)
         {
             var cm = NetworkSceneSingleton<ChatManager>.i;
             if (cm == null) return Color.white;
+            EnsureColorFields();
             if (hq == null)
-                return FieldColor(cm, "noFaction", Color.white);
+                return ReadColor(_noFaction, cm, Color.white);
             if (!allChat)
-                return FieldColor(cm, "alliedChat", Color.white);
+                return ReadColor(_alliedChat, cm, Color.white);
             Color baseColor = hq.faction != null ? hq.faction.color : Color.white;
             Color.RGBToHSV(baseColor, out float h, out float s, out float v);
             float sat = 1f;
-            var f = typeof(ChatManager).GetField("allChatSaturation", Flags);
-            if (f?.GetValue(cm) is float scale) sat = scale;
+            if (_allChatSaturation?.GetValue(cm) is float scale) sat = scale;
             return Color.HSVToRGB(h, s * sat, v);
         }
 
-        static Color FieldColor(object obj, string name, Color fallback)
+        static Color ReadColor(FieldInfo field, object obj, Color fallback)
         {
-            var f = obj.GetType().GetField(name, Flags);
-            if (f?.GetValue(obj) is Color c) return c;
+            if (field?.GetValue(obj) is Color c) return c;
             return fallback;
         }
 

@@ -14,37 +14,52 @@ namespace NOReplay
         static float _prev = -1f;
         static int _shown = -1;
         static bool _logged;
+        static bool _playErr;
+        static bool _emptyCleared;
+        static MethodInfo _kill, _msg;
         static readonly BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
 
         public static void Tick(ReplayDocument doc, float time, bool paused)
         {
             if (doc == null) return;
-            float dt = _prev >= 0f ? time - _prev : 0f;
-            bool sound = false;
-            if (doc.Feeds != null)
+            RecordFeed.SetReplay(true);
+            try
             {
-                for (int i = 0; i < doc.Feeds.Count; i++)
+                float dt = _prev >= 0f ? time - _prev : 0f;
+                bool sound = false;
+                if (doc.Feeds != null)
                 {
-                    var item = doc.Feeds[i];
-                    if (item.Kind != FeedLog.Kind.Mission || !item.Sound) continue;
-                    if (FeedLog.Crossed(_prev, time, item.Time, dt, paused))
+                    for (int i = 0; i < doc.Feeds.Count; i++)
                     {
-                        sound = true;
-                        break;
+                        var item = doc.Feeds[i];
+                        if (item.Kind != FeedLog.Kind.Mission || !item.Sound) continue;
+                        if (FeedLog.Crossed(_prev, time, item.Time, dt, paused))
+                        {
+                            sound = true;
+                            break;
+                        }
                     }
                 }
+                int shown = Show(doc, time);
+                if (sound) PlayRadio();
+                if (!_logged || shown != _shown)
+                {
+                    _logged = true;
+                    _shown = shown;
+                    Plugin.Log?.LogInfo("Feed play t=" + time.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)
+                        + " lines=" + shown
+                        + " sound=" + (sound ? 1 : 0));
+                }
+                _prev = time;
             }
-            int shown = Show(doc, time);
-            if (sound) PlayRadio();
-            if (!_logged || shown != _shown)
+            catch (Exception ex)
             {
-                _logged = true;
-                _shown = shown;
-                Plugin.Log?.LogInfo("Feed play t=" + time.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)
-                    + " lines=" + shown
-                    + " sound=" + (sound ? 1 : 0));
+                if (!_playErr)
+                {
+                    _playErr = true;
+                    Plugin.Log?.LogWarning("Feed play: " + ex.Message);
+                }
             }
-            _prev = time;
         }
 
         public static void Reset()
@@ -52,6 +67,9 @@ namespace NOReplay
             _prev = -1f;
             _shown = -1;
             _logged = false;
+            _playErr = false;
+            _emptyCleared = false;
+            RecordFeed.SetReplay(false);
         }
 
         static int Show(ReplayDocument doc, float time)
@@ -59,20 +77,28 @@ namespace NOReplay
             var gameplay = Singleton("GameplayUI");
             var board = Singleton("MessageUI");
             if (gameplay == null || board == null) return 0;
+            if ((doc.Feeds == null || doc.Feeds.Count == 0) && _emptyCleared) return 0;
             Drain(board, "killFeed");
             Drain(board, "messageFeed");
             if (doc.Feeds == null || doc.Feeds.Count == 0)
             {
-                Refresh(board, "killFeed");
-                Refresh(board, "messageFeed");
+                if (!_emptyCleared)
+                {
+                    Refresh(board, "killFeed");
+                    Refresh(board, "messageFeed");
+                    _emptyCleared = true;
+                }
                 return 0;
             }
+            _emptyCleared = false;
             float minValue = 0f;
             try { minValue = PlayerSettings.killFeedMinValue; }
             catch { }
             int n = 0;
-            var kill = gameplay.GetType().GetMethod("KillFeed", new[] { typeof(string) });
-            var msg = gameplay.GetType().GetMethod("GameMessage", new[] { typeof(string) });
+            if (_kill == null) _kill = gameplay.GetType().GetMethod("KillFeed", new[] { typeof(string) });
+            if (_msg == null) _msg = gameplay.GetType().GetMethod("GameMessage", new[] { typeof(string) });
+            var kill = _kill;
+            var msg = _msg;
             for (int i = 0; i < doc.Feeds.Count; i++)
             {
                 var item = doc.Feeds[i];

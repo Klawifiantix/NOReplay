@@ -26,6 +26,16 @@ namespace NOReplay
         static readonly Dictionary<int, bool> _mountOn = new Dictionary<int, bool>();
         static readonly Dictionary<int, GlassState> _glass = new Dictionary<int, GlassState>();
         static readonly HashSet<int> _logged = new HashSet<int>();
+        static readonly List<Component> _doors = new List<Component>();
+        static readonly List<Component> _ramps = new List<Component>();
+        static readonly List<Component> _mounts = new List<Component>();
+        static readonly List<Component> _canopies = new List<Component>();
+        static readonly HashSet<int> _alive = new HashSet<int>();
+        static readonly List<int> _glassIds = new List<int>();
+        static Type _doorType, _rampType, _mountType, _canopyType;
+        static FieldInfo _openAmount, _currentAngle, _defaultAngle, _hingeAngle, _ejection, _firing;
+        static bool _fieldsReady;
+        static float _scanAt = -1f;
 
         struct GlassState
         {
@@ -55,6 +65,11 @@ namespace NOReplay
             _mountOn.Clear();
             _glass.Clear();
             _logged.Clear();
+            _doors.Clear();
+            _ramps.Clear();
+            _mounts.Clear();
+            _canopies.Clear();
+            _scanAt = -1f;
             Record.Log?.LogInfo("Bay rec stopped");
         }
 
@@ -90,6 +105,15 @@ namespace NOReplay
             if (!Record.Active) return;
             try
             {
+                EnsureFields();
+                if (_scanAt < 0f || Time.unscaledTime >= _scanAt)
+                {
+                    _scanAt = Time.unscaledTime + 0.5f;
+                    Fill(_doors, _doorType);
+                    Fill(_ramps, _rampType);
+                    Fill(_mounts, _mountType);
+                    Fill(_canopies, _canopyType);
+                }
                 SampleDoors();
                 SampleMounts();
                 SampleGlass();
@@ -97,26 +121,51 @@ namespace NOReplay
             catch { }
         }
 
+        static void EnsureFields()
+        {
+            if (_fieldsReady) return;
+            _fieldsReady = true;
+            _doorType = Plugin.FindGameType("BayDoor");
+            _rampType = Plugin.FindGameType("CargoRamp");
+            _mountType = Plugin.FindGameType("MountedCargo");
+            _canopyType = Plugin.FindGameType("Canopy");
+            _openAmount = _doorType?.GetField("openAmount", Flags);
+            _currentAngle = _rampType?.GetField("currentAngle", Flags);
+            _defaultAngle = _rampType?.GetField("defaultAngle", Flags);
+            _hingeAngle = _doorType?.GetField("hingeAngle", Flags);
+            _ejection = _canopyType?.GetField("ejectionTransform", Flags);
+            _firing = _canopyType?.GetField("firing", Flags);
+        }
+
+        static void Fill(List<Component> into, Type type)
+        {
+            into.Clear();
+            if (type == null) return;
+            var all = Resources.FindObjectsOfTypeAll(type);
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i] is not Component c) continue;
+                if (!c.gameObject.scene.IsValid()) continue;
+                into.Add(c);
+            }
+        }
+
         static void SampleDoors()
         {
-            var rampType = Plugin.FindGameType("CargoRamp");
-            var doorType = Plugin.FindGameType("BayDoor");
-            if (doorType != null)
+            for (int i = 0; i < _doors.Count; i++)
             {
-                foreach (var entry in SceneObjects(doorType))
-                {
-                    if (entry is not Component door) continue;
-                    if (rampType != null && rampType.IsInstanceOfType(door)) continue;
-                    float open = door.GetType().GetField("openAmount", Flags)?.GetValue(door) is float amount ? amount : 0f;
-                    WriteOpen(door, open);
-                }
+                var door = _doors[i];
+                if (door == null) continue;
+                if (_rampType != null && _rampType.IsInstanceOfType(door)) continue;
+                float open = _openAmount?.GetValue(door) is float amount ? amount : 0f;
+                WriteOpen(door, open);
             }
-            if (rampType == null) return;
-            foreach (var o in SceneObjects(rampType))
+            for (int i = 0; i < _ramps.Count; i++)
             {
-                if (o is not Component ramp) continue;
-                float current = ramp.GetType().GetField("currentAngle", Flags)?.GetValue(ramp) is float c ? c : 0f;
-                float offset = ramp.GetType().GetField("defaultAngle", Flags)?.GetValue(ramp) is float d ? d : 0f;
+                var ramp = _ramps[i];
+                if (ramp == null) continue;
+                float current = _currentAngle?.GetValue(ramp) is float c ? c : 0f;
+                float offset = _defaultAngle?.GetValue(ramp) is float d ? d : 0f;
                 WriteHinge(ramp, current, offset);
             }
         }
@@ -158,7 +207,7 @@ namespace NOReplay
             string key = "b/" + PathOf(unit!, door.transform);
             if (first)
             {
-                float hinge = door.GetType().GetField("hingeAngle", Flags)?.GetValue(door) is float h ? h : 0f;
+                float hinge = _hingeAngle?.GetValue(door) is float h ? h : 0f;
                 Record.Log?.LogInfo("Ramp rec " + NameOf(unit) + " key=" + key
                     + " open=" + open.ToString("0.##", CultureInfo.InvariantCulture)
                     + " hinge=" + hinge.ToString("0.##", CultureInfo.InvariantCulture)
@@ -169,11 +218,10 @@ namespace NOReplay
 
         static void SampleMounts()
         {
-            var t = Plugin.FindGameType("MountedCargo");
-            if (t == null) return;
-            foreach (var o in SceneObjects(t))
+            for (int i = 0; i < _mounts.Count; i++)
             {
-                if (o is not Component cargo) continue;
+                var cargo = _mounts[i];
+                if (cargo == null) continue;
                 var unit = Owner(cargo);
                 var host = Host(unit);
                 if (host == null) continue;
@@ -202,17 +250,16 @@ namespace NOReplay
 
         static void SampleGlass()
         {
-            var t = Plugin.FindGameType("Canopy");
-            if (t == null) return;
-            var alive = new HashSet<int>();
-            foreach (var o in SceneObjects(t))
+            _alive.Clear();
+            for (int i = 0; i < _canopies.Count; i++)
             {
-                if (o is not Component canopy) continue;
+                var canopy = _canopies[i];
+                if (canopy == null) continue;
                 int id = canopy.GetInstanceID();
-                alive.Add(id);
-                var thrown = canopy.GetType().GetField("ejectionTransform", Flags)?.GetValue(canopy) as Transform;
+                _alive.Add(id);
+                var thrown = _ejection?.GetValue(canopy) as Transform;
                 if (thrown == null) continue;
-                bool firing = canopy.GetType().GetField("firing", Flags)?.GetValue(canopy) is bool f && f;
+                bool firing = _firing?.GetValue(canopy) is bool f && f;
                 bool loose = thrown.parent == null || firing;
                 _glass.TryGetValue(id, out var st);
                 var unit = Owner(canopy);
@@ -253,11 +300,12 @@ namespace NOReplay
                     + q.w.ToString("0.###", CultureInfo.InvariantCulture) + "|"
                     + "1|1|1|1|1|1|0|0");
             }
-            var ids = new List<int>(_glass.Keys);
-            for (int i = 0; i < ids.Count; i++)
+            _glassIds.Clear();
+            foreach (var key in _glass.Keys) _glassIds.Add(key);
+            for (int i = 0; i < _glassIds.Count; i++)
             {
-                int id = ids[i];
-                if (alive.Contains(id)) continue;
+                int id = _glassIds[i];
+                if (_alive.Contains(id)) continue;
                 var st = _glass[id];
                 if (!st.Thrown || st.Gone || string.IsNullOrEmpty(st.Key)) continue;
                 st.Gone = true;
@@ -269,17 +317,6 @@ namespace NOReplay
                         + " key=" + st.Key + " gone=1");
                     Write(host, "Glass", st.Key + ":0");
                 }
-            }
-        }
-
-        static IEnumerable<UnityEngine.Object> SceneObjects(Type type)
-        {
-            var all = Resources.FindObjectsOfTypeAll(type);
-            for (int i = 0; i < all.Length; i++)
-            {
-                if (all[i] is not Component c) continue;
-                if (!c.gameObject.scene.IsValid()) continue;
-                yield return c;
             }
         }
 

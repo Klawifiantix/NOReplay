@@ -1346,6 +1346,7 @@ namespace NOReplay
             drive.SetPositionAndRotation(p, q);
             ReplayPerf.Add("late-pose", ReplayPerf.Stamp() - mark);
             mark = ReplayPerf.Stamp();
+            bool close = gameObject == Plugin._ghost || NearMe(4500f);
             if (!_ordnance && _asleep)
             {
                 QuietLasers();
@@ -1371,12 +1372,12 @@ namespace NOReplay
                 _prevT = Plugin.Clock.Time;
                 return;
             }
-            if (!_ordnance)
+            if (!_ordnance && close)
             {
                 EnsureGunsCurrent(false);
                 EnsureRadarsCurrent(false);
             }
-            if (_air)
+            if (_air && close)
             {
                 if (!_surfBound) CaptureSurfaceRest();
                 if (!_liveryPainted && ((Time.frameCount + gameObject.GetInstanceID()) & 15) == 0)
@@ -1384,20 +1385,20 @@ namespace NOReplay
                 HoldLocals();
                 HoldAirbrakes();
             }
-            if (_ship && ShipIsDead(Plugin.Clock.Time))
+            if (close && _ship && ShipIsDead(Plugin.Clock.Time))
                 QuietDeadShip(Plugin.Clock.Time);
-            else if (VehicleIsDying(Plugin.Clock.Time))
+            else if (close && VehicleIsDying(Plugin.Clock.Time))
             {
                 OrphanLiveRounds();
                 HaltGuns(false);
             }
-            else
+            else if (close)
             {
                 ReleaseDeadShipGuns();
                 if (!_ordnance) AimGuns();
                 TickGunVisuals();
             }
-            if (!_ordnance && !_asleep)
+            if (close && !_ordnance && !_asleep)
             {
                 DriveLasers();
                 DriveChutes();
@@ -1468,8 +1469,8 @@ namespace NOReplay
                 _prevT = nowT;
             }
 
-            if (_ordnance && _visible && !_ordAudioOn) IgniteMissileFx();
-            if (_ordnance) TickOrdnanceAudio(s);
+            if (close && _ordnance && _visible && !_ordAudioOn) IgniteMissileFx();
+            if (close && _ordnance) TickOrdnanceAudio(s);
 
             if (coasted)
             {
@@ -1499,12 +1500,12 @@ namespace NOReplay
             ReplayPerf.Add("late-body", ReplayPerf.Stamp() - mark);
             mark = ReplayPerf.Stamp();
 
-            if (_air && !_neutral)
+            if (close && _air && !_neutral)
             {
                 try { ApplyFx(s); }
                 catch (Exception ex) { LogSubsystemOnce("ApplyFx", ex); }
             }
-            else
+            else if (close)
             {
                 WriteUnitMotion(_spdMs, _velMs);
                 if (_ship && !_neutral)
@@ -1517,12 +1518,12 @@ namespace NOReplay
                 else if (!_ordnance)
                     StopGroundAudio();
             }
-            if (!_ordnance && _visible)
+            if (close && !_ordnance && _visible)
             {
                 try { TickRadars(); }
                 catch (Exception ex) { LogSubsystemOnce("TickRadars", ex); }
             }
-            if (!_ordnance)
+            if (close && !_ordnance)
             {
                 try { TickStructural(true); }
                 catch (Exception ex) { LogSubsystemOnce("TickStructural", ex); }
@@ -1531,8 +1532,11 @@ namespace NOReplay
                 try { ReapplyInactiveOrdnance(); }
                 catch (Exception ex) { LogSubsystemOnce("ReapplyInactiveOrdnance", ex); }
             }
-            try { DriveCarrier(nowT); }
-            catch (Exception ex) { LogSubsystemOnce("Carrier", ex); }
+            if (close)
+            {
+                try { DriveCarrier(nowT); }
+                catch (Exception ex) { LogSubsystemOnce("Carrier", ex); }
+            }
             ReplayPerf.Add("late-fx", ReplayPerf.Stamp() - mark);
         }
 

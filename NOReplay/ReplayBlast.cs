@@ -97,15 +97,25 @@ namespace NOReplay
         void DriveShock(float age)
         {
             if (_vapor == null) return;
-            float power = Mathf.Pow(_yieldKt * 1000000f, 0.3333f);
+            float power = Mathf.Pow(Mathf.Max(_yieldKt, 0.0001f) * 1000000f, 0.3333f);
             float radius = power * 13f;
             float prop = power * 0.5f + 340f * age;
-            _vapor.transform.localScale = Vector3.one * prop;
+            if (_wave != null)
+                _wave.transform.localScale = Vector3.one;
             var cam = Plugin.MainCamera();
             if (cam != null)
             {
                 try { _vapor.transform.LookAt(cam.transform.position); } catch { }
             }
+            // localScale is multiplied by the parent. A stretched parent turns
+            // Vector3.one * radius into a tall ellipsoid, so cancel that here.
+            // The game writes Vector3.one * blastPropagation after LookAt.
+            var parent = _vapor.transform.parent;
+            Vector3 parentScale = parent != null ? parent.lossyScale : Vector3.one;
+            _vapor.transform.localScale = new Vector3(
+                prop / Mathf.Max(0.0001f, Mathf.Abs(parentScale.x)),
+                prop / Mathf.Max(0.0001f, Mathf.Abs(parentScale.y)),
+                prop / Mathf.Max(0.0001f, Mathf.Abs(parentScale.z)));
             if (_vaporMat != null)
             {
                 _vaporMat.SetFloat(IdSize, prop / _detail);

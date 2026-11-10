@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using UnityEngine;
 
@@ -8,7 +9,7 @@ namespace NOReplay
     /// </summary>
     internal static class ReplayPerf
     {
-        const int Max = 12;
+        const int Max = 24;
         static readonly string[] _names = new string[Max];
         static readonly long[] _ticks = new long[Max];
         static readonly int[] _order = new int[Max];
@@ -65,6 +66,17 @@ namespace NOReplay
                 line += " " + _names[slot] + "=" + ms.ToString("0.00");
             }
             Plugin.Log?.LogInfo(line);
+            var late = "Perf late n=" + _frames;
+            bool anyLate = false;
+            for (int i = 0; i < n; i++)
+            {
+                if (_names[i] == null || !_names[i].StartsWith("late-", StringComparison.Ordinal)) continue;
+                anyLate = true;
+                double ms = _frames > 0 ? _ticks[i] * 1000.0 / freq / _frames : 0;
+                late += " " + _names[i] + "=" + ms.ToString("0.00");
+            }
+            if (!anyLate) late += " none";
+            Plugin.Log?.LogInfo(late);
             for (int i = 0; i < n; i++) _ticks[i] = 0;
             _frames = 0;
             _logAt = Time.unscaledTime + 5f;

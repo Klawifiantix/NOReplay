@@ -19,6 +19,8 @@ namespace NOReplay
         static bool _patched;
         static float _missionAt = -1f;
         static string _missionText = "";
+        static bool _listLooked;
+        static MethodInfo _listContains;
         static readonly BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
 
         public static void Install()
@@ -69,7 +71,7 @@ namespace NOReplay
             try
             {
                 if (!PlayerSettings.chatEnabled) return true;
-                if (GameManager.MutedList.Contains(player) || GameManager.BlockList.Contains(player)) return true;
+                if (Silenced(player)) return true;
                 string name = player.GetDisplayName(PlayerNameContext.ChatOrLeaderboard).ProfanityFilter();
                 message = (message ?? "").ProfanityFilter();
                 Color color = ChatColor(player.HQ, allChat);
@@ -173,6 +175,35 @@ namespace NOReplay
                 Plugin.Log?.LogWarning("Feed mission: " + ex.Message);
             }
             return true;
+        }
+
+        // The Player overload sits beside Contains(CSteamID). Calling it makes
+        // the compiler demand the Steamworks assembly, so the check goes through reflection.
+        static bool Silenced(Player player)
+        {
+            try
+            {
+                if (!_listLooked)
+                {
+                    _listLooked = true;
+                    var ext = Plugin.FindGameType("AllowBanListExtensions");
+                    var list = Plugin.FindGameType("AllowBanList");
+                    if (ext != null && list != null)
+                        _listContains = ext.GetMethod("Contains", Flags, null, new[] { list, typeof(Player) }, null);
+                    if (_listContains == null)
+                        Plugin.Log?.LogInfo("Feed mute check missing");
+                }
+                if (_listContains == null) return false;
+                if (Listed(GameManager.MutedList, player)) return true;
+                if (Listed(GameManager.BlockList, player)) return true;
+            }
+            catch { }
+            return false;
+        }
+
+        static bool Listed(object list, Player player)
+        {
+            return list != null && _listContains.Invoke(null, new[] { list, player }) is bool hit && hit;
         }
 
         static void Write(string body)

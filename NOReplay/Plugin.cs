@@ -569,6 +569,7 @@ namespace NOReplay
             {
                 var doc = AcmiParser.Load(path);
                 CurrentDoc = doc;
+                ResetMapIconLog();
                 Clock.Reset(doc.Duration);
                 Clock.Seek(0f);
                 Clock.Paused = true;

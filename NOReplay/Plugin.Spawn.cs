@@ -456,6 +456,7 @@ namespace NOReplay
                 return;
             }
             float t = Clock.Time;
+            MaybeLogMapIcons();
             int budget = 2;
             for (int i = 0; i < _pendingAir.Count && budget > 0;)
             {
@@ -721,6 +722,11 @@ namespace NOReplay
             var rg = go.GetComponent<ReplayGhost>();
             if (rg == null) rg = go.AddComponent<ReplayGhost>();
             rg.Adopt(obj);
+            string kind = obj.Type ?? "";
+            bool ship = kind.IndexOf("Sea", StringComparison.OrdinalIgnoreCase) >= 0
+                || kind.IndexOf("Watercraft", StringComparison.OrdinalIgnoreCase) >= 0
+                || kind.IndexOf("Ship", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool vehicle = !aircraft && !ship && !ordnance && !flare && !visualOnly && !pilotPrefab;
             if (aircraft)
             {
                 TryApplyRecordedLivery(go, obj);
@@ -729,6 +735,11 @@ namespace NOReplay
                 ApplyHq(go, obj.Coalition);
                 try { TryRegisterGhostOnMap(go, false); } catch { }
                 rg.StartCoroutine(SimpleLiveryFix(go));
+            }
+            else if (ship || vehicle)
+            {
+                ApplyHq(go, obj.Coalition);
+                try { TryRegisterGhostOnMap(go, false); } catch { }
             }
             bool parachutist = (obj.Type ?? "").IndexOf("Parachutist", StringComparison.OrdinalIgnoreCase) >= 0;
             if (parachutist)
@@ -1164,12 +1175,74 @@ namespace NOReplay
             catch { }
         }
 
+        static bool _mapIconsLogged;
+        static float _mapIconLogAt = -1f;
         static readonly Dictionary<string, object?> _hqCache = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         static readonly HashSet<string> _logOnce = new HashSet<string>(StringComparer.Ordinal);
 
         internal static void ClearHqCache()
         {
             _hqCache.Clear();
+        }
+
+        internal static void ResetMapIconLog()
+        {
+            _mapIconsLogged = false;
+            _mapIconLogAt = -1f;
+        }
+
+        static void MaybeLogMapIcons()
+        {
+            if (_mapIconsLogged || _ghostComps.Count == 0) return;
+            if (_mapIconLogAt < 0f) _mapIconLogAt = Time.unscaledTime + 8f;
+            if (Time.unscaledTime < _mapIconLogAt) return;
+            _mapIconsLogged = true;
+            int air = 0, ship = 0, veh = 0, bld = 0;
+            int airI = 0, shipI = 0, vehI = 0, bldI = 0;
+            var iconType = FindGameType("UnitMapIcon");
+            UnityEngine.Object[] icons = iconType != null
+                ? Resources.FindObjectsOfTypeAll(iconType)
+                : Array.Empty<UnityEngine.Object>();
+            var unitProp = iconType?.GetProperty("unit", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            for (int i = 0; i < _ghostComps.Count; i++)
+            {
+                var rg = _ghostComps[i];
+                if (rg == null) continue;
+                string typ = rg.Track?.Type ?? "";
+                int slot = 3;
+                if (IsAircraft(typ, rg.Track?.Name)) slot = 0;
+                else if (typ.IndexOf("Sea", StringComparison.OrdinalIgnoreCase) >= 0
+                    || typ.IndexOf("Watercraft", StringComparison.OrdinalIgnoreCase) >= 0
+                    || typ.IndexOf("Ship", StringComparison.OrdinalIgnoreCase) >= 0) slot = 1;
+                else if (typ.IndexOf("Vehicle", StringComparison.OrdinalIgnoreCase) >= 0
+                    || typ.IndexOf("Ground", StringComparison.OrdinalIgnoreCase) >= 0) slot = 2;
+                if (slot == 0) air++;
+                else if (slot == 1) ship++;
+                else if (slot == 2) veh++;
+                else bld++;
+                bool has = false;
+                if (unitProp != null)
+                {
+                    for (int k = 0; k < icons.Length; k++)
+                    {
+                        if (icons[k] is not Component icon || !icon.gameObject.activeInHierarchy) continue;
+                        var u = unitProp.GetValue(icon) as Component;
+                        if (u == null) continue;
+                        if (u.gameObject != rg.gameObject && !u.transform.IsChildOf(rg.transform)) continue;
+                        has = true;
+                        break;
+                    }
+                }
+                if (!has) continue;
+                if (slot == 0) airI++;
+                else if (slot == 1) shipI++;
+                else if (slot == 2) vehI++;
+                else bldI++;
+            }
+            Log.LogInfo("Map icons air=" + airI + "/" + air
+                + " ship=" + shipI + "/" + ship
+                + " veh=" + vehI + "/" + veh
+                + " bld=" + bldI + "/" + bld);
         }
 
         static void LogOnce(string key, string line, bool warning)
@@ -1186,7 +1259,8 @@ namespace NOReplay
             var hqType = FindGameType("FactionHQ");
             if (hqType == null) return null;
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            object? found = null;
+            object? scene = null;
+            object? asset = null;
             foreach (var o in Resources.FindObjectsOfTypeAll(hqType))
             {
                 if (o == null) continue;
@@ -1197,15 +1271,23 @@ namespace NOReplay
                     fac = f?.ToString() ?? "";
                 }
                 catch { }
-                if (o.name.IndexOf(want, StringComparison.OrdinalIgnoreCase) >= 0
-                    || fac.IndexOf(want, StringComparison.OrdinalIgnoreCase) >= 0)
+                if (o.name.IndexOf(want, StringComparison.OrdinalIgnoreCase) < 0
+                    && fac.IndexOf(want, StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+                if (o is Component live && live.gameObject.scene.IsValid())
                 {
-                    found = o;
+                    scene = o;
                     break;
                 }
+                if (asset == null) asset = o;
+            }
+            object? found = scene ?? asset;
+            if (found == null)
+            {
+                LogOnce("hq:" + want, "kein HQ für " + want, true);
+                return null;
             }
             _hqCache[want] = found;
-            if (found == null) LogOnce("hq:" + want, "kein HQ für " + want, true);
             return found;
         }
 

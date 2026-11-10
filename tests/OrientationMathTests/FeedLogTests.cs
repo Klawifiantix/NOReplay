@@ -19,6 +19,7 @@ namespace NOReplay.OrientationTests
             SoundOnlyOnAShortForwardStep();
             AllyPrefixIsInsideTheColour();
             RecordedDominationFile();
+            SystemLineStaysPlain();
             if (Failed == 0) System.Console.WriteLine("FeedLog ok");
         }
 
@@ -110,6 +111,13 @@ namespace NOReplay.OrientationTests
             }
             Expect(chat == 5 && kill == 4 && mission == 0, "5 chat and 4 kills, chat=" + chat + " kill=" + kill);
             Expect(feeds.Count > 0 && feeds[0].B == "hiho" && feeds[0].Time > 11f && feeds[0].Time < 12f, "first chat is hiho at 11.8s");
+        }
+
+        static void SystemLineStaysPlain()
+        {
+            Expect(FeedLog.TryParse("S|" + FeedLog.Escape("Sam joined the game"), 3f, out var item), "system line parses");
+            Expect(item.Kind == FeedLog.Kind.Server && item.B == "Sam joined the game" && item.Time == 3f, "system text is kept");
+            Expect(FeedLog.FormatChat(item) == "Sam joined the game", "system replay text is the stored line");
         }
 
         static FeedLog.Item Kill(int type, float value, int flags)

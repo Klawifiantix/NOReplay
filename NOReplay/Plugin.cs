@@ -38,6 +38,9 @@ namespace NOReplay
         bool _pendingOfficialStart;
         bool _timelineHidden;
         internal static bool TrailsOn;
+        internal static bool ShowKillFeed = true;
+        internal static bool ShowChat = true;
+        internal static bool ShowSystem = true;
         internal static bool PatternOn;
         internal static bool PerfLog;
         internal static float TrailSeconds = 60f;

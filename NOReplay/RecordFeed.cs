@@ -39,6 +39,9 @@ namespace NOReplay
             n += Patch(harmony, "ChatManager", "UserCode_RpcServerMessage_1244201393", nameof(BeforeServer));
             n += Patch(harmony, "ChatManager", "UserCode_RpcTargetServerMessage__002D537879009", nameof(BeforeServer));
             n += Patch(harmony, "MessageManager", "UserCode_RpcKillMessage_635947223", nameof(BeforeKill));
+            n += Patch(harmony, "MessageManager", "JoinMessage", nameof(BeforeJoin));
+            n += Patch(harmony, "MessageManager", "DisconnectedMessage", nameof(BeforeLeave));
+            n += Patch(harmony, "MessageManager", "UserCode_RpcPlayerJoinFactionMessage_156835807", nameof(BeforeFaction));
             n += Patch(harmony, "MissionMessages", "ShowMessgeLocal", nameof(BeforeMission));
             // MessageFeed.Update is patched only while a replay is open. Recording
             // must not pay for a prefix on the per-frame message list.
@@ -161,6 +164,65 @@ namespace NOReplay
                 Plugin.Log?.LogWarning("Feed server: " + ex.Message);
             }
             _ = runTtsIfEnabled;
+            return true;
+        }
+
+        static bool BeforeJoin(Player joinedPlayer)
+        {
+            if (Plugin.CurrentDoc != null) return false;
+            if (!Record.Active || joinedPlayer == null) return true;
+            try
+            {
+                string name = joinedPlayer.GetDisplayName(PlayerNameContext.ChatOrLeaderboard);
+                Color tint = ThemeManager.Active.ColorTheme.ChatSystem;
+                Write("S|" + FeedLog.Escape((name + " joined the game").AddColor(tint)));
+                Record.Log?.LogInfo("Feed rec system join");
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogWarning("Feed join: " + ex.Message);
+            }
+            return true;
+        }
+
+        static bool BeforeLeave(Player player)
+        {
+            if (Plugin.CurrentDoc != null) return false;
+            if (!Record.Active || player == null) return true;
+            try
+            {
+                string name = player.GetDisplayName(PlayerNameContext.ChatOrLeaderboard);
+                Write("S|" + FeedLog.Escape(name + " Disconnected"));
+                Record.Log?.LogInfo("Feed rec system leave");
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogWarning("Feed leave: " + ex.Message);
+            }
+            return true;
+        }
+
+        static bool BeforeFaction(Player player, FactionHQ hq)
+        {
+            if (Plugin.CurrentDoc != null) return false;
+            if (!Record.Active || hq == null || hq.faction == null) return true;
+            try
+            {
+                if (player != null && GameManager.IsLocalPlayer(player)) return true;
+                Color tint = hq.faction.color;
+                if (GameManager.GetLocalHQ(out var local))
+                    tint = local == hq
+                        ? ThemeManager.Active.ColorTheme.ChatFriendly
+                        : ThemeManager.Active.ColorTheme.ChatHostile;
+                string who = player != null ? player.GetDisplayName(PlayerNameContext.ChatOrLeaderboard) : "";
+                string message = who.AddColor(tint) + " joined " + hq.faction.factionExtendedName.AddColor(tint);
+                Write("S|" + FeedLog.Escape(message));
+                Record.Log?.LogInfo("Feed rec system faction");
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogWarning("Feed faction: " + ex.Message);
+            }
             return true;
         }
 

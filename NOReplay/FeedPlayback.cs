@@ -62,6 +62,20 @@ namespace NOReplay
             }
         }
 
+        public static void Rebuild()
+        {
+            if (Plugin.CurrentDoc == null) return;
+            try { Show(Plugin.CurrentDoc, Plugin.Clock.Time); }
+            catch (Exception ex)
+            {
+                if (!_playErr)
+                {
+                    _playErr = true;
+                    Plugin.Log?.LogWarning("Feed play: " + ex.Message);
+                }
+            }
+        }
+
         public static void Reset()
         {
             _prev = -1f;
@@ -102,6 +116,7 @@ namespace NOReplay
             for (int i = 0; i < doc.Feeds.Count; i++)
             {
                 var item = doc.Feeds[i];
+                if (!Wanted(item.Kind)) continue;
                 int chars = (item.A != null ? item.A.Length : 0) + (item.B != null ? item.B.Length : 0);
                 if (!FeedLog.Visible(item.Time, time, item.Kind, chars)) continue;
                 if (item.Kind == FeedLog.Kind.Kill)
@@ -121,6 +136,13 @@ namespace NOReplay
             Refresh(board, "killFeed");
             Refresh(board, "messageFeed");
             return n;
+        }
+
+        static bool Wanted(FeedLog.Kind kind)
+        {
+            if (kind == FeedLog.Kind.Kill) return Plugin.ShowKillFeed;
+            if (kind == FeedLog.Kind.Global || kind == FeedLog.Kind.Ally) return Plugin.ShowChat;
+            return Plugin.ShowSystem;
         }
 
         static void Refresh(Component board, string field)

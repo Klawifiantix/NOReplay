@@ -493,6 +493,11 @@ namespace NOReplay
                 var val = props.Value;
                 if (AcmiScan.KeyIs(key, "Event"))
                     ApplyTrapEvent(doc, val, time);
+                else if (AcmiScan.KeyIs(key, "Feed"))
+                {
+                    if (FeedLog.TryParse(val.ToString(), time, out var feed))
+                        doc.Feeds.Add(feed);
+                }
                 else if (AcmiScan.KeyIs(key, "Title"))
                     doc.Title = val.ToString();
                 else if (AcmiScan.KeyIs(key, "MapId"))

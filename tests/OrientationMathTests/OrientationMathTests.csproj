@@ -22,6 +22,7 @@
     <Compile Include="..\..\NOReplay\LaserClock.cs" Link="LaserClock.cs" />
     <Compile Include="..\..\NOReplay\ChuteClock.cs" Link="ChuteClock.cs" />
     <Compile Include="..\..\NOReplay\DoorClock.cs" Link="DoorClock.cs" />
+    <Compile Include="..\..\NOReplay\FeedLog.cs" Link="FeedLog.cs" />
     <Compile Include="..\..\NOReplay\TiltText.cs" Link="TiltText.cs" />
     <Compile Include="..\..\NOReplay\MapClickGate.cs" Link="MapClickGate.cs" />
     <Compile Include="..\..\NOReplay\GearScale.cs" Link="GearScale.cs" />

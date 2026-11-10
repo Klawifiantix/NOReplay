@@ -181,6 +181,7 @@ namespace NOReplay
             _pickerOpen = false;
             ReplayRounds.Clear();
             CurrentDoc = null;
+            FeedPlayback.Reset();
             _staticHandlerStarted = false;
             Clock.Reset(0f);
             _menuHooked = false;
@@ -238,6 +239,7 @@ namespace NOReplay
                 TickTrails();
                 WarmOrdnance();
                 ShellReplay.Tick(CurrentDoc, Clock.Time);
+                FeedPlayback.Tick(CurrentDoc, Clock.Time, Clock.Paused);
                 ReplayRounds.Tick(Clock.Time, Clock.Paused);
                 TickPanel();
                 if (perfStamp != 0) NotePerf(perfStamp);

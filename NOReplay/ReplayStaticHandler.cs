@@ -483,13 +483,21 @@ namespace NOReplay
                 }
                 // Off before the object wakes, so FragmentManager.Start cannot
                 // push the pieces with a live force we then freeze in place.
-                if (n == "Wreckage" || n == "FragmentManager")
+                if (n == "Wreckage" || n == "FragmentManager" || n == "Shockwave")
                     mb.enabled = false;
             }
             go.isStatic = false;
             go.transform.SetPositionAndRotation(unit.transform.position, unit.transform.rotation);
             go.transform.SetParent(null, true);
             go.SetActive(true);
+            foreach (var mb in go.GetComponentsInChildren<MonoBehaviour>(true))
+            {
+                if (mb != null && mb.GetType().Name == "MushroomCloud")
+                    mb.enabled = false;
+            }
+            var blast = go.GetComponent<ReplayBlast>();
+            if (blast == null) blast = go.AddComponent<ReplayBlast>();
+            blast.Born = born;
             var fm = go.GetComponentInChildren<FragmentManager>(true);
             if (fm is Behaviour fmBeh) fmBeh.enabled = false;
             var motion = go.GetComponent<ReplayWreckMotion>();
@@ -759,6 +767,14 @@ namespace NOReplay
             go.transform.SetParent(parent, false);
             go.transform.SetPositionAndRotation(pos, rot);
             go.SetActive(true);
+            foreach (var grown in go.GetComponentsInChildren<MonoBehaviour>(true))
+            {
+                if (grown != null && grown.GetType().Name == "MushroomCloud")
+                    grown.enabled = false;
+            }
+            var quietBlast = go.GetComponent<ReplayBlast>();
+            if (quietBlast == null) quietBlast = go.AddComponent<ReplayBlast>();
+            quietBlast.Born = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
             UnityEngine.Object.Destroy(hold);
             var pt = Type.GetType("UnityEngine.ParticleSystem, UnityEngine.ParticleSystemModule")
                      ?? Plugin.FindGameType("ParticleSystem");

@@ -1216,9 +1216,12 @@ namespace NOReplay
 
         void LateUpdateMotion()
         {
+            long mark = ReplayPerf.Stamp();
             if (_lasersBound && _lasers.Length > 0 && !_asleep)
                 ShowLaserMounts();
             DriveGlass();
+            ReplayPerf.Add("late-mount", ReplayPerf.Stamp() - mark);
+            mark = ReplayPerf.Stamp();
             if (Track == null) return;
             if (_ordnance) TickWings(Plugin.Clock.Time);
             NoteSpoolClock(Plugin.Clock.Time);
@@ -1341,6 +1344,8 @@ namespace NOReplay
                 _nextRadarScan = 0f;
             }
             drive.SetPositionAndRotation(p, q);
+            ReplayPerf.Add("late-pose", ReplayPerf.Stamp() - mark);
+            mark = ReplayPerf.Stamp();
             if (!_ordnance && _asleep)
             {
                 QuietLasers();
@@ -1398,6 +1403,8 @@ namespace NOReplay
                 DriveChutes();
                 DriveBay();
             }
+            ReplayPerf.Add("late-weapons", ReplayPerf.Stamp() - mark);
+            mark = ReplayPerf.Stamp();
 
             float nowT = Plugin.Clock.Time;
             bool rewound = _prevT >= 0f && nowT + 0.02f < _prevT;
@@ -1489,6 +1496,8 @@ namespace NOReplay
                 _velApplied = _velMs;
                 _velAppliedSet = true;
             }
+            ReplayPerf.Add("late-body", ReplayPerf.Stamp() - mark);
+            mark = ReplayPerf.Stamp();
 
             if (_air && !_neutral)
             {
@@ -1524,6 +1533,7 @@ namespace NOReplay
             }
             try { DriveCarrier(nowT); }
             catch (Exception ex) { LogSubsystemOnce("Carrier", ex); }
+            ReplayPerf.Add("late-fx", ReplayPerf.Stamp() - mark);
         }
 
         int _subFail;

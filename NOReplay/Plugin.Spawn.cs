@@ -456,7 +456,7 @@ namespace NOReplay
                 return;
             }
             float t = Clock.Time;
-            int budget = 8;
+            int budget = 2;
             for (int i = 0; i < _pendingAir.Count && budget > 0;)
             {
                 var obj = _pendingAir[i];

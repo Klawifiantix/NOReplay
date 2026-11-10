@@ -576,6 +576,13 @@ namespace NOReplay
 
         void Update()
         {
+            long t0 = ReplayPerf.Stamp();
+            UpdateMotion();
+            ReplayPerf.Add("ghost-update", ReplayPerf.Stamp() - t0);
+        }
+
+        void UpdateMotion()
+        {
             // Runs at DefaultExecutionOrder(-200), after FixedUpdate() and before SlowUpdateRunner / Downwash / DownwashEffect Update().
             if (_air && !_neutral)
             {
@@ -1201,6 +1208,13 @@ namespace NOReplay
         }
 
         void LateUpdate()
+        {
+            long t0 = ReplayPerf.Stamp();
+            LateUpdateMotion();
+            ReplayPerf.Add("ghost-late", ReplayPerf.Stamp() - t0);
+        }
+
+        void LateUpdateMotion()
         {
             if (_lasersBound && _lasers.Length > 0 && !_asleep)
                 ShowLaserMounts();

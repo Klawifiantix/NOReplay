@@ -34,6 +34,8 @@ namespace NOReplay
             public bool[] LodWas = Array.Empty<bool>();
             public Collider[] Blocked = Array.Empty<Collider>();
             public bool Held;
+            public bool FxPaused;
+            public Renderer[] Meshes = Array.Empty<Renderer>();
             public bool HitPending;
             public int HitTries;
         }
@@ -192,6 +194,13 @@ namespace NOReplay
 
         void Update()
         {
+            long t0 = ReplayPerf.Stamp();
+            UpdateStatic();
+            ReplayPerf.Add("static", ReplayPerf.Stamp() - t0);
+        }
+
+        void UpdateStatic()
+        {
             if (Plugin.CurrentDoc == null)
             {
                 ClearVisuals();
@@ -228,12 +237,20 @@ namespace NOReplay
                     Restore(unit, shown);
                 else if (dead && shown.HitPending)
                     RetryHit(unit, shown, obj);
-                if (shown.Dead) HoldIntact(shown);
-                if (!shown.Dead || shown.Particles.Length == 0) continue;
+                if (!shown.Dead) continue;
+                HoldIntact(shown);
+                if (shown.Particles.Length == 0) continue;
                 if (paused)
-                    ReplayGhost.PauseParticleSystems(shown.Particles);
-                else
                 {
+                    if (!shown.FxPaused)
+                    {
+                        ReplayGhost.PauseParticleSystems(shown.Particles);
+                        shown.FxPaused = true;
+                    }
+                }
+                else if (shown.FxPaused)
+                {
+                    shown.FxPaused = false;
                     for (int p = 0; p < shown.Particles.Length; p++)
                         ReplayGhost.PlayParticleSystem(shown.Particles[p]);
                 }
@@ -286,6 +303,13 @@ namespace NOReplay
 
         void LateUpdate()
         {
+            long t0 = ReplayPerf.Stamp();
+            LateHold();
+            ReplayPerf.Add("static-late", ReplayPerf.Stamp() - t0);
+        }
+
+        void LateHold()
+        {
             if (Plugin.CurrentDoc == null) return;
             foreach (var shown in _shown.Values)
             {
@@ -322,8 +346,9 @@ namespace NOReplay
                     blocked.Add(c);
                 }
                 shown.Blocked = blocked.ToArray();
+                shown.Meshes = unit.GetComponentsInChildren<Renderer>(true);
             }
-            var rends = unit.GetComponentsInChildren<Renderer>(true);
+            var rends = shown.Meshes;
             for (int i = 0; i < rends.Length; i++)
             {
                 var r = rends[i];
@@ -369,6 +394,7 @@ namespace NOReplay
         void Restore(Unit unit, Shown shown)
         {
             shown.Dead = false;
+            shown.FxPaused = false;
             shown.HitPending = false;
             shown.HitTries = 0;
             if (shown.Wreck != null)
@@ -401,6 +427,7 @@ namespace NOReplay
             }
             shown.Blocked = Array.Empty<Collider>();
             shown.Held = false;
+            shown.Meshes = Array.Empty<Renderer>();
             try
             {
                 if (unit.disabled)

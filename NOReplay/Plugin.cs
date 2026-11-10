@@ -199,7 +199,7 @@ namespace NOReplay
             TickBindGhosts();
             if (CurrentDoc != null)
             {
-                long perfStamp = PerfLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+                long perfStamp = ReplayPerf.Stamp();
                 if (HotkeyDown(RecordConfig.PlayPauseKey, KeyCode.Space))
                 {
                     _holdClock = false;
@@ -229,23 +229,33 @@ namespace NOReplay
                     Clock.WentBack = false;
                     ResetParticles();
                 }
+                long section = ReplayPerf.Stamp();
                 TickGhostSpawns();
                 TickGhostSleep();
                 ApplyOrdnanceSeeks();
+                ReplayPerf.Add("spawn", ReplayPerf.Stamp() - section);
                 if (!_staticHandlerStarted && InGameWorld() && Time.timeSinceLevelLoad > 2f)
                 {
                     _staticHandlerStarted = true;
                     ReplayStaticHandler.StartFor(CurrentDoc);
                 }
+                section = ReplayPerf.Stamp();
                 TickMissileBooms();
                 TickReplaySelection();
+                ReplayPerf.Add("booms", ReplayPerf.Stamp() - section);
+                section = ReplayPerf.Stamp();
                 TickTrails();
+                ReplayPerf.Add("trails", ReplayPerf.Stamp() - section);
                 WarmOrdnance();
+                section = ReplayPerf.Stamp();
                 ShellReplay.Tick(CurrentDoc, Clock.Time);
-                FeedPlayback.Tick(CurrentDoc, Clock.Time, Clock.Paused);
                 ReplayRounds.Tick(Clock.Time, Clock.Paused);
+                ReplayPerf.Add("shells", ReplayPerf.Stamp() - section);
+                section = ReplayPerf.Stamp();
+                FeedPlayback.Tick(CurrentDoc, Clock.Time, Clock.Paused);
+                ReplayPerf.Add("feed", ReplayPerf.Stamp() - section);
                 TickPanel();
-                if (perfStamp != 0) NotePerf(perfStamp);
+                ReplayPerf.Add("plugin", ReplayPerf.Stamp() - perfStamp);
             }
             TickMenuButton();
             TickLeaveReplay();
@@ -257,24 +267,9 @@ namespace NOReplay
             }
         }
 
-        static long _perfTicks;
-        static int _perfFrames;
-        static float _perfLogAt;
-
-        static void NotePerf(long started)
+        void LateUpdate()
         {
-            _perfTicks += System.Diagnostics.Stopwatch.GetTimestamp() - started;
-            _perfFrames++;
-            if (_perfLogAt <= 0f) _perfLogAt = Time.unscaledTime + 5f;
-            if (Time.unscaledTime < _perfLogAt) return;
-            if (_perfFrames > 0)
-            {
-                double ms = _perfTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency / _perfFrames;
-                Log.LogInfo("Perf Replay-Update " + ms.ToString("0.00") + " ms/frame  n=" + _perfFrames);
-            }
-            _perfTicks = 0;
-            _perfFrames = 0;
-            _perfLogAt = Time.unscaledTime + 5f;
+            ReplayPerf.Frame();
         }
 
         internal static void ToggleTrails()

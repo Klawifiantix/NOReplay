@@ -99,11 +99,15 @@ namespace NOReplay
             }
             _lasers = Array.Empty<LaserEmitter>();
             _lasersBound = false;
+            _laserMountReady = false;
+            _laserMountGos = Array.Empty<GameObject>();
+            _laserMountRends = Array.Empty<Renderer>();
         }
 
         void BindLasers()
         {
             _lasersBound = true;
+            _laserMountReady = false;
             var t = Plugin.FindGameType("Laser");
             if (t == null) return;
             BindLaserFields(t);
@@ -247,16 +251,67 @@ namespace NOReplay
             RevealMountObject(laser.gameObject, beam);
         }
 
+        GameObject[] _laserMountGos = Array.Empty<GameObject>();
+        Renderer[] _laserMountRends = Array.Empty<Renderer>();
+        bool _laserMountReady;
+
         void ShowLaserMounts()
         {
-            for (int i = 0; i < _lasers.Length; i++)
+            if (!_laserMountReady)
+                CacheLaserMounts();
+            for (int i = 0; i < _laserMountGos.Length; i++)
             {
-                if (_lasers[i].Laser != null)
-                    ShowLaserMount(_lasers[i].Laser, _lasers[i].Beam);
+                var go = _laserMountGos[i];
+                if (go != null && !go.activeSelf) go.SetActive(true);
+            }
+            if (!_visible) return;
+            for (int i = 0; i < _laserMountRends.Length; i++)
+            {
+                var r = _laserMountRends[i];
+                if (r != null && !r.enabled) r.enabled = true;
             }
         }
 
-        void RevealMountObject(GameObject? go, Renderer? beam)
+        void CacheLaserMounts()
+        {
+            _laserMountReady = true;
+            var gos = new List<GameObject>();
+            var rends = new List<Renderer>();
+            for (int i = 0; i < _lasers.Length; i++)
+            {
+                if (_lasers[i].Laser == null) continue;
+                RememberMount(_lasers[i].Laser, _lasers[i].Beam, gos, rends);
+            }
+            _laserMountGos = gos.ToArray();
+            _laserMountRends = rends.ToArray();
+        }
+
+        void RememberMount(Component laser, Renderer beam, List<GameObject> gos, List<Renderer> rends)
+        {
+            var turret = laser.GetComponentInParent<Turret>();
+            RememberMountObject(turret != null ? turret.gameObject : null, beam, gos, rends);
+            RememberMountObject(laser.gameObject, beam, gos, rends);
+        }
+
+        void RememberMountObject(GameObject go, Renderer beam, List<GameObject> gos, List<Renderer> rends)
+        {
+            if (go == null) return;
+            if (!go.activeSelf) go.SetActive(true);
+            gos.Add(go);
+            var found = go.GetComponents<Renderer>();
+            for (int i = 0; i < found.Length; i++)
+            {
+                var r = found[i];
+                if (r == null || r == beam) continue;
+                if (r.GetType().Name == "ParticleSystemRenderer") continue;
+                _disabledInPrefab.Remove(r);
+                if (_visible) r.enabled = true;
+                TouchRend(r, "ShowLaserMount");
+                rends.Add(r);
+            }
+        }
+
+        void RevealMountObject(GameObject go, Renderer beam)
         {
             if (go == null) return;
             if (!go.activeSelf) go.SetActive(true);

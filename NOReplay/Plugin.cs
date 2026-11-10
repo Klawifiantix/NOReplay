@@ -506,6 +506,7 @@ namespace NOReplay
             if (id != _sceneLogged)
             {
                 _sceneLogged = id;
+                ClearHqCache();
                 Log.LogInfo("Szene gewechselt: name=" + scene.name + " path=" + scene.path);
             }
             if (!InGameWorld())

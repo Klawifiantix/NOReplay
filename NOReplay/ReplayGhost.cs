@@ -158,6 +158,9 @@ namespace NOReplay
         static GameObject? _boomPrefab;
         static bool _boomTried;
         Rigidbody[] _rbs = Array.Empty<Rigidbody>();
+        bool[] _rbSkip = Array.Empty<bool>();
+        Vector3 _velApplied;
+        bool _velAppliedSet;
         Collider[] _cols = Array.Empty<Collider>();
         Transform[] _parts = Array.Empty<Transform>();
         Vector3[] _partPos = Array.Empty<Vector3>();
@@ -176,6 +179,7 @@ namespace NOReplay
         Renderer[]? _flareRends;
         int _flareKids = -1;
         public static readonly System.Collections.Generic.Dictionary<int, Vector3> Velocities = new System.Collections.Generic.Dictionary<int, Vector3>();
+        static readonly System.Collections.Generic.HashSet<string> _pylonLogged = new System.Collections.Generic.HashSet<string>();
         float _camTimer;
         Vector3 _lastCamPos;
 
@@ -288,7 +292,8 @@ namespace NOReplay
                             note.Append(" restore:1");
                         }
                     }
-                    Plugin.Log?.LogInfo(note.ToString());
+                    if (_pylonLogged.Add(name + "|" + j))
+                        Plugin.Log?.LogInfo(note.ToString());
 
                     if (fPlug?.GetValue(hp) is Renderer plug && plug != null)
                         ApplyHardpointRendererState(plug, plug.enabled);
@@ -949,10 +954,13 @@ namespace NOReplay
         {
             var root = Drive;
             _rbs = root.GetComponentsInChildren<Rigidbody>(true);
+            _rbSkip = new bool[_rbs.Length];
+            _velAppliedSet = false;
             for (int i = 0; i < _rbs.Length; i++)
             {
                 var rb = _rbs[i];
-                if (rb == null || IsIgnored(rb.transform)) continue;
+                _rbSkip[i] = rb == null || IsIgnored(rb.transform);
+                if (_rbSkip[i]) continue;
                 rb.isKinematic = true;
                 rb.detectCollisions = false;
                 rb.interpolation = RigidbodyInterpolation.None;
@@ -1450,14 +1458,22 @@ namespace NOReplay
             Velocities[GetInstanceID()] = _velMs;
             if (_air && gameObject == Plugin._ghost)
                 CheckCameraReposition(_velMs);
+            bool velChanged = !_velAppliedSet || (_velMs - _velApplied).sqrMagnitude > 0.0001f;
             for (int i = 0; i < _rbs.Length; i++)
             {
+                if (i < _rbSkip.Length && _rbSkip[i]) continue;
                 var rb = _rbs[i];
-                if (rb == null || IsIgnored(rb.transform)) continue;
-                rb.isKinematic = true;
-                rb.detectCollisions = false;
+                if (rb == null) continue;
+                if (!rb.isKinematic) rb.isKinematic = true;
+                if (rb.detectCollisions) rb.detectCollisions = false;
+                if (!velChanged) continue;
                 rb.velocity = _velMs;
                 rb.angularVelocity = Vector3.zero;
+            }
+            if (velChanged)
+            {
+                _velApplied = _velMs;
+                _velAppliedSet = true;
             }
 
             if (_air && !_neutral)

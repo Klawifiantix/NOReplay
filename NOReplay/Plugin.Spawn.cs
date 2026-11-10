@@ -734,8 +734,8 @@ namespace NOReplay
             if (parachutist)
             {
                 try { TryRegisterGhostOnMap(go, false); }
-                catch (Exception ex) { Log.LogWarning("Pilot map " + go.name + " " + ex.Message); }
-                Log.LogInfo("Pilot map " + go.name);
+                catch (Exception ex) { LogOnce("Pilot map fail " + go.name, "Pilot map " + go.name + " " + ex.Message, true); }
+                LogOnce("Pilot map " + go.name, "Pilot map " + go.name, false);
             }
             if (ordnance && !flare)
             {
@@ -1164,12 +1164,29 @@ namespace NOReplay
             catch { }
         }
 
+        static readonly Dictionary<string, object?> _hqCache = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        static readonly HashSet<string> _logOnce = new HashSet<string>(StringComparer.Ordinal);
+
+        internal static void ClearHqCache()
+        {
+            _hqCache.Clear();
+        }
+
+        static void LogOnce(string key, string line, bool warning)
+        {
+            if (!_logOnce.Add(key)) return;
+            if (warning) Log.LogWarning(line);
+            else Log.LogInfo(line);
+        }
+
         static object? GetHq(string? coal)
         {
+            string want = FactionName(coal);
+            if (_hqCache.TryGetValue(want, out var cached)) return cached;
             var hqType = FindGameType("FactionHQ");
             if (hqType == null) return null;
-            string want = FactionName(coal);
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            object? found = null;
             foreach (var o in Resources.FindObjectsOfTypeAll(hqType))
             {
                 if (o == null) continue;
@@ -1182,10 +1199,14 @@ namespace NOReplay
                 catch { }
                 if (o.name.IndexOf(want, StringComparison.OrdinalIgnoreCase) >= 0
                     || fac.IndexOf(want, StringComparison.OrdinalIgnoreCase) >= 0)
-                    return o;
+                {
+                    found = o;
+                    break;
+                }
             }
-            Log.LogWarning("kein HQ für " + want);
-            return null;
+            _hqCache[want] = found;
+            if (found == null) LogOnce("hq:" + want, "kein HQ für " + want, true);
+            return found;
         }
 
         static GameObject? TryGameSpawnMissile(ReplayObject obj, UnityEngine.Object? def, Vector3 pos, Quaternion rot)
@@ -1269,7 +1290,7 @@ namespace NOReplay
                 set("NetworkstartingVelocity", vel);
                 var hq = GetHq(obj.Coalition);
                 if (hq != null) set("NetworkHQ", hq);
-                else Log.LogWarning("kein HQ für " + obj.Name + " coal=" + (obj.Coalition ?? "-"));
+                else LogOnce("hq-unit:" + (obj.Name ?? "") + ":" + (obj.Coalition ?? "-"), "kein HQ für " + obj.Name + " coal=" + (obj.Coalition ?? "-"), true);
             }
             var rb = go.GetComponent<Rigidbody>();
             if (rb != null) rb.velocity = vel;

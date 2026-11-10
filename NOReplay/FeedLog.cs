@@ -73,6 +73,37 @@ namespace NOReplay
             return sb.ToString();
         }
 
+        public static void Collect(string? text, List<Item> into)
+        {
+            if (string.IsNullOrEmpty(text) || into == null) return;
+            float time = 0f;
+            int at = 0;
+            int n = text.Length;
+            while (at < n)
+            {
+                int start = at;
+                while (at < n && text[at] != '\n') at++;
+                int end = at;
+                if (end > start && text[end - 1] == '\r') end--;
+                if (at < n) at++;
+                if (end <= start) continue;
+                if (text[start] == '#')
+                {
+                    var raw = text.AsSpan(start + 1, end - start - 1);
+                    if (AcmiScan.TryFloat(raw.Trim(), out float stamp)) time = stamp;
+                    continue;
+                }
+                if (text[start] != '0' || start + 1 >= end || text[start + 1] != ',') continue;
+                var props = new AcmiScan.Props(text.AsSpan(start + 2, end - (start + 2)));
+                while (props.MoveNext())
+                {
+                    if (!AcmiScan.KeyIs(props.Key, "Feed")) continue;
+                    if (TryParse(props.Value.ToString(), time, out var item))
+                        into.Add(item);
+                }
+            }
+        }
+
         public static bool TryParse(string? text, float time, out Item item)
         {
             item = default;

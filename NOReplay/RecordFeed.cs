@@ -63,6 +63,29 @@ namespace NOReplay
             _replayUi = on;
         }
 
+        static MethodInfo FindMethod(Type type, string method)
+        {
+            if (type == null || string.IsNullOrEmpty(method)) return null;
+            var exact = type.GetMethod(method, Flags);
+            if (exact != null) return exact;
+            // The decompiler writes a hyphen in the RPC name as __002D.
+            string hyphen = method.Replace("__002D", "-");
+            if (hyphen != method)
+            {
+                exact = type.GetMethod(hyphen, Flags);
+                if (exact != null) return exact;
+            }
+            int mark = method.IndexOf("__002D", StringComparison.Ordinal);
+            if (mark < 0) return null;
+            string stem = method.Substring(0, mark);
+            foreach (var cand in type.GetMethods(Flags))
+            {
+                if (cand.Name.StartsWith(stem, StringComparison.Ordinal))
+                    return cand;
+            }
+            return null;
+        }
+
         static int Patch(Harmony harmony, string typeName, string method, string prefix)
         {
             var t = Plugin.FindGameType(typeName);
@@ -72,7 +95,7 @@ namespace NOReplay
                 if (dot >= 0 && dot < typeName.Length - 1)
                     t = Plugin.FindGameType(typeName.Substring(dot + 1));
             }
-            var m = t?.GetMethod(method, Flags);
+            var m = FindMethod(t, method);
             if (m == null)
             {
                 Plugin.Log?.LogInfo("Feed-Record missing " + typeName + "." + method);

@@ -33,4 +33,9 @@
     <Compile Include="..\..\NOReplay\BuildingHit.cs" Link="BuildingHit.cs" />
     <Compile Include="..\..\NOReplay\BuildingMesh.cs" Link="BuildingMesh.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="Fixtures\Domination_2026-11-10_23-10.acmi">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 </Project>

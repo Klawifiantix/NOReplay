@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
 using NOReplay;
 
 namespace NOReplay.OrientationTests
@@ -15,6 +18,7 @@ namespace NOReplay.OrientationTests
             WindowFollowsReplayTime();
             SoundOnlyOnAShortForwardStep();
             AllyPrefixIsInsideTheColour();
+            RecordedDominationFile();
             if (Failed == 0) System.Console.WriteLine("FeedLog ok");
         }
 
@@ -87,6 +91,25 @@ namespace NOReplay.OrientationTests
             int prefix = line.IndexOf("(ally)Sam:");
             int close = line.IndexOf("</color>");
             Expect(open >= 0 && prefix > open && close > prefix, "the ally prefix sits inside the colour tag");
+        }
+
+        static void RecordedDominationFile()
+        {
+            string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "Domination_2026-11-10_23-10.acmi");
+            Expect(File.Exists(path), "recorded acmi is beside the test");
+            if (!File.Exists(path)) return;
+            var feeds = new List<FeedLog.Item>();
+            FeedLog.Collect(File.ReadAllText(path), feeds);
+            int chat = 0, kill = 0, mission = 0;
+            for (int i = 0; i < feeds.Count; i++)
+            {
+                if (feeds[i].Kind == FeedLog.Kind.Kill) kill++;
+                else if (feeds[i].Kind == FeedLog.Kind.Mission) mission++;
+                else chat++;
+                if (i > 0) Expect(feeds[i].Time > feeds[i - 1].Time, "feed times increase");
+            }
+            Expect(chat == 5 && kill == 4 && mission == 0, "5 chat and 4 kills, chat=" + chat + " kill=" + kill);
+            Expect(feeds.Count > 0 && feeds[0].B == "hiho" && feeds[0].Time > 11f && feeds[0].Time < 12f, "first chat is hiho at 11.8s");
         }
 
         static FeedLog.Item Kill(int type, float value, int flags)

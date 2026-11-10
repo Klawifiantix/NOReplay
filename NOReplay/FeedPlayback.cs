@@ -182,13 +182,18 @@ namespace NOReplay
         {
             var t = Plugin.FindGameType(name);
             if (t == null) return null;
-            object inst = t.GetProperty("i", Flags)?.GetValue(null);
-            if (inst == null)
-            {
-                var baseType = t.BaseType;
-                inst = baseType?.GetProperty("i", Flags)?.GetValue(null);
-            }
+            // SceneSingleton<T>.i is a static field, not a property.
+            object inst = ReadStatic(t, "i");
+            if (inst == null && t.BaseType != null)
+                inst = ReadStatic(t.BaseType, "i");
             return inst as Component;
+        }
+
+        static object ReadStatic(Type type, string name)
+        {
+            var prop = type.GetProperty(name, Flags);
+            if (prop != null) return prop.GetValue(null);
+            return type.GetField(name, Flags)?.GetValue(null);
         }
     }
 }

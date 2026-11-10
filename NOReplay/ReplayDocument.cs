@@ -18,6 +18,7 @@ namespace NOReplay
         public float Duration;
         public List<ReplayObject> Objects = new List<ReplayObject>();
         public List<CarrierTrap> Traps = new List<CarrierTrap>();
+        public List<FeedLog.Item> Feeds = new List<FeedLog.Item>();
 
         public void IndexChildren()
         {

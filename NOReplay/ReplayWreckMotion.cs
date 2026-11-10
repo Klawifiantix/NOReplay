@@ -296,6 +296,13 @@ namespace NOReplay
         // where they spawned.
         void LateUpdate()
         {
+            long t0 = ReplayPerf.Stamp();
+            MovePieces();
+            ReplayPerf.Add("wreck", ReplayPerf.Stamp() - t0);
+        }
+
+        void MovePieces()
+        {
             if (Plugin.CurrentDoc == null) return;
             float now = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
             float age = now - Born;

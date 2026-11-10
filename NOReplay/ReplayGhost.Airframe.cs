@@ -317,17 +317,19 @@ namespace NOReplay
         float _spoolSlope = 0.09f;
         bool _wasFlying;
 
+        static readonly RaycastHit[] _parkHits = new RaycastHit[24];
+
         bool ParkedOnGround()
         {
             if (_spdMs > 3.5f) return false;
-            var hits = Physics.RaycastAll(transform.position + Vector3.up * 2f, Vector3.down, 8f, ~0, QueryTriggerInteraction.Ignore);
+            int hits = Physics.RaycastNonAlloc(transform.position + Vector3.up * 2f, Vector3.down, _parkHits, 8f, ~0, QueryTriggerInteraction.Ignore);
             float best = 99f;
-            for (int i = 0; i < hits.Length; i++)
+            for (int i = 0; i < hits; i++)
             {
-                var col = hits[i].collider;
+                var col = _parkHits[i].collider;
                 if (col == null) continue;
                 if (col.transform.GetComponentInParent<ReplayGhost>() != null) continue;
-                if (hits[i].distance < best) best = hits[i].distance;
+                if (_parkHits[i].distance < best) best = _parkHits[i].distance;
             }
             return best < 5.5f;
         }

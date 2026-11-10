@@ -9,6 +9,7 @@ namespace NOReplay
     {
         static bool _listenPatched;
         static int _nAir;
+        static readonly System.Collections.Generic.HashSet<string> _listenOnce = new System.Collections.Generic.HashSet<string>();
         static int _nVeh;
         static int _nShip;
         static float _lastSum;
@@ -1028,10 +1029,16 @@ namespace NOReplay
 
             bool detail = name == "StartHost" || name == "ServerMissionStart"
                           || name == "SetMission" || name == "StartMission"
-                          || name == "SpawnLocal"
                           || (name == "SpawnAircraft" && _nAir <= 8)
                           || (name == "SpawnVehicle" && _nVeh <= 8)
                           || (name == "SpawnShip" && _nShip <= 4);
+            if (name == "SpawnLocal")
+            {
+                string key = "SpawnLocal";
+                if (__args != null && __args.Length > 0 && __args[0] is UnityEngine.Object spawned)
+                    key = "SpawnLocal:" + spawned.name;
+                detail = _listenOnce.Add(key);
+            }
 
             if (name == "StartHost" || name == "StartMission")
             {
@@ -1161,15 +1168,27 @@ namespace NOReplay
             if (args != null && args.Length > 0 && args[0] is UnityEngine.Object u)
                 n = u.name ?? "";
             if (n.IndexOf("Flare", StringComparison.OrdinalIgnoreCase) < 0) return;
-            Plugin.Log.LogInfo("Flare-Spawn detected: " + n + " result=" + (result?.GetType().Name ?? "null"));
+            if (_listenOnce.Add("Flare-Spawn:" + n))
+                Plugin.Log.LogInfo("Flare-Spawn detected: " + n + " result=" + (result?.GetType().Name ?? "null"));
             var go = result as GameObject;
             if (go == null && result is Component rc) go = rc.gameObject;
-            if (go == null) { Plugin.Log.LogInfo("Flare-Spawn: no GameObject"); return; }
+            if (go == null)
+            {
+                if (_listenOnce.Add("Flare-Spawn:none"))
+                    Plugin.Log.LogInfo("Flare-Spawn: no GameObject");
+                return;
+            }
             var flare = go.GetComponent<IRFlare>();
-            if (flare == null) { Plugin.Log.LogInfo("Flare-Spawn: no IRFlare"); return; }
+            if (flare == null)
+            {
+                if (_listenOnce.Add("Flare-Spawn:no-flare"))
+                    Plugin.Log.LogInfo("Flare-Spawn: no IRFlare");
+                return;
+            }
             var rec = go.AddComponent<RecordFlare>();
             rec.Init(flare);
-            Plugin.Log.LogInfo("Flare-Spawn: Init called");
+            if (_listenOnce.Add("Flare-Spawn:init"))
+                Plugin.Log.LogInfo("Flare-Spawn: Init called");
         }
     }
 }

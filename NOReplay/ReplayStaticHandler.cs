@@ -34,6 +34,8 @@ namespace NOReplay
             public bool[] LodWas = Array.Empty<bool>();
             public Collider[] Blocked = Array.Empty<Collider>();
             public bool Held;
+            public bool FxPaused;
+            public Renderer[] Meshes = Array.Empty<Renderer>();
             public bool HitPending;
             public int HitTries;
         }
@@ -192,6 +194,13 @@ namespace NOReplay
 
         void Update()
         {
+            long t0 = ReplayPerf.Stamp();
+            UpdateStatic();
+            ReplayPerf.Add("static", ReplayPerf.Stamp() - t0);
+        }
+
+        void UpdateStatic()
+        {
             if (Plugin.CurrentDoc == null)
             {
                 ClearVisuals();
@@ -228,12 +237,20 @@ namespace NOReplay
                     Restore(unit, shown);
                 else if (dead && shown.HitPending)
                     RetryHit(unit, shown, obj);
-                if (shown.Dead) HoldIntact(shown);
-                if (!shown.Dead || shown.Particles.Length == 0) continue;
+                if (!shown.Dead) continue;
+                HoldIntact(shown);
+                if (shown.Particles.Length == 0) continue;
                 if (paused)
-                    ReplayGhost.PauseParticleSystems(shown.Particles);
-                else
                 {
+                    if (!shown.FxPaused)
+                    {
+                        ReplayGhost.PauseParticleSystems(shown.Particles);
+                        shown.FxPaused = true;
+                    }
+                }
+                else if (shown.FxPaused)
+                {
+                    shown.FxPaused = false;
                     for (int p = 0; p < shown.Particles.Length; p++)
                         ReplayGhost.PlayParticleSystem(shown.Particles[p]);
                 }
@@ -286,6 +303,13 @@ namespace NOReplay
 
         void LateUpdate()
         {
+            long t0 = ReplayPerf.Stamp();
+            LateHold();
+            ReplayPerf.Add("static-late", ReplayPerf.Stamp() - t0);
+        }
+
+        void LateHold()
+        {
             if (Plugin.CurrentDoc == null) return;
             foreach (var shown in _shown.Values)
             {
@@ -322,8 +346,9 @@ namespace NOReplay
                     blocked.Add(c);
                 }
                 shown.Blocked = blocked.ToArray();
+                shown.Meshes = unit.GetComponentsInChildren<Renderer>(true);
             }
-            var rends = unit.GetComponentsInChildren<Renderer>(true);
+            var rends = shown.Meshes;
             for (int i = 0; i < rends.Length; i++)
             {
                 var r = rends[i];
@@ -369,6 +394,7 @@ namespace NOReplay
         void Restore(Unit unit, Shown shown)
         {
             shown.Dead = false;
+            shown.FxPaused = false;
             shown.HitPending = false;
             shown.HitTries = 0;
             if (shown.Wreck != null)
@@ -401,6 +427,7 @@ namespace NOReplay
             }
             shown.Blocked = Array.Empty<Collider>();
             shown.Held = false;
+            shown.Meshes = Array.Empty<Renderer>();
             try
             {
                 if (unit.disabled)
@@ -456,13 +483,21 @@ namespace NOReplay
                 }
                 // Off before the object wakes, so FragmentManager.Start cannot
                 // push the pieces with a live force we then freeze in place.
-                if (n == "Wreckage" || n == "FragmentManager")
+                if (n == "Wreckage" || n == "FragmentManager" || n == "Shockwave")
                     mb.enabled = false;
             }
             go.isStatic = false;
             go.transform.SetPositionAndRotation(unit.transform.position, unit.transform.rotation);
             go.transform.SetParent(null, true);
             go.SetActive(true);
+            foreach (var mb in go.GetComponentsInChildren<MonoBehaviour>(true))
+            {
+                if (mb != null && mb.GetType().Name == "MushroomCloud")
+                    mb.enabled = false;
+            }
+            var blast = go.GetComponent<ReplayBlast>();
+            if (blast == null) blast = go.AddComponent<ReplayBlast>();
+            blast.Born = born;
             var fm = go.GetComponentInChildren<FragmentManager>(true);
             if (fm is Behaviour fmBeh) fmBeh.enabled = false;
             var motion = go.GetComponent<ReplayWreckMotion>();
@@ -732,6 +767,14 @@ namespace NOReplay
             go.transform.SetParent(parent, false);
             go.transform.SetPositionAndRotation(pos, rot);
             go.SetActive(true);
+            foreach (var grown in go.GetComponentsInChildren<MonoBehaviour>(true))
+            {
+                if (grown != null && grown.GetType().Name == "MushroomCloud")
+                    grown.enabled = false;
+            }
+            var quietBlast = go.GetComponent<ReplayBlast>();
+            if (quietBlast == null) quietBlast = go.AddComponent<ReplayBlast>();
+            quietBlast.Born = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
             UnityEngine.Object.Destroy(hold);
             var pt = Type.GetType("UnityEngine.ParticleSystem, UnityEngine.ParticleSystemModule")
                      ?? Plugin.FindGameType("ParticleSystem");

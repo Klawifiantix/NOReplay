@@ -158,6 +158,9 @@ namespace NOReplay
         static GameObject? _boomPrefab;
         static bool _boomTried;
         Rigidbody[] _rbs = Array.Empty<Rigidbody>();
+        bool[] _rbSkip = Array.Empty<bool>();
+        Vector3 _velApplied;
+        bool _velAppliedSet;
         Collider[] _cols = Array.Empty<Collider>();
         Transform[] _parts = Array.Empty<Transform>();
         Vector3[] _partPos = Array.Empty<Vector3>();
@@ -176,6 +179,7 @@ namespace NOReplay
         Renderer[]? _flareRends;
         int _flareKids = -1;
         public static readonly System.Collections.Generic.Dictionary<int, Vector3> Velocities = new System.Collections.Generic.Dictionary<int, Vector3>();
+        static readonly System.Collections.Generic.HashSet<string> _pylonLogged = new System.Collections.Generic.HashSet<string>();
         float _camTimer;
         Vector3 _lastCamPos;
 
@@ -288,7 +292,8 @@ namespace NOReplay
                             note.Append(" restore:1");
                         }
                     }
-                    Plugin.Log?.LogInfo(note.ToString());
+                    if (_pylonLogged.Add(name + "|" + j))
+                        Plugin.Log?.LogInfo(note.ToString());
 
                     if (fPlug?.GetValue(hp) is Renderer plug && plug != null)
                         ApplyHardpointRendererState(plug, plug.enabled);
@@ -570,6 +575,13 @@ namespace NOReplay
         }
 
         void Update()
+        {
+            long t0 = ReplayPerf.Stamp();
+            UpdateMotion();
+            ReplayPerf.Add("ghost-update", ReplayPerf.Stamp() - t0);
+        }
+
+        void UpdateMotion()
         {
             // Runs at DefaultExecutionOrder(-200), after FixedUpdate() and before SlowUpdateRunner / Downwash / DownwashEffect Update().
             if (_air && !_neutral)
@@ -949,10 +961,13 @@ namespace NOReplay
         {
             var root = Drive;
             _rbs = root.GetComponentsInChildren<Rigidbody>(true);
+            _rbSkip = new bool[_rbs.Length];
+            _velAppliedSet = false;
             for (int i = 0; i < _rbs.Length; i++)
             {
                 var rb = _rbs[i];
-                if (rb == null || IsIgnored(rb.transform)) continue;
+                _rbSkip[i] = rb == null || IsIgnored(rb.transform);
+                if (_rbSkip[i]) continue;
                 rb.isKinematic = true;
                 rb.detectCollisions = false;
                 rb.interpolation = RigidbodyInterpolation.None;
@@ -1194,9 +1209,19 @@ namespace NOReplay
 
         void LateUpdate()
         {
+            long t0 = ReplayPerf.Stamp();
+            LateUpdateMotion();
+            ReplayPerf.Add("ghost-late", ReplayPerf.Stamp() - t0);
+        }
+
+        void LateUpdateMotion()
+        {
+            long mark = ReplayPerf.Stamp();
             if (_lasersBound && _lasers.Length > 0 && !_asleep)
                 ShowLaserMounts();
             DriveGlass();
+            ReplayPerf.Add("late-mount", ReplayPerf.Stamp() - mark);
+            mark = ReplayPerf.Stamp();
             if (Track == null) return;
             if (_ordnance) TickWings(Plugin.Clock.Time);
             NoteSpoolClock(Plugin.Clock.Time);
@@ -1319,6 +1344,9 @@ namespace NOReplay
                 _nextRadarScan = 0f;
             }
             drive.SetPositionAndRotation(p, q);
+            ReplayPerf.Add("late-pose", ReplayPerf.Stamp() - mark);
+            mark = ReplayPerf.Stamp();
+            bool close = gameObject == Plugin._ghost || NearMe(4500f);
             if (!_ordnance && _asleep)
             {
                 QuietLasers();
@@ -1344,12 +1372,12 @@ namespace NOReplay
                 _prevT = Plugin.Clock.Time;
                 return;
             }
-            if (!_ordnance)
+            if (!_ordnance && close)
             {
                 EnsureGunsCurrent(false);
                 EnsureRadarsCurrent(false);
             }
-            if (_air)
+            if (_air && close)
             {
                 if (!_surfBound) CaptureSurfaceRest();
                 if (!_liveryPainted && ((Time.frameCount + gameObject.GetInstanceID()) & 15) == 0)
@@ -1357,25 +1385,27 @@ namespace NOReplay
                 HoldLocals();
                 HoldAirbrakes();
             }
-            if (_ship && ShipIsDead(Plugin.Clock.Time))
+            if (close && _ship && ShipIsDead(Plugin.Clock.Time))
                 QuietDeadShip(Plugin.Clock.Time);
-            else if (VehicleIsDying(Plugin.Clock.Time))
+            else if (close && VehicleIsDying(Plugin.Clock.Time))
             {
                 OrphanLiveRounds();
                 HaltGuns(false);
             }
-            else
+            else if (close)
             {
                 ReleaseDeadShipGuns();
                 if (!_ordnance) AimGuns();
                 TickGunVisuals();
             }
-            if (!_ordnance && !_asleep)
+            if (close && !_ordnance && !_asleep)
             {
                 DriveLasers();
                 DriveChutes();
                 DriveBay();
             }
+            ReplayPerf.Add("late-weapons", ReplayPerf.Stamp() - mark);
+            mark = ReplayPerf.Stamp();
 
             float nowT = Plugin.Clock.Time;
             bool rewound = _prevT >= 0f && nowT + 0.02f < _prevT;
@@ -1439,8 +1469,8 @@ namespace NOReplay
                 _prevT = nowT;
             }
 
-            if (_ordnance && _visible && !_ordAudioOn) IgniteMissileFx();
-            if (_ordnance) TickOrdnanceAudio(s);
+            if (close && _ordnance && _visible && !_ordAudioOn) IgniteMissileFx();
+            if (close && _ordnance) TickOrdnanceAudio(s);
 
             if (coasted)
             {
@@ -1450,22 +1480,32 @@ namespace NOReplay
             Velocities[GetInstanceID()] = _velMs;
             if (_air && gameObject == Plugin._ghost)
                 CheckCameraReposition(_velMs);
+            bool velChanged = !_velAppliedSet || (_velMs - _velApplied).sqrMagnitude > 0.0001f;
             for (int i = 0; i < _rbs.Length; i++)
             {
+                if (i < _rbSkip.Length && _rbSkip[i]) continue;
                 var rb = _rbs[i];
-                if (rb == null || IsIgnored(rb.transform)) continue;
-                rb.isKinematic = true;
-                rb.detectCollisions = false;
+                if (rb == null) continue;
+                if (!rb.isKinematic) rb.isKinematic = true;
+                if (rb.detectCollisions) rb.detectCollisions = false;
+                if (!velChanged) continue;
                 rb.velocity = _velMs;
                 rb.angularVelocity = Vector3.zero;
             }
+            if (velChanged)
+            {
+                _velApplied = _velMs;
+                _velAppliedSet = true;
+            }
+            ReplayPerf.Add("late-body", ReplayPerf.Stamp() - mark);
+            mark = ReplayPerf.Stamp();
 
-            if (_air && !_neutral)
+            if (close && _air && !_neutral)
             {
                 try { ApplyFx(s); }
                 catch (Exception ex) { LogSubsystemOnce("ApplyFx", ex); }
             }
-            else
+            else if (close)
             {
                 WriteUnitMotion(_spdMs, _velMs);
                 if (_ship && !_neutral)
@@ -1478,12 +1518,12 @@ namespace NOReplay
                 else if (!_ordnance)
                     StopGroundAudio();
             }
-            if (!_ordnance && _visible)
+            if (close && !_ordnance && _visible)
             {
                 try { TickRadars(); }
                 catch (Exception ex) { LogSubsystemOnce("TickRadars", ex); }
             }
-            if (!_ordnance)
+            if (close && !_ordnance)
             {
                 try { TickStructural(true); }
                 catch (Exception ex) { LogSubsystemOnce("TickStructural", ex); }
@@ -1492,8 +1532,12 @@ namespace NOReplay
                 try { ReapplyInactiveOrdnance(); }
                 catch (Exception ex) { LogSubsystemOnce("ReapplyInactiveOrdnance", ex); }
             }
-            try { DriveCarrier(nowT); }
-            catch (Exception ex) { LogSubsystemOnce("Carrier", ex); }
+            if (close)
+            {
+                try { DriveCarrier(nowT); }
+                catch (Exception ex) { LogSubsystemOnce("Carrier", ex); }
+            }
+            ReplayPerf.Add("late-fx", ReplayPerf.Stamp() - mark);
         }
 
         int _subFail;

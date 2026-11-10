@@ -49,6 +49,8 @@ namespace NOReplay
             catch (Exception ex) { Plugin.Log.LogError("RecordChutes.Install: " + ex); }
             try { RecordBay.Install(); }
             catch (Exception ex) { Plugin.Log.LogError("RecordBay.Install: " + ex); }
+            try { RecordFeed.Install(); }
+            catch (Exception ex) { Plugin.Log.LogError("RecordFeed.Install: " + ex); }
             Plugin.Log.LogInfo("Aufnahme bereit. " + RecordKeyLabel() + " startet und stoppt.");
         }
 

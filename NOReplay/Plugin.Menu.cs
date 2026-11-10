@@ -195,7 +195,7 @@ namespace NOReplay
 
         void DrawTimeline()
         {
-            float w = 980f, h = 58f;
+            float w = Mathf.Min(1180f, Screen.width - 16f), h = 58f;
             float x = (Screen.width - w) * 0.5f;
             float y = 12f;
             GUI.Box(new Rect(x, y, w, h), "");
@@ -230,9 +230,36 @@ namespace NOReplay
                 ToggleTrails();
             float mins = TrailSeconds / 60f;
             GUI.Label(new Rect(x + 600, y + 36, 52, 18), $"{mins:0.0}m");
-            float nextMin = GUI.HorizontalSlider(new Rect(x + 652, y + 40, 180, 16), mins, 0f, 10f);
+            float killW = 112f, chatW = 78f, systemW = 100f, gap = 4f;
+            float buttons = killW + chatW + systemW + gap * 2f;
+            float sliderX = 652f;
+            float sliderW = Mathf.Max(36f, w - 8f - buttons - gap - sliderX);
+            float nextMin = GUI.HorizontalSlider(new Rect(x + sliderX, y + 40, sliderW, 16), mins, 0f, 10f);
             if (Math.Abs(nextMin - mins) > 0.01f)
                 TrailSeconds = nextMin * 60f;
+            float bx = x + sliderX + sliderW + gap;
+            if (FeedToggle(new Rect(bx, y + 36, killW, 18), "KillFeed", ShowKillFeed))
+            {
+                ShowKillFeed = !ShowKillFeed;
+                FeedPlayback.Rebuild();
+            }
+            bx += killW + gap;
+            if (FeedToggle(new Rect(bx, y + 36, chatW, 18), "Chat", ShowChat))
+            {
+                ShowChat = !ShowChat;
+                FeedPlayback.Rebuild();
+            }
+            bx += chatW + gap;
+            if (FeedToggle(new Rect(bx, y + 36, systemW, 18), "System", ShowSystem))
+            {
+                ShowSystem = !ShowSystem;
+                FeedPlayback.Rebuild();
+            }
+        }
+
+        static bool FeedToggle(Rect rect, string name, bool on)
+        {
+            return GUI.Button(rect, on ? name + ": on" : name + ": off");
         }
 
         void StartSelectedReplay()

@@ -49,6 +49,7 @@ namespace NOReplay
         public static ReplayDocument Parse(string text)
         {
             var doc = new ReplayDocument();
+            FeedLog.Collect(text, doc.Feeds);
             var objects = new Dictionary<string, ReplayObject>(StringComparer.OrdinalIgnoreCase);
             var state = new Dictionary<string, ReplaySample>(StringComparer.OrdinalIgnoreCase);
             float time = 0f;
@@ -456,6 +457,15 @@ namespace NOReplay
                 Plugin.Log.LogInfo("Waffen-Index Starts=" + launches + " Teile=" + partBreaks);
             if (doc.Traps.Count > 0)
                 Plugin.Log.LogInfo("Fangseile: " + doc.Traps.Count);
+            int feedChat = 0, feedKill = 0, feedMission = 0;
+            for (int i = 0; i < doc.Feeds.Count; i++)
+            {
+                var kind = doc.Feeds[i].Kind;
+                if (kind == FeedLog.Kind.Kill) feedKill++;
+                else if (kind == FeedLog.Kind.Mission) feedMission++;
+                else feedChat++;
+            }
+            Plugin.Log.LogInfo("Feed load chat=" + feedChat + " kill=" + feedKill + " mission=" + feedMission);
 
             float max = doc.Duration;
             foreach (var o in doc.Objects)

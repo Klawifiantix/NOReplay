@@ -64,7 +64,7 @@ namespace NOReplay
 
 
         internal const bool DefaultRecordEjectedPilots = false;
-        internal const bool DefaultAutoStartRecording = true;
+        internal const bool DefaultAutoStartRecording = false;
 
         internal const bool DefaultEnableUnitLogging = false;
 

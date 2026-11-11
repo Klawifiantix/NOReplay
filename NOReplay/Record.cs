@@ -53,6 +53,8 @@ namespace NOReplay
             catch (Exception ex) { Plugin.Log.LogError("RecordFeed.Install: " + ex); }
             try { NukeTime.Install(); }
             catch (Exception ex) { Plugin.Log.LogError("NukeTime.Install: " + ex); }
+            try { RecordSession.Install(); }
+            catch (Exception ex) { Plugin.Log.LogError("RecordSession.Install: " + ex); }
             Plugin.Log.LogInfo("Aufnahme bereit. " + RecordKeyLabel() + " startet und stoppt.");
         }
 
@@ -63,7 +65,7 @@ namespace NOReplay
                 Plugin.Log.LogInfo(RecordKeyLabel() + " ignoriert, Replay läuft.");
                 return;
             }
-            if (Active) Stop();
+            if (Active) Stop("manual");
             else Start();
         }
 
@@ -91,7 +93,21 @@ namespace NOReplay
             }
         }
 
-        public static void Stop()
+        public static void MaybeAutoStart()
+        {
+            if (Active || Plugin.CurrentDoc != null) return;
+            if (RecordConfig.AutoStartRecording == null || !RecordConfig.AutoStartRecording.Value) return;
+            try
+            {
+                var state = GameManager.gameState;
+                if (state != GameState.SinglePlayer && state != GameState.Multiplayer) return;
+            }
+            catch { return; }
+            Plugin.Log.LogInfo("Recording started: mission load");
+            Start();
+        }
+
+        public static void Stop(string reason = "manual")
         {
             if (!Active) return;
             try { RecordLasers.Flush(); }
@@ -114,6 +130,7 @@ namespace NOReplay
             var turrets = UnityEngine.Object.FindObjectsOfType<RecordTurrets>();
             for (int i = 0; i < turrets.Length; i++)
                 if (turrets[i] != null) UnityEngine.Object.Destroy(turrets[i]);
+            Plugin.Log.LogInfo("Recording stopped: " + reason);
             Plugin.Log.LogInfo("Aufnahme gestoppt (" + RecordKeyLabel() + ").");
         }
 
@@ -134,7 +151,7 @@ namespace NOReplay
 
             void Update()
             {
-                if (Plugin.CurrentDoc != null && Active) Stop();
+                if (Plugin.CurrentDoc != null && Active) Stop("replay");
             }
 
             void OnGUI()

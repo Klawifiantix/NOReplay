@@ -215,12 +215,20 @@ namespace NOReplay
 
         internal void ForceWreck()
         {
-            if (_ordnance || _boomed) return;
+            if (_ordnance) return;
             if (_ship)
             {
                 _boomed = true;
                 return;
             }
+            // A distant ground unit is switched off on the wreck frame, before
+            // LateUpdate. Play any blast that is already due, including a second one.
+            if (!_air)
+            {
+                AdvanceBlasts(Plugin.Clock != null ? Plugin.Clock.Time : 0f, Plugin.Clock == null || Plugin.Clock.Speed >= 0f);
+                return;
+            }
+            if (_boomed) return;
             if (Track == null || Track.RemovedAt < 0f) return;
             if (Plugin.Clock.Time + 0.05f < Track.RemovedAt) return;
             _boomed = true;

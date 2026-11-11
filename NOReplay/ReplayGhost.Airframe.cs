@@ -892,7 +892,6 @@ namespace NOReplay
         bool _spawnGearKnown;
         bool _surfaceSpawn;
         int _spawnGearTries;
-        float _spawnOffY = float.NaN;
         ReplayObject? _gearTrack;
         float[] _gearTimes = Array.Empty<float>();
         float[] _gearVals = Array.Empty<float>();
@@ -913,22 +912,6 @@ namespace NOReplay
             _surfaceSpawn = GearClock.OnSurface(dist, SpawnOffsetY());
             _spawnGearKnown = true;
             return true;
-        }
-
-        float SpawnOffsetY()
-        {
-            if (!float.IsNaN(_spawnOffY)) return _spawnOffY;
-            _spawnOffY = 2f;
-            try
-            {
-                var act = Plugin.FindGameType("Aircraft");
-                var ac = act == null ? null : (GetComponent(act) ?? GetComponentInChildren(act, true));
-                object? def = ac == null ? null : FindInstField(ac.GetType(), "definition")?.GetValue(ac);
-                object? off = def == null ? null : def.GetType().GetField("spawnOffset")?.GetValue(def);
-                if (off is Vector3 v) _spawnOffY = v.y;
-            }
-            catch { }
-            return _spawnOffY;
         }
 
         void EnsureGearKeys()

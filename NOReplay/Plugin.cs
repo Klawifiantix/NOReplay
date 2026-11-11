@@ -240,6 +240,10 @@ namespace NOReplay
                 if (!_staticHandlerStarted && InGameWorld() && Time.timeSinceLevelLoad > 2f)
                 {
                     _staticHandlerStarted = true;
+                    // The game's OnStartServer calls StartMission a few frames after the
+                    // map is ready. If that never happens, the JSON buildings stay unspawned
+                    // and the static handler can only see map objects.
+                    EnsureReplayMissionStarted();
                     ReplayStaticHandler.StartFor(CurrentDoc);
                 }
                 section = ReplayPerf.Stamp();

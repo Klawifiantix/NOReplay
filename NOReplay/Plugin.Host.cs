@@ -305,11 +305,41 @@ namespace NOReplay
 
         static void TryStartLoadedMission()
         {
+            EnsureReplayMissionStarted();
+        }
+
+        /// <summary>
+        /// MissionManager.StartMission is what spawns the buildings and scenery
+        /// written into the replay mission. SinglePlayerMenu.StartMission only
+        /// starts the host; the real call comes later from OnStartServer. If that
+        /// call never arrives, catch up once. A second call is skipped because
+        /// IsRunning is already true.
+        /// </summary>
+        internal static void EnsureReplayMissionStarted()
+        {
+            if (CurrentDoc == null) return;
             var mmType = FindGameType("MissionManager");
             if (mmType == null) return;
             var sflags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
-            mmType.GetMethod("StartMission", sflags)?.Invoke(null, null);
-            Log.LogInfo("StartMission aufgerufen.");
+            if (mmType.GetProperty("IsRunning", sflags)?.GetValue(null) is bool running && running)
+            {
+                Log.LogInfo("Mission already running.");
+                return;
+            }
+            if (mmType.GetProperty("CurrentMission", sflags)?.GetValue(null) == null)
+                EnsureCurrentMission();
+            try
+            {
+                mmType.GetMethod("StartMission", sflags)?.Invoke(null, null);
+                bool now = mmType.GetProperty("IsRunning", sflags)?.GetValue(null) is bool on && on;
+                Log.LogInfo(now
+                    ? "StartMission nachgeholt."
+                    : "StartMission nachgeholt, Mission laeuft nicht.");
+            }
+            catch (Exception ex)
+            {
+                Log.LogWarning("StartMission nachgeholt: " + (ex.InnerException?.Message ?? ex.Message));
+            }
         }
 
         static void DumpNetworkState(string tag)

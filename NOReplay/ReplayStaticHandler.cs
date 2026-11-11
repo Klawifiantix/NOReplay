@@ -180,6 +180,34 @@ namespace NOReplay
                     NoteUnmatched(obj, allUnits);
                 }
             }
+            int exported = 0;
+            int spawned = 0;
+            var exportedIds = new HashSet<string>();
+            foreach (var obj in _doc.Objects)
+            {
+                if (obj == null || !string.IsNullOrEmpty(obj.Map)) continue;
+                string type = obj.Type ?? "";
+                bool structure = type.IndexOf("Building", StringComparison.OrdinalIgnoreCase) >= 0
+                    || type.IndexOf("Scenery", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (!structure) continue;
+                exported++;
+                string id = SanitizeId(obj.Id);
+                if (id.Length > 0) exportedIds.Add(id);
+            }
+            if (exportedIds.Count > 0)
+            {
+                foreach (var u in allUnits)
+                {
+                    if (u == null) continue;
+                    string key = u.UniqueName ?? "";
+                    if (key.Length > 0 && exportedIds.Contains(key))
+                        spawned++;
+                }
+            }
+            Plugin.Log?.LogInfo("Statics exported=" + exported
+                + " spawned=" + spawned
+                + " bound=" + _tracked.Count
+                + " waiting=" + _waiting.Count);
             Plugin.Log?.LogInfo("ReplayStaticHandler: " + matched + " zugeordnet, warten " + _waiting.Count + " von " + removed);
         }
 

@@ -414,6 +414,14 @@ namespace NOReplay
 
         static bool _aircraftQueued;
 
+        internal static bool QueueBuiltinFallback(ReplayObject obj)
+        {
+            if (obj == null || string.IsNullOrEmpty(obj.Map)) return false;
+            if (_pendingAir.Contains(obj)) return true;
+            _pendingAir.Add(obj);
+            return true;
+        }
+
         static void QueueOwnAircraft()
         {
             if (_aircraftQueued || CurrentDoc == null || !InGameWorld()) return;
@@ -488,8 +496,9 @@ namespace NOReplay
                 if (go != null)
                 {
                     AddGhost(go);
-                    if (_ghost == null && !IsOrdnance(obj.Type, obj.Name)) _ghost = go;
-                    if (follow)
+                    bool mapFallback = !string.IsNullOrEmpty(obj.Map);
+                    if (!mapFallback && _ghost == null && !IsOrdnance(obj.Type, obj.Name)) _ghost = go;
+                    if (follow && !mapFallback)
                     {
                         try { TryFollowGhost(go); }
                         catch (Exception ex) { Log.LogWarning("Follow: " + (ex.InnerException?.Message ?? ex.Message)); }

@@ -55,13 +55,59 @@ namespace NOReplay
         public void Init(ReplayDocument doc)
         {
             _doc = doc;
+            BindBuiltin();
             BuildLookup();
             Plugin.Log?.LogInfo($"ReplayStaticHandler ready – tracking {_tracked.Count} non-moving objects.");
         }
 
+        bool _builtinLogged;
+
+        void BindBuiltin()
+        {
+            if (_builtinLogged || _doc == null) return;
+            _builtinLogged = true;
+            var allUnits = UnityEngine.Object.FindObjectsByType<Unit>(FindObjectsSortMode.None);
+            int bound = 0, missing = 0, spawned = 0;
+            var used = new HashSet<int>();
+            foreach (var obj in _doc.Objects)
+            {
+                if (obj == null || string.IsNullOrEmpty(obj.Map)) continue;
+                Unit? match = null;
+                for (int i = 0; i < allUnits.Length; i++)
+                {
+                    var u = allUnits[i];
+                    if (u == null) continue;
+                    if (!string.Equals(u.MapUniqueName, obj.Map, StringComparison.Ordinal)
+                        && !string.Equals(u.UniqueName, obj.Map, StringComparison.Ordinal))
+                        continue;
+                    match = u;
+                    break;
+                }
+                if (match != null && used.Add(match.GetInstanceID()))
+                {
+                    _tracked.Add((obj, match));
+                    bound++;
+                    continue;
+                }
+                missing++;
+                if (Plugin.QueueBuiltinFallback(obj))
+                    spawned++;
+                Plugin.Log?.LogInfo("Builtin missing " + (obj.Name ?? "?") + " map=" + obj.Map);
+            }
+            Plugin.Log?.LogInfo("Builtin buildings: bound " + bound + ", missing " + missing + ", spawned " + spawned);
+        }
+
         private void BuildLookup()
         {
+            var kept = new List<(ReplayObject obj, Unit unit)>();
+            for (int i = 0; i < _tracked.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(_tracked[i].obj.Map))
+                    kept.Add(_tracked[i]);
+            }
             _tracked.Clear();
+            for (int i = 0; i < kept.Count; i++)
+                _tracked.Add(kept[i]);
             var allUnits = UnityEngine.Object.FindObjectsByType<Unit>(FindObjectsSortMode.None);
             var byName = new Dictionary<string, List<Unit>>();
             foreach (var u in allUnits)
@@ -80,9 +126,15 @@ namespace NOReplay
             int removed = 0;
             int matched = 0;
             var used = new HashSet<int>();
+            for (int i = 0; i < _tracked.Count; i++)
+            {
+                if (_tracked[i].unit != null)
+                    used.Add(_tracked[i].unit.GetInstanceID());
+            }
             _waiting.Clear();
             foreach (var obj in _doc.Objects)
             {
+                if (!string.IsNullOrEmpty(obj.Map)) continue;
                 if (obj.RemovedAt < 0f) continue;
                 string type = obj.Type ?? "";
                 bool structure = type.IndexOf("Building", StringComparison.OrdinalIgnoreCase) >= 0

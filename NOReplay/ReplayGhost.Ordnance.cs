@@ -348,7 +348,10 @@ namespace NOReplay
                     NukeTime.Watch(go, born);
                     if (mushroom) NukeTime.KeepPieces(go);
                 }
-                go.SetActive(true);
+                float detonation = Track != null && Track.RemovedAt >= 0f ? Track.RemovedAt : born;
+                BoomAudio.PreferBorn = detonation;
+                try { go.SetActive(true); }
+                finally { BoomAudio.PreferBorn = -1f; }
                 foreach (var col in go.GetComponentsInChildren<Collider>(true))
                     if (col != null) col.enabled = false;
                 _boomGo = go;
@@ -356,7 +359,10 @@ namespace NOReplay
                 if (!Plugin.AudioNearWorld(pos, 700f))
                     MuteBoomAudio(go);
                 if (!mushroom)
-                    UnityEngine.Object.Destroy(go, 12f);
+                {
+                    float hold = BoomAudio.HoldSeconds(go);
+                    UnityEngine.Object.Destroy(go, hold > 12f ? hold : 12f);
+                }
                 Plugin.Log?.LogInfo("Boom yield kg=" + yieldKg.ToString("0.##") + " nuke=" + nuke);
                 return;
             }
@@ -379,7 +385,7 @@ namespace NOReplay
             var stop = at.GetMethod("Stop", Type.EmptyTypes);
             foreach (var c in go.GetComponentsInChildren(at, true))
             {
-                if (c == null) continue;
+                if (c == null || BoomAudio.Allows(c)) continue;
                 try
                 {
                     at.GetProperty("mute")?.SetValue(c, true);

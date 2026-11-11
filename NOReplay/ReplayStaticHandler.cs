@@ -493,7 +493,9 @@ namespace NOReplay
             go.transform.SetParent(null, true);
             NukeTime.Watch(go, born);
             if (mushroom) NukeTime.KeepPieces(go);
-            go.SetActive(true);
+            BoomAudio.PreferBorn = born;
+            try { go.SetActive(true); }
+            finally { BoomAudio.PreferBorn = -1f; }
             var blast = go.GetComponent<ReplayBlast>();
             if (blast == null) blast = go.AddComponent<ReplayBlast>();
             blast.Born = born;

@@ -84,10 +84,27 @@ namespace NOReplay.OrientationTests
 
         static void DyingIsNotTheBoom()
         {
-            Check(WreckMark.MeshShown(6f, 12f), "the mesh stays up after Dying until the wreck");
-            Check(WreckMark.Quiet(6f, 5f) && !WreckMark.Boom(6f, 12f), "Dying does not play the explosion");
-            Check(!WreckMark.MeshShown(12f, 12f) && WreckMark.Boom(12f, 12f), "the wreck time hides the mesh and plays once");
-            Check(!WreckMark.Quiet(3f, -1f) && WreckMark.Boom(4f, 4f), "an old file with no Dying mark still booms at removal");
+            Check(WreckMark.MeshShown(6f, 12f), "the wreck mark stays until removal");
+            Check(WreckMark.Quiet(6f, 5f), "Dying quiets the vehicle");
+            float normal = WreckMark.At(-1f, 5f, 12f, false);
+            Check(normal == 5f && WreckMark.Due(5f, normal) && !WreckMark.Due(4.9f, normal),
+                "a normal vehicle explodes when it dies");
+            float ammo = WreckMark.At(-1f, 5f, 12f, true);
+            Check(ammo == 12f && !WreckMark.Due(6f, ammo) && WreckMark.Due(12f, ammo),
+                "an ammo unit without a boom mark waits for the wreck");
+            Check(WreckMark.At(7f, 5f, 12f, true) == 7f, "a recorded boom is the explosion");
+            Check(WreckMark.At(5f, 5f, 12f, true) == 5f, "an ammo unit that blew up on the hit uses that time");
+            Check(WreckMark.At(-1f, -1f, 4f, false) == 4f, "an old file with no Dying mark still booms at removal");
+            Check(WreckMark.Source(-1f, 5f, false) == "dying" && WreckMark.Source(-1f, 5f, true) == "wreck"
+                && WreckMark.Source(7f, 5f, true) == "boom", "the log source names the mark that won");
+            Check(WreckMark.IsCookoff("HLT Munitions Truck") && WreckMark.IsCookoff("MSV Munitions")
+                && WreckMark.IsCookoff("Munitions Pallet") && WreckMark.IsCookoff("Munitions Container")
+                && WreckMark.IsCookoff("Ammo Dump") && WreckMark.IsCookoff("Munitions Bunker"),
+                "ammo trucks, pallets, containers, dumps and bunkers cook off");
+            Check(!WreckMark.IsCookoff("LCV45 Recon Truck") && !WreckMark.IsCookoff("Linebreaker SAM")
+                && !WreckMark.IsCookoff("T9K41 Boltstrike") && !WreckMark.IsCookoff("Naval Supply Pallet")
+                && !WreckMark.IsCookoff(null),
+                "other units do not cook off");
         }
 
         static void RejectedCoastKeepsTheSample()

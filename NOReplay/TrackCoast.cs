@@ -73,9 +73,12 @@ namespace NOReplay
     }
 
     /// <summary>
-    /// A new vehicle recording writes Dying=1 when the unit is disabled and
-    /// Visible=0 only when SpawnWreckage runs. The boom is the removal, not the dying mark.
-    /// An old file has no dying mark, so the boom stays on removal.
+    /// When a ground unit's blast plays.
+    /// GroundVehicle always waits 5 seconds after disable, and longer while the
+    /// body is still moving, before it spawns the wreck. That wait is not an
+    /// ammo cook-off. Ordinary vehicles explode at Dying. An ammunition unit
+    /// keeps the wreck time, which is the blast the recording actually saw.
+    /// A Boom=1 mark wins over both. Buildings and containers have no such wait.
     /// </summary>
     public static class WreckMark
     {
@@ -89,9 +92,40 @@ namespace NOReplay
             return dyingAt >= 0f && time >= dyingAt;
         }
 
-        public static bool Boom(float time, float removedAt)
+        /// <summary>
+        /// Replay time of the blast. Negative when the file never removes the unit.
+        /// </summary>
+        public static float At(float boomAt, float dyingAt, float removedAt, bool cookoff)
         {
-            return removedAt >= 0f && time >= removedAt;
+            if (boomAt >= 0f) return boomAt;
+            if (cookoff) return removedAt >= 0f ? removedAt : dyingAt;
+            if (dyingAt >= 0f) return dyingAt;
+            return removedAt;
+        }
+
+        public static bool Due(float time, float at)
+        {
+            return at >= 0f && time + 0.0001f >= at;
+        }
+
+        public static string Source(float boomAt, float dyingAt, bool cookoff)
+        {
+            if (boomAt >= 0f) return "boom";
+            if (!cookoff && dyingAt >= 0f) return "dying";
+            return "wreck";
+        }
+
+        /// <summary>
+        /// Ammunition trucks, pallets, containers, dumps, and bunkers.
+        /// The match is the unit's display name. Fuel and supply pallets are not included.
+        /// </summary>
+        public static bool IsCookoff(string? name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            if (name.IndexOf("Munition", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (name.IndexOf("Ammunition", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (name.IndexOf("Ammo Dump", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
         }
     }
 }

@@ -44,6 +44,11 @@ namespace NOReplay
         {
 
         }
+        /// <summary>Called once, on the disable sample, after Visible=0 is queued.</summary>
+        protected virtual void OnDyingProps()
+        {
+        }
+
         public virtual void LateUpdate()
         {
             if (!Record.Active) return;
@@ -60,6 +65,8 @@ namespace NOReplay
                     }
                     if (!props.ContainsKey("Visible"))
                         props.Add("Visible", "0.0");
+                    if (first)
+                        OnDyingProps();
                     if (!props.ContainsKey("Type"))
                         props.Add("Type", null!);
                     Engine.invokeWriterUpdate(this);

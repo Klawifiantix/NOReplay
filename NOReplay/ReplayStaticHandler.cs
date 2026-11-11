@@ -282,7 +282,8 @@ namespace NOReplay
                     shown = new Shown();
                     _shown[key] = shown;
                 }
-                bool dead = obj.RemovedAt >= 0f && t >= obj.RemovedAt;
+                float blast = WreckMark.At(obj.BoomAt, obj.DyingAt, obj.RemovedAt, WreckMark.IsCookoff(obj.Name));
+                bool dead = WreckMark.Due(t, blast);
                 if (dead && !shown.Dead)
                     ShowWreck(unit, shown, obj);
                 else if (!dead && shown.Dead)
@@ -347,7 +348,14 @@ namespace NOReplay
             // Hide the live mesh before the wreck samples the ground, so the
             // ray is not answered by the tank that is being removed.
             HoldIntact(shown);
-            shown.Wreck = SpawnWreck(unit, obj.RemovedAt);
+            float blast = WreckMark.At(obj.BoomAt, obj.DyingAt, obj.RemovedAt, WreckMark.IsCookoff(obj.Name));
+            shown.Wreck = SpawnWreck(unit, blast);
+            if (WreckMark.IsCookoff(obj.Name))
+            {
+                Plugin.Log?.LogInfo("Boom " + (unit.definition != null ? unit.definition.unitName : unit.name)
+                    + " at=" + blast.ToString("0.00")
+                    + " cook=1 src=" + WreckMark.Source(obj.BoomAt, obj.DyingAt, true));
+            }
             shown.Fx = SpawnPartEffects(unit, obj);
             RefreshFx(shown);
             HoldIntact(shown);

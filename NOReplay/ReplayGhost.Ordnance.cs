@@ -50,11 +50,17 @@ namespace NOReplay
             _ordVoiceHeld = false;
             if (_ordnance && IsTrackAlive())
                 IgniteMissileFx();
-            if (!_ordnance && IsTrackAlive())
+            if (!_ordnance && IsTrackAlive() && !GroundBlastDue())
             {
                 _boomed = false;
                 ClearSpawnedWreck();
             }
+        }
+
+        bool GroundBlastDue()
+        {
+            if (_ordnance || _ship || _air || Track == null || Plugin.Clock == null) return false;
+            return WreckMark.Due(Plugin.Clock.Time, UnitExplosionAt());
         }
 
         void ClearSpawnedWreck()

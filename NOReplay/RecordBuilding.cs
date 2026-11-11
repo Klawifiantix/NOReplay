@@ -97,6 +97,9 @@ namespace NOReplay
             base.disabled = true;
             props = new Dictionary<string, string>();
             props.Add("Visible", "0.0");
+            // A dump or bunker spawns its wreck in UnitDisabled, with no timer.
+            if (WreckMark.IsCookoff(unit.definition != null ? unit.definition.unitName : unit.unitName))
+                props.Add("Boom", "1");
             props.Add("Type", null);
 
             Engine.invokeWriterUpdate(this);

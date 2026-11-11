@@ -231,6 +231,7 @@ namespace NOReplay
                 }
                 long section = ReplayPerf.Stamp();
                 TickGhostSpawns();
+                KeepReplayCamera();
                 TickGhostSleep();
                 ApplyOrdnanceSeeks();
                 ReplayPerf.Add("spawn", ReplayPerf.Stamp() - section);
@@ -570,6 +571,8 @@ namespace NOReplay
                 var doc = AcmiParser.Load(path);
                 CurrentDoc = doc;
                 ResetMapIconLog();
+                _replayCam = null;
+                _camFreed = false;
                 Clock.Reset(doc.Duration);
                 Clock.Seek(0f);
                 Clock.Paused = true;

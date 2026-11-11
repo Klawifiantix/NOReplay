@@ -359,7 +359,9 @@ namespace NOReplay
             if (CapBase.ContainsKey(id)) return;
             if (!TryCap(cloudComponent, out var renderer, out _)) return;
             if (renderer == null) return;
-            CapBase[id] = renderer.transform.position;
+            // Store the point in datum space. FloatingOrigin moves every root,
+            // and a saved Unity position would stay next to the camera.
+            CapBase[id] = DatumLocal(renderer.transform.position);
         }
 
         static void LiftCap(Component cloudComponent, float age)
@@ -382,7 +384,19 @@ namespace NOReplay
                 sample.Age = age;
             }
             CapRise[id] = sample;
-            renderer.transform.position = basis + Vector3.up * sample.Height;
+            renderer.transform.position = DatumWorld(basis + Vector3.up * sample.Height);
+        }
+
+        static Vector3 DatumLocal(Vector3 world)
+        {
+            var datum = Plugin.Datum;
+            return datum != null ? datum.InverseTransformPoint(world) : world;
+        }
+
+        static Vector3 DatumWorld(Vector3 local)
+        {
+            var datum = Plugin.Datum;
+            return datum != null ? datum.TransformPoint(local) : local;
         }
 
         static float Integrate(AnimationCurve curve, float from, float to)

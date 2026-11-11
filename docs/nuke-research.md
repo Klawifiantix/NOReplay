@@ -119,4 +119,12 @@ does not animate.
 - `BlastManager.AddBlast` is skipped during replay. That call paints a scorch into the live map texture, and a missing blast manager would throw out of `Start` and stop the shockwave. The shockwave mesh and the ground decal still run.
 - `ReplayBlast` only registers the object and logs `Nuke age= ...` a few times. It does not scale anything.
 
-Unconfirmed until an in-game log: the vapor mesh's authored shape, the decal projector size on the prefab, the exact animation-curve times, and the kiloton number on each warhead prefab. The new log line prints the kilotons, the vapor local and lossy scale, and a cap or ring scale every two seconds of replay age.
+Unconfirmed until an in-game log: the vapor mesh's authored shape, the decal projector size on the prefab, and the exact animation-curve times. The kiloton numbers are confirmed by the first recording: `GPO-N (250kt)` is `NuclearBomb1_strategic` / `explosion_250kt` at 250000000 kg, and `GPO-N (1.5kt)` is `NuclearBomb1` / `explosion_1kt` at 1500000 kg. The vapor scales in that log are uniform.
+
+## Camera and the cloud that followed it
+
+`FloatingOrigin.OriginShift` subtracts the camera position, on a 64 m grid, from every root once the camera is more than 1024 m from the Unity origin on any axis. `MushroomCloud` and `Shockwave` do not move the camera, do not change `Time.timeScale`, and do not enable a cinematic mode. `Shockwave.Update` only points the vapor at `CameraStateManager`.
+
+The stuck camera is the TV state. The first spawned object in this file is the 250 kt bomb (`Airframes in eigene Queue: 0`). Follow calls `SetFollowingUnit`, which the ordnance block skips, and then always calls `SwitchState(TVState)` because that field is never null. `SwitchState` assigns `currentState` before `EnterState`. `CameraTVState.EnterState` then dereferences `followingUnit` and throws. The log line is `Follow: Exception has been thrown by the target of an invocation`, once per bomb, before either `Boom`. The camera is left in TV mode: `UpdateState` zeroes `cameraVelocity` and plants the pivot on the ground linecast, so it cannot be flown, and a later successful shot or origin shift moves it to an unrelated place.
+
+The cloud follows the camera because the cap position was saved as a Unity world point and written back every frame. After an origin shift the world and the camera move and that saved point does not, so the cap stays beside the camera. The rise is now stored relative to the datum, and the effect is parented to the datum the way `Missile.Warhead.Detonate` parents it. A bomb is no longer followed, and a TV state with no aircraft target is returned to the free camera.

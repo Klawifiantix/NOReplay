@@ -325,7 +325,8 @@ namespace NOReplay
                 finally { fx.SetActive(wasActive); }
                 go.name = "NOReplay_Boom";
                 go.SetActive(false);
-                go.transform.SetParent(null, true);
+                var datum = Plugin.Datum;
+                if (datum != null) go.transform.SetParent(datum, true);
                 if (yieldKg > 0f)
                     NukeTime.ApplyMissileYield(go, yieldKg);
                 bool nuke = false;
@@ -348,6 +349,8 @@ namespace NOReplay
                     if (mushroom) NukeTime.KeepPieces(go);
                 }
                 go.SetActive(true);
+                foreach (var col in go.GetComponentsInChildren<Collider>(true))
+                    if (col != null) col.enabled = false;
                 _boomGo = go;
                 PlayParticles(go);
                 if (!Plugin.AudioNearWorld(pos, 700f))

@@ -22,7 +22,7 @@ namespace NOReplay
             _follow = true;
             Log.LogInfo("Follow " + _ghost.name);
             try { TryFollowGhost(_ghost); }
-            catch (Exception ex) { Log.LogWarning("Follow: " + ex.Message); }
+            catch (Exception ex) { Log.LogWarning("Follow: " + (ex.InnerException?.Message ?? ex.Message)); }
         }
 
         static bool _ordnanceWarmed;
@@ -492,7 +492,7 @@ namespace NOReplay
                     if (follow)
                     {
                         try { TryFollowGhost(go); }
-                        catch (Exception ex) { Log.LogWarning("Follow: " + ex.Message); }
+                        catch (Exception ex) { Log.LogWarning("Follow: " + (ex.InnerException?.Message ?? ex.Message)); }
                     }
 
                 }

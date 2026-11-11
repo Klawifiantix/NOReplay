@@ -81,6 +81,17 @@ namespace NOReplay
                 { "Debug", lastState.ToString()}
             };
             var recorder = Engine;
+            try
+            {
+                float yieldKg = missile.GetYield();
+                if (yieldKg > 0f)
+                {
+                    props["Yield"] = yieldKg.ToString("0.##", CultureInfo.InvariantCulture);
+                    if (yieldKg > 200f)
+                        Record.Log?.LogInfo("Missile yield " + missile.definition.unitName + " kg=" + props["Yield"]);
+                }
+            }
+            catch { }
             if (missile.owner != null && recorder.unitObjects.TryGetValue(missile.owner.persistentID.Id, out var ownerGo) && ownerGo != null)
             {
                 var ownerRec = ownerGo.GetComponent<RecordUnit>();

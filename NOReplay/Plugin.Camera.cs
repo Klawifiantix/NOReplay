@@ -100,8 +100,17 @@ namespace NOReplay
 
         internal static void ReleaseCameraIfOn(GameObject go) => ReleaseFollowedCamera(go);
 
+        static UnityEngine.Object? _replayCam;
+        static bool _camFreed;
+
         static void TryFollowGhost(GameObject go)
         {
+            var ghost = go.GetComponent<ReplayGhost>();
+            if (ghost != null && IsOrdnance(ghost.Track?.Type, ghost.Track?.Name))
+            {
+                LogOnce("Cam-Bombe", "Cam bleibt frei, keine Bombe verfolgt: " + go.name, false);
+                return;
+            }
             var unit = FindUnitOn(go);
             if (unit == null) return;
             var camType = FindGameType("CameraStateManager");
@@ -109,7 +118,7 @@ namespace NOReplay
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             foreach (var cam in Resources.FindObjectsOfTypeAll(camType))
             {
-                if (cam == null) continue;
+                if (cam is not Component view || !view.gameObject.scene.IsValid()) continue;
                 var sw = camType.GetMethod("SwitchState", flags);
                 var follow = camType.GetMethod("SetFollowingUnit", flags);
                 var tv = camType.GetField("TVState", flags)?.GetValue(cam);
@@ -117,6 +126,52 @@ namespace NOReplay
                 if (tv != null) sw?.Invoke(cam, new[] { tv });
                 break;
             }
+        }
+
+        /// <summary>
+        /// TV mode is entered before its EnterState runs. Following a bomb is
+        /// refused, so EnterState throws and the camera stays in TV with no
+        /// target: movement is zeroed and the pivot is planted on the ground.
+        /// </summary>
+        internal static void KeepReplayCamera()
+        {
+            if (CurrentDoc == null) return;
+            var camType = FindGameType("CameraStateManager");
+            if (camType == null) return;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            if (_replayCam == null)
+            {
+                foreach (var cam in Resources.FindObjectsOfTypeAll(camType))
+                {
+                    if (cam is Component view && view.gameObject.scene.IsValid())
+                    {
+                        _replayCam = view;
+                        break;
+                    }
+                }
+            }
+            if (_replayCam == null) return;
+            var state = camType.GetProperty("currentState", flags)?.GetValue(_replayCam);
+            var tv = camType.GetField("TVState", flags)?.GetValue(_replayCam);
+            if (state == null || tv == null || !ReferenceEquals(state, tv)) return;
+            var unit = camType.GetField("followingUnit", flags)?.GetValue(_replayCam) as Component;
+            if (unit != null)
+            {
+                var rg = unit.GetComponent<ReplayGhost>() ?? unit.GetComponentInParent<ReplayGhost>();
+                if (rg == null || !IsOrdnance(rg.Track?.Type, rg.Track?.Name)) return;
+                DetachCamerasFrom(unit.gameObject);
+            }
+            var free = camType.GetField("freeState", flags)?.GetValue(_replayCam);
+            if (free == null) return;
+            try { camType.GetMethod("SwitchState", flags)?.Invoke(_replayCam, new[] { free }); }
+            catch (Exception ex)
+            {
+                Log.LogWarning("Cam frei: " + (ex.InnerException?.Message ?? ex.Message));
+                return;
+            }
+            if (_camFreed) return;
+            _camFreed = true;
+            Log.LogInfo("Cam TV verlassen, freie Sicht");
         }
     }
 }

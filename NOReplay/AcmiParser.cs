@@ -139,6 +139,12 @@ namespace NOReplay
                     {
                         if (val.Length > 0) obj.Name = val.ToString();
                     }
+                    else if (AcmiScan.KeyIs(key, "Yield"))
+                    {
+                        if (float.TryParse(val.ToString(), System.Globalization.NumberStyles.Float,
+                                System.Globalization.CultureInfo.InvariantCulture, out float yieldKg))
+                            obj.Yield = yieldKg;
+                    }
                     else if (AcmiScan.KeyIs(key, "Type"))
                     {
                         if (val.Length > 0

@@ -183,6 +183,7 @@ namespace NOReplay
             _holdClock = false;
             _pickerOpen = false;
             ReplayRounds.Clear();
+            BoomAudio.Clear();
             CurrentDoc = null;
             FeedPlayback.Reset();
             _staticHandlerStarted = false;
@@ -231,6 +232,7 @@ namespace NOReplay
                 }
                 long section = ReplayPerf.Stamp();
                 TickGhostSpawns();
+                KeepReplayCamera();
                 TickGhostSleep();
                 ApplyOrdnanceSeeks();
                 ReplayPerf.Add("spawn", ReplayPerf.Stamp() - section);
@@ -241,6 +243,7 @@ namespace NOReplay
                 }
                 section = ReplayPerf.Stamp();
                 TickMissileBooms();
+                BoomAudio.Tick(Clock.Time, Clock.Paused, Clock.Speed, Clock.SeekSerial);
                 TickReplaySelection();
                 ReplayPerf.Add("booms", ReplayPerf.Stamp() - section);
                 section = ReplayPerf.Stamp();
@@ -570,6 +573,9 @@ namespace NOReplay
                 var doc = AcmiParser.Load(path);
                 CurrentDoc = doc;
                 ResetMapIconLog();
+                BoomAudio.Clear();
+                _replayCam = null;
+                _camFreed = false;
                 Clock.Reset(doc.Duration);
                 Clock.Seek(0f);
                 Clock.Paused = true;

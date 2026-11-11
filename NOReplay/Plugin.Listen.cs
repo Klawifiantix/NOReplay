@@ -334,6 +334,7 @@ namespace NOReplay
         static bool SkipFarPlay(object __instance)
         {
             if (CurrentDoc == null) return true;
+            if (BoomAudio.Allows(__instance)) return true;
             var c = __instance as Component;
             if (c == null) return true;
             if (c.gameObject.name == "NOReplay_GunShot" || c.gameObject.name == "NOReplay_GunLoop") return true;
@@ -372,25 +373,11 @@ namespace NOReplay
         static bool SkipFarExplosion(object __instance)
         {
             if (CurrentDoc == null) return true;
-            var c = __instance as Component;
-            if (c == null) return true;
-            if (AudioNearWorld(c.transform.position, 700f)) return true;
-            try
-            {
-                var at = Type.GetType("UnityEngine.AudioSource, UnityEngine.AudioModule")
-                         ?? FindGameType("AudioSource");
-                if (at != null)
-                {
-                    var stop = at.GetMethod("Stop", Type.EmptyTypes);
-                    foreach (var s in c.GetComponentsInChildren(at, true))
-                    {
-                        if (s == null) continue;
-                        at.GetProperty("volume")?.SetValue(s, 0f);
-                        stop?.Invoke(s, null);
-                    }
-                }
-            }
-            catch { }
+            float born = BoomAudio.PreferBorn >= 0f
+                ? BoomAudio.PreferBorn
+                : (Clock != null ? Clock.Time : 0f);
+            try { BoomAudio.Arm(__instance as Component, born); }
+            catch (Exception ex) { Log.LogWarning("Boom-Sound " + ex.Message); }
             return false;
         }
 

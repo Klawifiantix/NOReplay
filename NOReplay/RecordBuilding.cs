@@ -43,6 +43,7 @@ namespace NOReplay
             UpdateState();
             Engine.invokeWriterUpdate(this);
             props.Clear();
+            RecordWreck.Watch(this, unit.persistentID.Id);
             if (!unit.disabled)
                 RecordTurrets.Attach(this, building);
 
@@ -90,6 +91,17 @@ namespace NOReplay
             props.Clear();
         }
 
+        internal override void NoteBlast(string src)
+        {
+            if (!MarkBlast() || unit == null) return;
+            string label = unit.definition != null ? unit.definition.unitName : unit.unitName;
+            props = new Dictionary<string, string>();
+            props["Boom"] = "1";
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
+            Record.Log?.LogInfo("Boom-Rec " + label + " src=" + src);
+        }
+
         private void OnUnitDisabled(Unit u)
         {
             if (u != unit || base.disabled) return;
@@ -98,8 +110,12 @@ namespace NOReplay
             props = new Dictionary<string, string>();
             props.Add("Visible", "0.0");
             // A dump or bunker spawns its wreck in UnitDisabled, with no timer.
-            if (WreckMark.IsCookoff(unit.definition != null ? unit.definition.unitName : unit.unitName))
+            string label = unit.definition != null ? unit.definition.unitName : unit.unitName;
+            if (WreckMark.IsCookoff(label) && MarkBlast())
+            {
                 props.Add("Boom", "1");
+                Record.Log?.LogInfo("Boom-Rec " + label + " src=disable");
+            }
             props.Add("Type", null);
 
             Engine.invokeWriterUpdate(this);

@@ -131,6 +131,7 @@ namespace NOReplay
             base.enabled = true;
             RecordTurrets.Attach(this, vehicle);
             RecordWreck.Register(this, unit.persistentID.Id);
+            RecordWreck.Watch(this, unit.persistentID.Id);
             _unitName = unitName;
         }
 
@@ -249,6 +250,17 @@ namespace NOReplay
                 Engine.invokeWriterDestroy(this);
         }
 
+        internal override void NoteBlast(string src)
+        {
+            if (!MarkBlast()) return;
+            props.Clear();
+            if (unit != null) UpdatePose(true);
+            props["Boom"] = "1";
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
+            Record.Log?.LogInfo("Boom-Rec " + _unitName + " src=" + src);
+        }
+
         internal void OnWreckSpawned()
         {
             if (_wrecked) return;
@@ -258,10 +270,13 @@ namespace NOReplay
                 props.Clear();
                 if (unit != null) UpdatePose(true);
                 props["Visible"] = "0.0";
-                // Ammunition trucks cook off when the wreck is spawned. The wait
-                // is the game's 5s delay plus any extra time the body is still moving.
-                if (WreckMark.IsCookoff(_unitName))
+                // SpawnWreckage is the delayed blast. A part explosion earlier
+                // already wrote its own Boom line.
+                if (WreckMark.IsCookoff(_unitName) && MarkBlast())
+                {
                     props["Boom"] = "1";
+                    Record.Log?.LogInfo("Boom-Rec " + _unitName + " src=wreck");
+                }
                 props["Type"] = null!;
                 Engine.invokeWriterUpdate(this);
                 props.Clear();

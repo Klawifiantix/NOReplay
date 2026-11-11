@@ -151,6 +151,9 @@ namespace NOReplay
         readonly List<Transform> _brakeTr = new();
         readonly List<Quaternion> _brakeRest = new();
         bool _boomed;
+        int _blastsPlayed;
+        float[] _blastTimes = Array.Empty<float>();
+        ReplayObject? _blastTrack;
         internal bool IsWrecked => _boomed;
         bool _ordAudioOn;
         bool _ordVoiceHeld;
@@ -1247,12 +1250,11 @@ namespace NOReplay
                     _boomed = false;
                 }
                 _boomClock = nowDead;
-                // A ground unit plays at its blast time, which can be the death
-                // rather than the wreck. Aircraft and missiles keep the removal time.
-                bool playBlast = groundBlast && boomAt >= 0f
-                    ? !_boomed && WreckMark.Due(nowDead, boomAt)
-                    : !_boomed && (end < 0f || nowDead >= end);
-                if (playBlast)
+                // A ground unit plays each recorded blast. Aircraft and missiles
+                // keep the removal time.
+                if (groundBlast)
+                    AdvanceBlasts(nowDead, Plugin.Clock.Speed >= 0f);
+                else if (!_boomed && (end < 0f || nowDead >= end))
                 {
                     _boomed = true;
                     if (_ordnance && !IsFlareTrack())
@@ -1262,11 +1264,7 @@ namespace NOReplay
                         PlayWarheadBoom(transform.position);
                     }
                     else if (!_ordnance && !_ship)
-                    {
                         PlayUnitWreckFx(transform.position, transform.rotation);
-                        if (groundBlast)
-                            LogUnitBoom(boomAt);
-                    }
                 }
                 if (_ship)
                 {
@@ -1293,6 +1291,7 @@ namespace NOReplay
                 return;
             }
             _boomed = false;
+            _blastsPlayed = 0;
             ClearBoom();
             if (!_ordnance)
                 ClearSpawnedWreck();
@@ -1582,14 +1581,50 @@ namespace NOReplay
             return WreckMark.At(Track.BoomAt, Track.DyingAt, Track.RemovedAt, WreckMark.IsCookoff(Track.Name));
         }
 
-        void LogUnitBoom(float at)
+        void EnsureBlastTimes()
+        {
+            if (ReferenceEquals(_blastTrack, Track)) return;
+            _blastTrack = Track;
+            _blastsPlayed = 0;
+            var list = Track?.BoomTimes;
+            if (list != null && list.Count > 0)
+            {
+                _blastTimes = list.ToArray();
+                return;
+            }
+            float one = UnitExplosionAt();
+            _blastTimes = one >= 0f ? new[] { one } : Array.Empty<float>();
+        }
+
+        void AdvanceBlasts(float now, bool play)
+        {
+            EnsureBlastTimes();
+            int due = BlastSchedule.Due(now, _blastTimes);
+            if (due == _blastsPlayed) return;
+            if (due > _blastsPlayed)
+            {
+                if (play)
+                {
+                    PlayUnitWreckFx(transform.position, transform.rotation);
+                    LogUnitBoom(_blastTimes[due - 1], due);
+                }
+            }
+            else
+                ClearSpawnedWreck();
+            _blastsPlayed = due;
+            _boomed = due > 0;
+        }
+
+        void LogUnitBoom(float at, int n)
         {
             bool cook = WreckMark.IsCookoff(Track?.Name);
-            string src = WreckMark.Source(Track?.BoomAt ?? -1f, Track?.DyingAt ?? -1f, cook);
+            bool recorded = Track != null && Track.BoomTimes != null && Track.BoomTimes.Count > 0;
+            string src = recorded ? "boom" : WreckMark.Source(Track?.BoomAt ?? -1f, Track?.DyingAt ?? -1f, cook);
             Plugin.Log?.LogInfo("Boom " + (Track?.Name ?? name)
                 + " at=" + at.ToString("0.00")
                 + " cook=" + (cook ? "1" : "0")
-                + " src=" + src);
+                + " src=" + src
+                + " n=" + n.ToString());
         }
 
         internal bool VehicleIsDying(float t)

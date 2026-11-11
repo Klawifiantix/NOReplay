@@ -49,6 +49,20 @@ namespace NOReplay
         {
         }
 
+        float _blastAt = -999f;
+
+        /// <summary>False when this hit was already written. A later blast is a new line.</summary>
+        protected bool MarkBlast()
+        {
+            if (UnityEngine.Time.time - _blastAt < BlastSchedule.SameHitSeconds) return false;
+            _blastAt = UnityEngine.Time.time;
+            return true;
+        }
+
+        internal virtual void NoteBlast(string src)
+        {
+        }
+
         public virtual void LateUpdate()
         {
             if (!Record.Active) return;

@@ -294,11 +294,11 @@ namespace NOReplay
                         // Vehicle is disabled. The wreck spawn is a later Visible=0. Tacview ignores Dying.
                         obj.DyingAt = time;
                     }
-                    else if (AcmiScan.KeyIs(key, "Boom") && obj.BoomAt < 0f
+                    else if (AcmiScan.KeyIs(key, "Boom")
                         && val.Length > 0 && val[0] == '1')
                     {
-                        // The blast the recorder saw. Tacview ignores Boom.
-                        obj.BoomAt = time;
+                        // Each Boom=1 is one blast. Tacview ignores Boom.
+                        obj.AddBoom(time);
                     }
                     else if ((key.Length == 1 && key[0] == 'T') || AcmiScan.KeyIs(key, "Transform"))
                     {

@@ -33,6 +33,7 @@ namespace NOReplay
             enabled = true;
             Record.Log?.LogInfo("Cargo rec " + name + " id=" + unitId.ToString(CultureInfo.InvariantCulture));
             _name = name;
+            RecordWreck.Watch(this, unitId);
         }
 
         string _name = "";
@@ -40,8 +41,22 @@ namespace NOReplay
         protected override void OnDyingProps()
         {
             // A pallet or container hides as soon as it is disabled. There is no cook-off timer.
-            if (!props.ContainsKey("Boom") && WreckMark.IsCookoff(_name))
+            if (!props.ContainsKey("Boom") && WreckMark.IsCookoff(_name) && MarkBlast())
+            {
                 props["Boom"] = "1";
+                Record.Log?.LogInfo("Boom-Rec " + _name + " src=disable");
+            }
+        }
+
+        internal override void NoteBlast(string src)
+        {
+            if (!MarkBlast()) return;
+            props.Clear();
+            if (unit != null) UpdatePose(true);
+            props["Boom"] = "1";
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
+            Record.Log?.LogInfo("Boom-Rec " + _name + " src=" + src);
         }
 
         public override void Update()

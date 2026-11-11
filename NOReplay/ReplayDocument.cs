@@ -153,8 +153,18 @@ namespace NOReplay
         public float KilledAt = -1f;
         /// <summary>Replay time of Dying=1. The unit is disabled here. The wreck may be later.</summary>
         public float DyingAt = -1f;
-        /// <summary>Replay time of Boom=1. Negative when the file has no blast mark.</summary>
+        /// <summary>Replay time of the first Boom=1. Negative when the file has no blast mark.</summary>
         public float BoomAt = -1f;
+        /// <summary>Every Boom=1, in order. Empty when the file has none.</summary>
+        public List<float> BoomTimes = new List<float>();
+
+        public void AddBoom(float time)
+        {
+            float previous = BoomTimes.Count > 0 ? BoomTimes[BoomTimes.Count - 1] : -1f;
+            if (!BlastSchedule.IsLater(time, previous)) return;
+            BoomTimes.Add(time);
+            if (BoomAt < 0f) BoomAt = time;
+        }
         public bool HasPart;
         public byte PartId;
         public string? PartKind;

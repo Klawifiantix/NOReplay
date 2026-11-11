@@ -9,6 +9,25 @@ namespace NOReplay
     internal class RecordAircraft : RecordUnit
     {
         private bool lastGear = false;
+        bool _gearSent;
+
+        /// <summary>
+        /// The first sample carries the gear the aircraft actually spawned with.
+        /// Later samples are written only when that bool changes.
+        /// </summary>
+        void NoteGear()
+        {
+            if (RecordConfig.RecordLandingGear == null || !RecordConfig.RecordLandingGear.Value) return;
+            if (aircraft == null || aircraft.gearState == LandingGear.GearState.Uninitialized) return;
+            bool down = aircraft.gearDeployed;
+            if (_gearSent && down == lastGear) return;
+            props["LandingGear"] = down ? "1" : "0";
+            lastGear = down;
+            if (!_gearSent)
+                Record.Log?.LogInfo("Gear-Rec " + (aircraft.definition != null ? aircraft.definition.unitName : "aircraft")
+                    + " down=" + (down ? "1" : "0"));
+            _gearSent = true;
+        }
         int _liveryLog;
         private bool lastRadar = false;
         private float lastAGL = float.NaN;
@@ -82,6 +101,7 @@ namespace NOReplay
             }
 
             ApplyLoadoutAndLivery();
+            NoteGear();
 
             Engine.invokeWriterUpdate(this);
             props.Clear();
@@ -277,11 +297,7 @@ namespace NOReplay
                 lastAGL = aircraft.radarAlt;
             }
 
-            if (aircraft.gearDeployed != lastGear && RecordConfig.RecordLandingGear.Value == true)
-            {
-                props.Add("LandingGear", aircraft.gearDeployed ? "1" : "0");
-                lastGear = aircraft.gearDeployed;
-            }
+            NoteGear();
 
             RecordNacelleTilt();
 

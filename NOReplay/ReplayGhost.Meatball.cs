@@ -515,9 +515,12 @@ namespace NOReplay
                 var ac = GetComponent(acType) ?? GetComponentInChildren(acType, true);
                 if (ac == null) return 0f;
                 var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-                object? def = ac.GetType().GetProperty("definition", flags)?.GetValue(ac);
+                var acT = ac.GetType();
+                // Unit.definition is a field. A property lookup misses it.
+                object? def = FindInstField(acT, "definition")?.GetValue(ac)
+                    ?? acT.GetProperty("definition", flags)?.GetValue(ac);
                 if (def == null) return 0f;
-                if (def.GetType().GetField("spawnOffset", flags)?.GetValue(def) is Vector3 v)
+                if (FindInstField(def.GetType(), "spawnOffset")?.GetValue(def) is Vector3 v)
                     _spawnOffY = v.y;
             }
             catch { }

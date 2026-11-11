@@ -889,9 +889,52 @@ namespace NOReplay
             if (!spinning) _spooledDown = true;
         }
 
-        bool _gearStartChecked;
-        bool _startedAir;
+        bool _spawnGearKnown;
+        bool _surfaceSpawn;
+        int _spawnGearTries;
+        ReplayObject? _gearTrack;
+        float[] _gearTimes = Array.Empty<float>();
+        float[] _gearVals = Array.Empty<float>();
         int _gearLog;
+
+        // Aircraft.CheckRadarAlt uses Statics (6) and Ships (11). A carrier deck is a ship.
+        const int SurfaceMask = (1 << 6) | (1 << 11);
+
+        bool EnsureSpawnGear()
+        {
+            if (_spawnGearKnown) return true;
+            _spawnGearTries++;
+            float dist = GearClock.NoSurface;
+            if (Physics.Raycast(transform.position, Vector3.down, out var hit, 5000f, SurfaceMask, QueryTriggerInteraction.Ignore))
+                dist = hit.distance;
+            else if (_spawnGearTries < 30)
+                return false;
+            _surfaceSpawn = GearClock.OnSurface(dist, SpawnOffsetY());
+            _spawnGearKnown = true;
+            return true;
+        }
+
+        void EnsureGearKeys()
+        {
+            if (ReferenceEquals(_gearTrack, Track)) return;
+            _gearTrack = Track;
+            var samples = Track?.Samples;
+            int n = 0;
+            if (samples != null)
+                for (int i = 0; i < samples.Count; i++)
+                    if (samples[i].HasGear) n++;
+            _gearTimes = new float[n];
+            _gearVals = new float[n];
+            if (samples == null) return;
+            int w = 0;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                if (!samples[i].HasGear) continue;
+                _gearTimes[w] = samples[i].Time;
+                _gearVals[w] = samples[i].Gear;
+                w++;
+            }
+        }
 
         float ReadAgl()
         {
@@ -1081,20 +1124,33 @@ namespace NOReplay
                 SuppressDamageFx();
             }
             bool airborne = agl > 8f;
-            if (_air && !_gearStartChecked && Physics.Raycast(transform.position + Vector3.up * 4f, Vector3.down, out var ground, 1200f, ~0, QueryTriggerInteraction.Ignore))
+            bool gearDown = false;
+            if (EnsureSpawnGear())
             {
-                _gearStartChecked = true;
-                _startedAir = ground.distance > 2f;
-                if (_startedAir) _fold = 1f;
-            }
-            if (s.HasGear)
-            {
-                _haveGearAcmi = true;
-                _gearFromAcmi = s.Gear > 0.5f;
-                if (_gearLog < 4)
+                EnsureGearKeys();
+                float now = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+                int key = GearClock.ActiveKey(now, _gearTimes);
+                string src;
+                if (key >= 0)
                 {
-                    _gearLog++;
-                    Plugin.Log.LogInfo("Gear ACMI " + gameObject.name + " val=" + s.Gear + " down=" + _gearFromAcmi);
+                    gearDown = _gearVals[key] > 0.5f;
+                    src = "key";
+                }
+                else
+                {
+                    gearDown = _surfaceSpawn;
+                    src = _surfaceSpawn ? "spawn-ground" : "spawn-air";
+                }
+                bool changed = _gearDownSent != gearDown;
+                ApplyReplayGear(gearDown);
+                if (changed && _gearDownSent == gearDown)
+                {
+                    string line = "Gear " + gameObject.name
+                        + " down=" + (gearDown ? "1" : "0")
+                        + " src=" + src;
+                    if (key >= 0) line += " key=" + _gearTimes[key].ToString("0.00");
+                    line += " t=" + now.ToString("0.00");
+                    Plugin.Log.LogInfo(line);
                 }
             }
             if (s.HasThrottle)
@@ -1108,12 +1164,6 @@ namespace NOReplay
             bool alive = IsTrackAlive();
             if (alive) _spooledDown = false;
             float govern = StepGovern(s, alive);
-            bool gearDown = _haveGearAcmi ? _gearFromAcmi : !airborne;
-            // Respect ACMI gear state – do not override with height check
-            if (!_haveGearAcmi && _startedAir && gearDown && Physics.Raycast(transform.position + Vector3.up * 4f, Vector3.down, out var still, 1200f, ~0, QueryTriggerInteraction.Ignore) && still.distance > 2f)
-                gearDown = false;
-            if (_startedAir && !gearDown) _fold = 1f;
-            ApplyReplayGear(gearDown);
             KeepIgnition();
             if (_shafts.Length > 0)
             {
@@ -1383,10 +1433,10 @@ namespace NOReplay
             if (act == null) return;
             var ac = GetComponent(act) ?? GetComponentInChildren(act, true);
             if (ac == null) return;
-            Plugin.AllowReplayGear = true;
-            try { act.GetMethod("SetGear", new[] { typeof(bool) })?.Invoke(ac, new object[] { gearDown }); }
-            catch { }
-            finally { Plugin.AllowReplayGear = false; }
+            // LockedRetracted / LockedExtended snap the hinge. Extending and
+            // Retracting start LandingGear.MoveGear, which runs on real time and
+            // pushes foldAmount past 1. SetGear(bool) is already blocked on ghosts;
+            // calling it here would also start that animation.
             try
             {
                 if (_gearStateEnum == null)
@@ -1395,8 +1445,8 @@ namespace NOReplay
                     _gearStateEnum = lg?.GetNestedType("GearState");
                     if (_gearStateEnum != null)
                     {
-                        _gsLockedUp = Enum.Parse(_gearStateEnum, "Retracting");
-                        _gsLockedDown = Enum.Parse(_gearStateEnum, "Extending");
+                        _gsLockedUp = Enum.Parse(_gearStateEnum, "LockedRetracted");
+                        _gsLockedDown = Enum.Parse(_gearStateEnum, "LockedExtended");
                         _mSetGearState = act.GetMethod("SetGear", new[] { _gearStateEnum });
                     }
                 }

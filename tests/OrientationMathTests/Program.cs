@@ -53,6 +53,8 @@ namespace NOReplay.OrientationTests
             TrackCoastTests.Run();
             MapGearTests.Run();
             _failed += MapGearTests.Failed;
+            GearClockTests.Run();
+            _failed += GearClockTests.Failed;
             WreckThrowTests.Run();
             _failed += WreckThrowTests.Failed;
             _failed += TrackCoastTests.Failed;

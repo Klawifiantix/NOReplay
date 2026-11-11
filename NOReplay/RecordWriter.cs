@@ -39,6 +39,7 @@ namespace NOReplay
             output = new RecordFileWriter(File.CreateText(filename));
             //sb = new StringBuilder();
             this.reference = reference;
+            lastUpdate = TimeSpan.MinValue;
             currentMapKey = MapSettingsManager.i.MapLoader.CurrentMap;
 
             Record.Log?.LogDebug("MAP NAME IS " + currentMapKey.Path);
@@ -94,7 +95,7 @@ namespace NOReplay
 
         public void UpdateObject(RecordObject aObject, DateTime updateTime)
         {
-            if (aObject.props.Count == 0)
+            if (_shut || aObject.props.Count == 0)
                 return;
 
             TimeSpan diff = updateTime - reference;
@@ -112,7 +113,7 @@ namespace NOReplay
 
         internal void RemoveObject(RecordObject aObject, DateTime updateTime)
         {
-
+            if (_shut) return;
             TimeSpan diff = updateTime - reference;
             if (diff != lastUpdate)
             {
@@ -126,6 +127,7 @@ namespace NOReplay
 
         internal void WriteDestroyedEvent(RecordObject aObject, DateTime updateTime)
         {
+            if (_shut) return;
             TimeSpan diff = updateTime - reference;
             if (diff != lastUpdate)
             {
@@ -146,6 +148,7 @@ namespace NOReplay
 
         internal void WriteRepairedEvent(RecordObject aObject, DateTime updateTime)
         {
+            if (_shut) return;
             TimeSpan diff = updateTime - reference;
             if (diff != lastUpdate)
             {
@@ -181,6 +184,7 @@ namespace NOReplay
 
         internal void WriteGlobal(string body, DateTime updateTime)
         {
+            if (_shut || string.IsNullOrEmpty(body)) return;
             TimeSpan diff = updateTime - reference;
             if (diff != lastUpdate)
             {
@@ -192,6 +196,7 @@ namespace NOReplay
 
         internal void WriteLine(string line)
         {
+            if (_shut) return;
             if ((DateTime.Now - lastFlushTime).TotalSeconds > RecordConfig.AutoSaveInterval)
             {
                 output.Flush();
@@ -204,10 +209,12 @@ namespace NOReplay
 
         internal void Flush()
         {
+            if (_shut) return;
             output.Flush();
         }
 
         int _packed;
+        volatile bool _shut;
 
         internal void Close()
         {
@@ -215,6 +222,7 @@ namespace NOReplay
             // archive after the first one deletes the text file, which is an
             // empty recording.
             if (System.Threading.Interlocked.Exchange(ref _packed, 1) != 0) return;
+            _shut = true;
             try { output.Close(); }
             catch (Exception ex) { Record.Log?.LogError("ACMI close: " + ex.Message); }
             System.Threading.Tasks.Task.Run(Pack);

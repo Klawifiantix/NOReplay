@@ -165,6 +165,7 @@ namespace NOReplay
         void OnSceneUnloaded(Scene scene)
         {
             if (!string.Equals(scene.name, "GameWorld", StringComparison.OrdinalIgnoreCase)) return;
+            Record.Stop("left mission");
             if (CurrentDoc == null && !_replayLive) return;
             EndReplay("GameWorld entladen");
         }

@@ -22,11 +22,11 @@ namespace NOReplay
             await WaitForFileAccessAsync(filePath, maxRetries, initialDelayMs)
                 .ConfigureAwait(false);
 
-            string zipPath = Path.ChangeExtension(filePath, ".zip.acmi");
+            string zipPath = RecordingPath.ZipBeside(filePath, File.Exists);
 
             using (FileStream zipStream = new FileStream(
                 zipPath,
-                FileMode.Create,
+                FileMode.CreateNew,
                 FileAccess.Write,
                 FileShare.None,
                 bufferSize: 81920,

@@ -70,6 +70,8 @@ namespace NOReplay.OrientationTests
             _failed += NukeScaleTests.Failed;
             BoomDelayTests.Run();
             _failed += BoomDelayTests.Failed;
+            RecordingPathTests.Run();
+            _failed += RecordingPathTests.Failed;
             if (_failed > 0)
             {
                 Console.Error.WriteLine("FAILED " + _failed);

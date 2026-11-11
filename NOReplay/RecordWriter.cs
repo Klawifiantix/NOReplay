@@ -29,14 +29,10 @@ namespace NOReplay
             string missionName = MissionManager.CurrentMission?.Name ?? "Mission";
             foreach (char c in Path.GetInvalidFileNameChars())
                 missionName = missionName.Replace(c, '_');
-            string stamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm");
-            string basename = Path.Combine(dir, missionName + "_" + stamp);
-            filename = basename + ".acmi";
-            int postfix = 0;
-            while (File.Exists(filename))
-                filename = basename + $" ({++postfix}).acmi";
-
-            output = new RecordFileWriter(File.CreateText(filename));
+            string stamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture);
+            filename = RecordingPath.Acmi(dir, missionName, stamp, File.Exists);
+            var created = new FileStream(filename, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+            output = new RecordFileWriter(new StreamWriter(created, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)));
             //sb = new StringBuilder();
             this.reference = reference;
             lastUpdate = TimeSpan.MinValue;

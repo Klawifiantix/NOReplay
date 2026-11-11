@@ -152,7 +152,7 @@ namespace NOReplay
             }
             catch (Exception ex)
             {
-                Plugin.Log?.LogDebug("Blast-Record: " + ex.Message);
+                Plugin.Log?.LogWarning("Blast-Record: " + ex.Message);
             }
         }
 

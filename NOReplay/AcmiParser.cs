@@ -139,6 +139,10 @@ namespace NOReplay
                     {
                         if (val.Length > 0) obj.Name = val.ToString();
                     }
+                    else if (AcmiScan.KeyIs(key, "Map"))
+                    {
+                        if (val.Length > 0) obj.Map = val.ToString();
+                    }
                     else if (AcmiScan.KeyIs(key, "Yield"))
                     {
                         if (float.TryParse(val.ToString(), System.Globalization.NumberStyles.Float,

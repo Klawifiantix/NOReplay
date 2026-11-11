@@ -134,6 +134,8 @@ namespace NOReplay
         public string? Registration;
         public string? Loadout;
         public string? Livery;
+        /// <summary>MapUniqueName of a built-in map building. Empty on mission-placed buildings and on older files.</summary>
+        public string? Map;
         public string? ParentId;
         public string? Weapon;
         public int GunIndex = -1;

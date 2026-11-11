@@ -81,6 +81,7 @@ namespace NOReplay
             Log.LogInfo("Objects with Static in Type: " + staticInDoc);
             foreach (var obj in doc.Objects)
             {
+                if (!string.IsNullOrEmpty(obj.Map)) continue;
                 bool isStatic = (obj.Type ?? "").IndexOf("Static", StringComparison.OrdinalIgnoreCase) >= 0;
                 if (isStatic && late < 3)
                     Log.LogInfo("PRE filter: id=" + obj.Id + " samples=" + obj.Samples.Count + " ShouldQueue=" + ShouldQueue(obj) + " IsStart=" + IsStartUnit(obj) + " IsBld=" + IsBuilding(obj.Type, obj.Name) + " IsScn=" + IsScenery(obj.Type, obj.Name));
@@ -193,6 +194,7 @@ namespace NOReplay
             {
                 // dedup disabled
                 // if (dupIds.Contains(obj.Id ?? "")) continue;
+                if (!string.IsNullOrEmpty(obj.Map)) continue;
                 if (!ShouldQueue(obj) || obj.Samples.Count == 0) continue;
                 if (IsFlareType(obj.Type, obj.Name))
                 {

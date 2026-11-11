@@ -32,6 +32,12 @@ namespace NOReplay
                 { "Type","Ground+Static+Building"},
                 { "Debug", lastState.ToString()}
             };
+            string mapName = building.MapUniqueName;
+            if (string.IsNullOrEmpty(mapName) && building.BuiltIn)
+                mapName = building.UniqueName;
+            if ((building.BuiltIn || !string.IsNullOrEmpty(building.MapUniqueName))
+                && !string.IsNullOrEmpty(mapName))
+                props["Map"] = mapName;
 
             UpdatePose();
             UpdateState();

@@ -1238,6 +1238,12 @@ namespace NOReplay
                 float end = Track.RemovedAt;
                 if (end < 0f && Track.Samples.Count > 0)
                     end = Track.Samples[Track.Samples.Count - 1].Time;
+                if (_boomed && _ordnance && _boomClock >= 0f && nowDead < _boomClock - 0.05f)
+                {
+                    ClearBoom();
+                    _boomed = false;
+                }
+                _boomClock = nowDead;
                 if (!_boomed && (end < 0f || nowDead >= end))
                 {
                     _boomed = true;
@@ -1275,6 +1281,7 @@ namespace NOReplay
                 return;
             }
             _boomed = false;
+            ClearBoom();
             if (_ship && _splashGo != null)
                 ClearShipSplash();
             if (_ship && !ShipIsDead(Plugin.Clock.Time))

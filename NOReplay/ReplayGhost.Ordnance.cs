@@ -38,6 +38,8 @@ namespace NOReplay
 
 
         object? _detonateClip;
+        GameObject? _boomGo;
+        float _boomClock = -1f;
 
         GameObject? _spawnedWreck;
         readonly List<GameObject> _spawnedDamageFx = new();
@@ -305,22 +307,65 @@ namespace NOReplay
             if (fx != null)
             {
                 Plugin.Log?.LogInfo("Boom-FX " + fx.name + " for " + gameObject.name);
-                var go = UnityEngine.Object.Instantiate(fx, pos, Quaternion.identity);
+                ClearBoom();
+                float yieldKg = Track != null && Track.Yield > 0f ? Track.Yield : 0f;
+                if (yieldKg <= 0f && mt != null)
+                {
+                    try
+                    {
+                        if (mt.GetMethod("GetYield", flags)?.Invoke(missile, null) is float fromPrefab && fromPrefab > 0f)
+                            yieldKg = fromPrefab;
+                    }
+                    catch { }
+                }
+                bool wasActive = fx.activeSelf;
+                fx.SetActive(false);
+                GameObject go;
+                try { go = UnityEngine.Object.Instantiate(fx, pos, Quaternion.identity); }
+                finally { fx.SetActive(wasActive); }
                 go.name = "NOReplay_Boom";
+                go.SetActive(false);
                 go.transform.SetParent(null, true);
-                go.SetActive(true);
-                PlayParticles(go);
-                if (!Plugin.AudioNearWorld(pos, 700f))
-                    MuteBoomAudio(go);
+                if (yieldKg > 0f)
+                    NukeTime.ApplyMissileYield(go, yieldKg);
+                bool nuke = false;
+                bool mushroom = false;
                 foreach (var c in go.GetComponentsInChildren<MonoBehaviour>(true))
                 {
                     if (c == null) continue;
-                    if (c.GetType().Name == "Shockwave") c.enabled = false;
+                    string tn = c.GetType().Name;
+                    if (tn == "MushroomCloud") mushroom = true;
+                    if (tn == "Shockwave" || tn == "MushroomCloud") nuke = true;
                 }
-                UnityEngine.Object.Destroy(go, 12f);
+                foreach (var col in go.GetComponentsInChildren<Collider>(true))
+                    if (col != null) col.enabled = false;
+                float born = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+                if (nuke)
+                {
+                    var blast = go.AddComponent<ReplayBlast>();
+                    blast.Born = born;
+                    NukeTime.Watch(go, born);
+                    if (mushroom) NukeTime.KeepPieces(go);
+                }
+                go.SetActive(true);
+                _boomGo = go;
+                PlayParticles(go);
+                if (!Plugin.AudioNearWorld(pos, 700f))
+                    MuteBoomAudio(go);
+                if (!mushroom)
+                    UnityEngine.Object.Destroy(go, 12f);
+                Plugin.Log?.LogInfo("Boom yield kg=" + yieldKg.ToString("0.##") + " nuke=" + nuke);
                 return;
             }
             Plugin.Log?.LogWarning("Boom kein Effekt für " + gameObject.name);
+        }
+
+        void ClearBoom()
+        {
+            if (_boomGo == null) return;
+            NukeTime.Forget(_boomGo);
+            UnityEngine.Object.Destroy(_boomGo);
+            _boomGo = null;
         }
 
         static void MuteBoomAudio(GameObject go)

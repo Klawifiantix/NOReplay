@@ -471,10 +471,12 @@ namespace NOReplay
             go.SetActive(false);
             go.name = "NOReplay_BuildingWreck";
             var flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+            bool mushroom = false;
             foreach (var mb in go.GetComponentsInChildren<MonoBehaviour>(true))
             {
                 if (mb == null) continue;
                 string n = mb.GetType().Name;
+                if (n == "MushroomCloud") mushroom = true;
                 if (n == "DamageParticles")
                 {
                     try { mb.GetType().GetField("fireDamage", flags)?.SetValue(mb, 0f); } catch { }
@@ -483,18 +485,15 @@ namespace NOReplay
                 }
                 // Off before the object wakes, so FragmentManager.Start cannot
                 // push the pieces with a live force we then freeze in place.
-                if (n == "Wreckage" || n == "FragmentManager" || n == "Shockwave")
+                if (n == "Wreckage" || n == "FragmentManager")
                     mb.enabled = false;
             }
             go.isStatic = false;
             go.transform.SetPositionAndRotation(unit.transform.position, unit.transform.rotation);
             go.transform.SetParent(null, true);
+            NukeTime.Watch(go, born);
+            if (mushroom) NukeTime.KeepPieces(go);
             go.SetActive(true);
-            foreach (var mb in go.GetComponentsInChildren<MonoBehaviour>(true))
-            {
-                if (mb != null && mb.GetType().Name == "MushroomCloud")
-                    mb.enabled = false;
-            }
             var blast = go.GetComponent<ReplayBlast>();
             if (blast == null) blast = go.AddComponent<ReplayBlast>();
             blast.Born = born;
@@ -744,11 +743,12 @@ namespace NOReplay
             }
             go.SetActive(false);
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            bool quietMushroom = false;
             foreach (var mb in go.GetComponentsInChildren<MonoBehaviour>(true))
             {
                 if (mb == null) continue;
                 string n = mb.GetType().Name;
-                if (n == "Shockwave") { mb.enabled = false; continue; }
+                if (n == "MushroomCloud") quietMushroom = true;
                 if (n == "DamageParticles")
                 {
                     try { mb.GetType().GetField("fireDamage", flags)?.SetValue(mb, 0f); } catch { }
@@ -766,15 +766,13 @@ namespace NOReplay
                 if (c != null) c.enabled = false;
             go.transform.SetParent(parent, false);
             go.transform.SetPositionAndRotation(pos, rot);
+            float quietBorn = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+            NukeTime.Watch(go, quietBorn);
+            if (quietMushroom) NukeTime.KeepPieces(go);
             go.SetActive(true);
-            foreach (var grown in go.GetComponentsInChildren<MonoBehaviour>(true))
-            {
-                if (grown != null && grown.GetType().Name == "MushroomCloud")
-                    grown.enabled = false;
-            }
             var quietBlast = go.GetComponent<ReplayBlast>();
             if (quietBlast == null) quietBlast = go.AddComponent<ReplayBlast>();
-            quietBlast.Born = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+            quietBlast.Born = quietBorn;
             UnityEngine.Object.Destroy(hold);
             var pt = Type.GetType("UnityEngine.ParticleSystem, UnityEngine.ParticleSystemModule")
                      ?? Plugin.FindGameType("ParticleSystem");

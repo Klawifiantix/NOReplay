@@ -32,6 +32,7 @@
     <Compile Include="..\..\NOReplay\GhostTrack.cs" Link="GhostTrack.cs" />
     <Compile Include="..\..\NOReplay\BuildingHit.cs" Link="BuildingHit.cs" />
     <Compile Include="..\..\NOReplay\BuildingMesh.cs" Link="BuildingMesh.cs" />
+    <Compile Include="..\..\NOReplay\NukeScale.cs" Link="NukeScale.cs" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="Fixtures\synthetic-feed.acmi">

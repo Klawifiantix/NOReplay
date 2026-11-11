@@ -137,6 +137,8 @@ namespace NOReplay
         public string? ParentId;
         public string? Weapon;
         public int GunIndex = -1;
+        /// <summary>Missile blast yield in kilograms of TNT. Negative when the file has no Yield property.</summary>
+        public float Yield = -1f;
         public float Rpm;
         public float Muzzle;
         public float Drag;

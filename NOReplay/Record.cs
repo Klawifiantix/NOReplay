@@ -107,7 +107,7 @@ namespace NOReplay
             Start();
         }
 
-        public static void Stop(string reason)
+        public static void Stop(string reason = "manual")
         {
             if (!Active) return;
             try { RecordLasers.Flush(); }
@@ -151,7 +151,7 @@ namespace NOReplay
 
             void Update()
             {
-                if (Plugin.CurrentDoc != null && Active) Stop();
+                if (Plugin.CurrentDoc != null && Active) Stop("replay");
             }
 
             void OnGUI()

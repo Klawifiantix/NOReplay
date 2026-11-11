@@ -1225,7 +1225,10 @@ namespace NOReplay
             if (Track == null) return;
             if (_ordnance) TickWings(Plugin.Clock.Time);
             NoteSpoolClock(Plugin.Clock.Time);
-            if (!IsTrackAlive())
+            bool groundBlast = !_ordnance && !_ship && !_air;
+            float boomAt = groundBlast ? UnitExplosionAt() : -1f;
+            bool blastNow = groundBlast && WreckMark.Due(Plugin.Clock.Time, boomAt);
+            if (!IsTrackAlive() || blastNow)
             {
                 float nowDead = Plugin.Clock.Time;
                 if (_ship && InScriptedSink(nowDead) && DriveScriptedShip(nowDead))
@@ -1244,7 +1247,12 @@ namespace NOReplay
                     _boomed = false;
                 }
                 _boomClock = nowDead;
-                if (!_boomed && (end < 0f || nowDead >= end))
+                // A ground unit plays at its blast time, which can be the death
+                // rather than the wreck. Aircraft and missiles keep the removal time.
+                bool playBlast = groundBlast && boomAt >= 0f
+                    ? !_boomed && WreckMark.Due(nowDead, boomAt)
+                    : !_boomed && (end < 0f || nowDead >= end);
+                if (playBlast)
                 {
                     _boomed = true;
                     if (_ordnance && !IsFlareTrack())
@@ -1254,7 +1262,11 @@ namespace NOReplay
                         PlayWarheadBoom(transform.position);
                     }
                     else if (!_ordnance && !_ship)
+                    {
                         PlayUnitWreckFx(transform.position, transform.rotation);
+                        if (groundBlast)
+                            LogUnitBoom(boomAt);
+                    }
                 }
                 if (_ship)
                 {
@@ -1282,6 +1294,8 @@ namespace NOReplay
             }
             _boomed = false;
             ClearBoom();
+            if (!_ordnance)
+                ClearSpawnedWreck();
             if (_ship && _splashGo != null)
                 ClearShipSplash();
             if (_ship && !ShipIsDead(Plugin.Clock.Time))
@@ -1560,6 +1574,22 @@ namespace NOReplay
             if ((_subFail & bit) != 0) return;
             _subFail |= bit;
             Plugin.Log.LogWarning(where + " " + ex.GetType().Name + ": " + ex.Message);
+        }
+
+        float UnitExplosionAt()
+        {
+            if (Track == null) return -1f;
+            return WreckMark.At(Track.BoomAt, Track.DyingAt, Track.RemovedAt, WreckMark.IsCookoff(Track.Name));
+        }
+
+        void LogUnitBoom(float at)
+        {
+            bool cook = WreckMark.IsCookoff(Track?.Name);
+            string src = WreckMark.Source(Track?.BoomAt ?? -1f, Track?.DyingAt ?? -1f, cook);
+            Plugin.Log?.LogInfo("Boom " + (Track?.Name ?? name)
+                + " at=" + at.ToString("0.00")
+                + " cook=" + (cook ? "1" : "0")
+                + " src=" + src);
         }
 
         internal bool VehicleIsDying(float t)

@@ -32,6 +32,16 @@ namespace NOReplay
             props.Clear();
             enabled = true;
             Record.Log?.LogInfo("Cargo rec " + name + " id=" + unitId.ToString(CultureInfo.InvariantCulture));
+            _name = name;
+        }
+
+        string _name = "";
+
+        protected override void OnDyingProps()
+        {
+            // A pallet or container hides as soon as it is disabled. There is no cook-off timer.
+            if (!props.ContainsKey("Boom") && WreckMark.IsCookoff(_name))
+                props["Boom"] = "1";
         }
 
         public override void Update()

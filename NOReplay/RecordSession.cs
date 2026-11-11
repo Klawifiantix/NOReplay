@@ -5,7 +5,8 @@ using HarmonyLib;
 namespace NOReplay
 {
     /// <summary>
-    /// Closes the ACMI file when the mission ends, restarts, or is replaced.
+    /// Closes the ACMI file when the mission restarts or the world unloads.
+    /// Victory and defeat stay in the scene, so they do not stop the file.
     /// The record host is DontDestroyOnLoad, so a scene change does not stop it
     /// on its own.
     /// </summary>
@@ -20,7 +21,6 @@ namespace NOReplay
             int n = 0;
             n += Patch("MissionManager", "RestartMission", nameof(OnRestart), true);
             n += Patch("MissionManager", "StartMission", nameof(OnStarted), false);
-            n += Patch("GameManager", "FinishGame", nameof(OnFinished), false);
             Plugin.Log?.LogInfo("Record-Session hooks=" + n);
         }
 
@@ -57,11 +57,6 @@ namespace NOReplay
         static void OnStarted()
         {
             Record.MaybeAutoStart();
-        }
-
-        static void OnFinished()
-        {
-            Record.Stop("mission end");
         }
     }
 }

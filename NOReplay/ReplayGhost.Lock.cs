@@ -58,6 +58,19 @@ namespace NOReplay
                 + " -> " + (target != null ? target.unitName : "none"));
         }
 
+        static void SetAircraftLock(List<Unit>? list, Unit? target)
+        {
+            if (list == null) return;
+            if (target == null)
+            {
+                if (list.Count != 0) list.Clear();
+                return;
+            }
+            if (list.Count == 1 && list[0] == target) return;
+            list.Clear();
+            list.Add(target);
+        }
+
         void PushLock(Unit? target)
         {
             EnsureLockFields();
@@ -69,16 +82,7 @@ namespace NOReplay
             }
             var aircraft = GetComponent<Aircraft>() ?? GetComponentInChildren<Aircraft>(true);
             if (aircraft != null && aircraft.weaponManager != null)
-            {
-                if (target == null)
-                    aircraft.weaponManager.SetTargetList(System.ReadOnlySpan<PersistentID>.Empty);
-                else
-                {
-                    System.Span<PersistentID> one = stackalloc PersistentID[1];
-                    one[0] = target.persistentID;
-                    aircraft.weaponManager.SetTargetList(one);
-                }
-            }
+                SetAircraftLock(aircraft.weaponManager.GetTargetList(), target);
             var turret = GetComponentInChildren<Turret>(true);
             if (turret != null && _turretTarget != null)
             {

@@ -131,6 +131,7 @@ namespace NOReplay
             base.enabled = true;
             RecordTurrets.Attach(this, vehicle);
             RecordWreck.Register(this, unit.persistentID.Id);
+            RecordWreck.Watch(this, unit.persistentID.Id);
             _unitName = unitName;
         }
 
@@ -239,14 +240,17 @@ namespace NOReplay
             props.Clear();
             if (unit != null) UpdatePose(true);
             props["Dying"] = "1";
-            // The wreck prefab is at least five seconds later for every vehicle.
-            // That wait is not the blast. An ordinary vehicle explodes at death.
-            if (!WreckMark.IsCookoff(_unitName))
-                props["Boom"] = "1";
+            // The blast is the part effect, written when the game spawns it.
+            // Dying only marks the disable. The wreck line stays Visible=0.
             Engine.invokeWriterUpdate(this);
             props.Clear();
             if (destroyedEvent)
                 Engine.invokeWriterDestroy(this);
+        }
+
+        internal override void NoteBlast(string src)
+        {
+            WriteEffect(src, _unitName);
         }
 
         internal void OnWreckSpawned()
@@ -258,10 +262,9 @@ namespace NOReplay
                 props.Clear();
                 if (unit != null) UpdatePose(true);
                 props["Visible"] = "0.0";
-                // Ammunition trucks cook off when the wreck is spawned. The wait
-                // is the game's 5s delay plus any extra time the body is still moving.
-                if (WreckMark.IsCookoff(_unitName))
-                    props["Boom"] = "1";
+                // SpawnWreckage hides the mesh and shows the wreck model.
+                // It does not detonate. Fire and explosions were already written
+                // when ApplyDamage or SpawnFragments instantiated them.
                 props["Type"] = null!;
                 Engine.invokeWriterUpdate(this);
                 props.Clear();

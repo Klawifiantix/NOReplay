@@ -33,6 +33,7 @@ namespace NOReplay
             UpdateState();
             Engine.invokeWriterUpdate(this);
             props.Clear();
+            RecordWreck.Watch(this, unit.persistentID.Id);
 
             // Events statt Polling
             if (!subscribed && unit != null)
@@ -53,6 +54,13 @@ namespace NOReplay
             base.enabled = false;
         }
 
+        internal override void NoteBlast(string src)
+        {
+            if (unit == null) return;
+            string label = unit.definition != null ? unit.definition.unitName : unit.unitName;
+            WriteEffect(src, label);
+        }
+
         private void OnUnitDisabled(Unit u)
         {
             if (u != unit || base.disabled) return;
@@ -60,8 +68,6 @@ namespace NOReplay
             base.disabled = true;
             props = new Dictionary<string, string>();
             props.Add("Visible", "0.0");
-            if (WreckMark.IsCookoff(unit.definition != null ? unit.definition.unitName : unit.unitName))
-                props.Add("Boom", "1");
             props.Add("Type", null);
 
             Engine.invokeWriterUpdate(this);

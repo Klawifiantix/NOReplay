@@ -143,6 +143,13 @@ namespace NOReplay
                 catch (Exception ex) { Log.LogError("TV-Patch: " + ex); }
                 try { Record.Init(Config); }
                 catch (Exception ex) { Log.LogError("Record.Init: " + ex); }
+                try
+                {
+                    var mm = FindGameType("MissionManager");
+                    if (mm != null)
+                        InstallMissionStartGuard(mm, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                }
+                catch (Exception ex) { Log.LogError("StartMission guard: " + ex); }
                 Log.LogInfo($"{PluginName} {PluginVersion} geladen.");
                 SceneManager.sceneUnloaded += OnSceneUnloaded;
             }

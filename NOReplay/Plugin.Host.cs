@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.Serialization;
 using HarmonyLib;
@@ -339,8 +340,9 @@ namespace NOReplay
             if (mmType == null) return;
             var sflags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
             InstallMissionStartGuard(mmType, sflags);
-            if (_missionStartFinished)
+            if (_missionStartFinished || MissionIsRunning(mmType, sflags))
             {
+                _missionStartFinished = true;
                 if (!_missionNoted)
                 {
                     _missionNoted = true;
@@ -367,8 +369,7 @@ namespace NOReplay
             }
             catch (Exception ex)
             {
-                var inner = ex.InnerException ?? ex;
-                Log.LogWarning("StartMission nachgeholt: " + inner.GetType().Name + ": " + inner.Message);
+                Log.LogWarning("StartMission nachgeholt: " + ExcText(ex));
             }
             if (_missionStartFinished)
                 Log.LogInfo("StartMission nachgeholt.");
@@ -385,7 +386,45 @@ namespace NOReplay
             object? manager = FirstLive(managerType);
             if (level == null || manager == null) return false;
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            return levelType.GetProperty("LoadedMapSettings", flags)?.GetValue(level) != null;
+            if (levelType.GetProperty("LoadedMapSettings", flags)?.GetValue(level) == null)
+                return false;
+            return LiveSingleton(FindGameType("Spawner")) != null;
+        }
+
+        static object? LiveSingleton(Type? type)
+        {
+            if (type == null) return null;
+            var field = type.GetField("i", BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
+            object? inst = field?.GetValue(null);
+            if (inst is not UnityEngine.Object u || u == null) return null;
+            return inst;
+        }
+
+        // customIDLookup keeps units after they are destroyed. The next
+        // StartMission then links the new save data to that dead object.
+        static void DropDestroyedCustomIds()
+        {
+            var reg = FindGameType("UnitRegistry");
+            var field = reg?.GetField("customIDLookup", BindingFlags.Public | BindingFlags.Static);
+            if (field?.GetValue(null) is not System.Collections.IDictionary lookup) return;
+            var dead = new List<object>();
+            foreach (System.Collections.DictionaryEntry entry in lookup)
+            {
+                if (entry.Value is not UnityEngine.Object u || u == null)
+                    dead.Add(entry.Key);
+            }
+            for (int i = 0; i < dead.Count; i++)
+                lookup.Remove(dead[i]);
+            if (dead.Count > 0)
+                Log.LogInfo("Registry drop dead ids=" + dead.Count);
+        }
+
+        static string ExcText(Exception ex)
+        {
+            var inner = ex is System.Reflection.TargetInvocationException && ex.InnerException != null
+                ? ex.InnerException
+                : ex;
+            return inner.ToString();
         }
 
         static object? FirstLive(Type type)
@@ -421,6 +460,7 @@ namespace NOReplay
         // not, so the game's OnStartServer call is still allowed in.
         static bool SkipSecondMissionStart()
         {
+            DropDestroyedCustomIds();
             if (_missionStartFinished || _missionStartDepth > 0)
             {
                 Log.LogInfo("StartMission skipped, already running.");
@@ -436,8 +476,13 @@ namespace NOReplay
             if (__exception == null)
                 _missionStartFinished = true;
             else
-                Log.LogWarning("StartMission exception: " + __exception.GetType().Name + ": " + __exception.Message);
+                Log.LogWarning("StartMission exception: " + ExcText(__exception));
             return __exception;
+        }
+
+        static bool MissionIsRunning(Type? mmType, BindingFlags sflags)
+        {
+            return mmType?.GetProperty("IsRunning", sflags)?.GetValue(null) is bool on && on;
         }
 
         static void DumpNetworkState(string tag)

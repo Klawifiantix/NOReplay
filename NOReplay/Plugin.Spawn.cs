@@ -479,6 +479,14 @@ namespace NOReplay
                     _pendingAir.RemoveAt(i);
                     continue;
                 }
+                // A network spawn registers the unit. StartMission then walks that
+                // list and crashes if the identity is not live yet. Wait until the
+                // mission start has returned.
+                if (!_missionStartFinished && UsesGameSpawner(obj))
+                {
+                    i++;
+                    continue;
+                }
                 bool follow = _ghost == null;
                 GameObject? go = null;
                 if (IsFlareType(obj.Type, obj.Name))
@@ -676,6 +684,14 @@ namespace NOReplay
                 Log.LogInfo("Flare-FX keine Flare-PS an " + host.name);
             }
             return n;
+        }
+
+        static bool UsesGameSpawner(ReplayObject obj)
+        {
+            string t = obj.Type ?? "";
+            if (IsScenery(t, obj.Name) || IsAircraft(t, obj.Name) || IsFlareType(obj.Type, obj.Name))
+                return false;
+            return true;
         }
 
         static GameObject? InstantiateAircraft(ReplayObject obj)

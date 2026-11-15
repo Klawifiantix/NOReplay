@@ -143,6 +143,13 @@ namespace NOReplay
                 catch (Exception ex) { Log.LogError("TV-Patch: " + ex); }
                 try { Record.Init(Config); }
                 catch (Exception ex) { Log.LogError("Record.Init: " + ex); }
+                try
+                {
+                    var mm = FindGameType("MissionManager");
+                    if (mm != null)
+                        InstallMissionStartGuard(mm, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                }
+                catch (Exception ex) { Log.LogError("StartMission guard: " + ex); }
                 Log.LogInfo($"{PluginName} {PluginVersion} geladen.");
                 SceneManager.sceneUnloaded += OnSceneUnloaded;
             }
@@ -188,6 +195,7 @@ namespace NOReplay
             CurrentDoc = null;
             FeedPlayback.Reset();
             _staticHandlerStarted = false;
+            ResetMissionCatchup();
             Clock.Reset(0f);
             _menuHooked = false;
             _replayBtn = null;
@@ -237,10 +245,17 @@ namespace NOReplay
                 TickGhostSleep();
                 ApplyOrdnanceSeeks();
                 ReplayPerf.Add("spawn", ReplayPerf.Stamp() - section);
-                if (!_staticHandlerStarted && InGameWorld() && Time.timeSinceLevelLoad > 2f)
+                if (InGameWorld() && Time.timeSinceLevelLoad > 2f)
                 {
-                    _staticHandlerStarted = true;
-                    ReplayStaticHandler.StartFor(CurrentDoc);
+                    // OnStartServer calls StartMission only after the map settings exist.
+                    // Keep trying until that start returns. One early call throws and
+                    // cancels the game's wait, so the catch-up uses the same gate.
+                    EnsureReplayMissionStarted();
+                    if (!_staticHandlerStarted)
+                    {
+                        _staticHandlerStarted = true;
+                        ReplayStaticHandler.StartFor(CurrentDoc);
+                    }
                 }
                 section = ReplayPerf.Stamp();
                 TickMissileBooms();

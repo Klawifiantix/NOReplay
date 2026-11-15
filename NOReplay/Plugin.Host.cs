@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.Serialization;
+using HarmonyLib;
 using UnityEngine;
 
 namespace NOReplay
@@ -305,11 +307,226 @@ namespace NOReplay
 
         static void TryStartLoadedMission()
         {
+            EnsureReplayMissionStarted();
+        }
+
+        /// <summary>
+        /// MissionManager.StartMission spawns the buildings and scenery in the
+        /// replay mission. OnStartServer calls it only after LevelInfo has map
+        /// settings. Calling it earlier throws and cancels that wait, so the
+        /// catch-up waits for the same condition and does not run again after
+        /// a start has returned.
+        /// </summary>
+        static bool _missionStartGuarded;
+        static bool _missionStartFinished;
+        static int _missionStartDepth;
+        static bool _missionCatchupCalled;
+        static bool _missionNoted;
+        static float _missionWaitLog = -999f;
+
+        internal static void ResetMissionCatchup()
+        {
+            _missionStartFinished = false;
+            _missionStartDepth = 0;
+            _missionCatchupCalled = false;
+            _missionNoted = false;
+            _missionWaitLog = -999f;
+        }
+
+        internal static void EnsureReplayMissionStarted()
+        {
+            if (CurrentDoc == null) return;
             var mmType = FindGameType("MissionManager");
             if (mmType == null) return;
             var sflags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
-            mmType.GetMethod("StartMission", sflags)?.Invoke(null, null);
-            Log.LogInfo("StartMission aufgerufen.");
+            InstallMissionStartGuard(mmType, sflags);
+            if (_missionStartFinished || MissionIsRunning(mmType, sflags))
+            {
+                _missionStartFinished = true;
+                if (!_missionNoted)
+                {
+                    _missionNoted = true;
+                    Log.LogInfo("Mission already running.");
+                }
+                return;
+            }
+            if (!MissionWorldReady())
+            {
+                if (Time.unscaledTime - _missionWaitLog > 2f)
+                {
+                    _missionWaitLog = Time.unscaledTime;
+                    Log.LogInfo("StartMission wartet auf MapSettings.");
+                }
+                return;
+            }
+            if (_missionCatchupCalled) return;
+            _missionCatchupCalled = true;
+            if (mmType.GetProperty("CurrentMission", sflags)?.GetValue(null) == null)
+                EnsureCurrentMission();
+            try
+            {
+                mmType.GetMethod("StartMission", sflags)?.Invoke(null, null);
+            }
+            catch (Exception ex)
+            {
+                Log.LogWarning("StartMission nachgeholt: " + ExcText(ex));
+            }
+            if (_missionStartFinished)
+                Log.LogInfo("StartMission nachgeholt.");
+            else
+                Log.LogInfo("StartMission nachgeholt, Mission laeuft nicht.");
+        }
+
+        static bool MissionWorldReady()
+        {
+            var levelType = FindGameType("LevelInfo");
+            var managerType = FindGameType("MissionManager");
+            if (levelType == null || managerType == null) return false;
+            object? level = FirstLive(levelType);
+            object? manager = FirstLive(managerType);
+            if (level == null || manager == null) return false;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            if (levelType.GetProperty("LoadedMapSettings", flags)?.GetValue(level) == null)
+                return false;
+            return LiveSingleton(FindGameType("Spawner")) != null;
+        }
+
+        static object? LiveSingleton(Type? type)
+        {
+            if (type == null) return null;
+            var field = type.GetField("i", BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
+            object? inst = field?.GetValue(null);
+            if (inst is not UnityEngine.Object u || u == null) return null;
+            return inst;
+        }
+
+        // customIDLookup keeps units after they are destroyed. The next
+        // StartMission then links the new save data to that dead object.
+        static void DropDestroyedCustomIds()
+        {
+            var reg = FindGameType("UnitRegistry");
+            var field = reg?.GetField("customIDLookup", BindingFlags.Public | BindingFlags.Static);
+            if (field?.GetValue(null) is not System.Collections.IDictionary lookup) return;
+            var dead = new List<object>();
+            foreach (System.Collections.DictionaryEntry entry in lookup)
+            {
+                if (entry.Value is not UnityEngine.Object u || u == null)
+                    dead.Add(entry.Key);
+            }
+            for (int i = 0; i < dead.Count; i++)
+                lookup.Remove(dead[i]);
+            if (dead.Count > 0)
+                Log.LogInfo("Registry drop dead ids=" + dead.Count);
+        }
+
+        // StartMission reads Unit.BuiltIn on every UnitRegistry.allUnits entry.
+        // That reads NetworkIdentity.gameObject. A destroyed or unspawned identity
+        // throws, and the custom buildings never spawn.
+        static void DropDeadRegisteredUnits()
+        {
+            var reg = FindGameType("UnitRegistry");
+            if (reg == null) return;
+            var flags = BindingFlags.Public | BindingFlags.Static;
+            int n = DropDeadList(reg.GetField("allUnits", flags)?.GetValue(null) as System.Collections.IList);
+            DropDeadList(reg.GetField("allAircraft", flags)?.GetValue(null) as System.Collections.IList);
+            if (n > 0)
+                Log.LogInfo("Registry drop dead units=" + n);
+        }
+
+        static int DropDeadList(System.Collections.IList? list)
+        {
+            if (list == null) return 0;
+            var dead = new List<object>();
+            foreach (var item in list)
+            {
+                if (item is not Component c || c == null)
+                {
+                    if (item != null) dead.Add(item);
+                    continue;
+                }
+                bool bad = false;
+                try
+                {
+                    var id = c.GetType().GetProperty("Identity",
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(c);
+                    bad = id is not UnityEngine.Object o || o == null;
+                }
+                catch
+                {
+                    bad = true;
+                }
+                if (bad) dead.Add(item);
+            }
+            for (int i = 0; i < dead.Count; i++)
+                list.Remove(dead[i]);
+            return dead.Count;
+        }
+
+        static string ExcText(Exception ex)
+        {
+            var inner = ex is System.Reflection.TargetInvocationException && ex.InnerException != null
+                ? ex.InnerException
+                : ex;
+            return inner.ToString();
+        }
+
+        static object? FirstLive(Type type)
+        {
+            foreach (var obj in Resources.FindObjectsOfTypeAll(type))
+            {
+                if (obj is not UnityEngine.Object u || u == null) continue;
+                if (u is Component c && !c.gameObject.scene.IsValid()) continue;
+                return obj;
+            }
+            return null;
+        }
+
+        static void InstallMissionStartGuard(Type mmType, BindingFlags sflags)
+        {
+            if (_missionStartGuarded || Harmony == null) return;
+            var method = mmType.GetMethod("StartMission", sflags);
+            if (method == null) return;
+            try
+            {
+                Harmony.Patch(method,
+                    prefix: new HarmonyMethod(typeof(Plugin), nameof(SkipSecondMissionStart)),
+                    finalizer: new HarmonyMethod(typeof(Plugin), nameof(FinishMissionStart)));
+                _missionStartGuarded = true;
+            }
+            catch (Exception ex)
+            {
+                Log.LogWarning("StartMission guard: " + ex.Message);
+            }
+        }
+
+        // A start that has returned owns the buildings. A start that threw does
+        // not, so the game's OnStartServer call is still allowed in.
+        static bool SkipSecondMissionStart()
+        {
+            DropDestroyedCustomIds();
+            DropDeadRegisteredUnits();
+            if (_missionStartFinished || _missionStartDepth > 0)
+            {
+                Log.LogInfo("StartMission skipped, already running.");
+                return false;
+            }
+            _missionStartDepth++;
+            return true;
+        }
+
+        static Exception? FinishMissionStart(Exception __exception)
+        {
+            _missionStartDepth = 0;
+            if (__exception == null)
+                _missionStartFinished = true;
+            else
+                Log.LogWarning("StartMission exception: " + ExcText(__exception));
+            return __exception;
+        }
+
+        static bool MissionIsRunning(Type? mmType, BindingFlags sflags)
+        {
+            return mmType?.GetProperty("IsRunning", sflags)?.GetValue(null) is bool on && on;
         }
 
         static void DumpNetworkState(string tag)

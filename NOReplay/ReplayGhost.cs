@@ -2051,17 +2051,6 @@ namespace NOReplay
                 SetSimSpeed(f.Systems[i], speed);
         }
 
-        static void PauseOne(Component ps)
-        {
-            BindParticleRefl();
-            try
-            {
-                if (_pPsIsPlaying?.GetValue(ps) is bool playing && playing)
-                    _mPsPause?.Invoke(ps, null);
-            }
-            catch { }
-        }
-
         static void SetSimSpeed(Component? ps, float speed)
         {
             if (ps == null) return;

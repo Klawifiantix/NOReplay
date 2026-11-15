@@ -240,10 +240,8 @@ namespace NOReplay
             props.Clear();
             if (unit != null) UpdatePose(true);
             props["Dying"] = "1";
-            // The wreck prefab is at least five seconds later for every vehicle.
-            // That wait is not the blast. An ordinary vehicle explodes at death.
-            if (!WreckMark.IsCookoff(_unitName))
-                props["Boom"] = "1";
+            // The blast is the part effect, written when the game spawns it.
+            // Dying only marks the disable. The wreck line stays Visible=0.
             Engine.invokeWriterUpdate(this);
             props.Clear();
             if (destroyedEvent)
@@ -252,18 +250,7 @@ namespace NOReplay
 
         internal override void NoteBlast(string src)
         {
-            bool fire = src.StartsWith("fire", StringComparison.Ordinal);
-            if (fire)
-            {
-                if (!MarkFire()) return;
-            }
-            else if (!MarkBlast()) return;
-            props.Clear();
-            if (unit != null) UpdatePose(true);
-            props[fire ? "Fire" : "Boom"] = "1";
-            Engine.invokeWriterUpdate(this);
-            props.Clear();
-            Plugin.Log?.LogInfo((fire ? "Fire-Rec " : "Boom-Rec ") + _unitName + " " + src);
+            WriteEffect(src, _unitName);
         }
 
         internal void OnWreckSpawned()

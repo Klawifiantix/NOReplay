@@ -55,6 +55,16 @@ namespace NOReplay
                 harmony.Patch(broken, postfix: new HarmonyMethod(typeof(RecordWreck), nameof(AfterFragments)));
                 n++;
             }
+            // ShipPart.ApplyDamage does not call the base method, so the
+            // UnitPart patch never sees a ship compartment.
+            var shipDamage = typeof(ShipPart).GetMethod("ApplyDamage", flags);
+            if (shipDamage != null && shipDamage.DeclaringType == typeof(ShipPart))
+            {
+                harmony.Patch(shipDamage,
+                    prefix: new HarmonyMethod(typeof(RecordWreck), nameof(BeforeDamage)),
+                    postfix: new HarmonyMethod(typeof(RecordWreck), nameof(AfterDamage)));
+                n++;
+            }
             Plugin.Log?.LogInfo("Wreck-Record: SpawnWreckage");
             Plugin.Log?.LogInfo("Blast-Record hooks=" + n);
         }
@@ -93,7 +103,7 @@ namespace NOReplay
 
         static void AfterFragments(UnitPart __instance)
         {
-            if (!Recording() || __instance == null || !Cookoff(__instance)) return;
+            if (!Recording() || __instance == null || !Watched(__instance)) return;
             if (_fragments?.GetValue(__instance) is not GameObject[] extra) return;
             int flags = 0;
             for (int i = 0; i < extra.Length; i++)
@@ -110,7 +120,7 @@ namespace NOReplay
 
         static int EffectsOf(UnitPart part, float hpAfter, bool includeFragments)
         {
-            if (!Cookoff(part)) return 0;
+            if (!Watched(part)) return 0;
             int flags = 0;
             if (_effects?.GetValue(part) is IList list)
             {
@@ -160,12 +170,11 @@ namespace NOReplay
             return Record.Active && Plugin.CurrentDoc == null;
         }
 
-        static bool Cookoff(UnitPart part)
+        static bool Watched(UnitPart part)
         {
             var unit = part.GetUnit();
             if (unit == null) return false;
-            string name = unit.definition != null ? unit.definition.unitName : unit.unitName;
-            return WreckMark.IsCookoff(name);
+            return _blast.ContainsKey(unit.persistentID.Id);
         }
 
         static void AfterSpawn(GroundVehicle __instance)

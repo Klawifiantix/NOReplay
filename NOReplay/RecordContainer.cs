@@ -40,19 +40,7 @@ namespace NOReplay
 
         internal override void NoteBlast(string src)
         {
-            // Same split as a truck. Disable only hides the pallet. It is not the blast.
-            bool fire = src.StartsWith("fire");
-            if (fire)
-            {
-                if (!MarkFire()) return;
-            }
-            else if (!MarkBlast()) return;
-            props.Clear();
-            if (unit != null) UpdatePose(true);
-            props[fire ? "Fire" : "Boom"] = "1";
-            Engine.invokeWriterUpdate(this);
-            props.Clear();
-            Plugin.Log?.LogInfo((fire ? "Fire-Rec " : "Boom-Rec ") + _name + " " + src);
+            WriteEffect(src, _name);
         }
 
         public override void Update()

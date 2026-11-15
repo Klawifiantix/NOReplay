@@ -56,13 +56,9 @@ namespace NOReplay
 
         internal override void NoteBlast(string src)
         {
-            if (!MarkBlast() || unit == null) return;
+            if (unit == null) return;
             string label = unit.definition != null ? unit.definition.unitName : unit.unitName;
-            props = new Dictionary<string, string>();
-            props["Boom"] = "1";
-            Engine.invokeWriterUpdate(this);
-            props.Clear();
-            Record.Log?.LogInfo("Boom-Rec " + label + " src=" + src);
+            WriteEffect(src, label);
         }
 
         private void OnUnitDisabled(Unit u)
@@ -72,12 +68,6 @@ namespace NOReplay
             base.disabled = true;
             props = new Dictionary<string, string>();
             props.Add("Visible", "0.0");
-            string label = unit.definition != null ? unit.definition.unitName : unit.unitName;
-            if (WreckMark.IsCookoff(label) && MarkBlast())
-            {
-                props.Add("Boom", "1");
-                Record.Log?.LogInfo("Boom-Rec " + label + " src=disable");
-            }
             props.Add("Type", null);
 
             Engine.invokeWriterUpdate(this);

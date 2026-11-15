@@ -93,13 +93,9 @@ namespace NOReplay
 
         internal override void NoteBlast(string src)
         {
-            if (!MarkBlast() || unit == null) return;
+            if (unit == null) return;
             string label = unit.definition != null ? unit.definition.unitName : unit.unitName;
-            props = new Dictionary<string, string>();
-            props["Boom"] = "1";
-            Engine.invokeWriterUpdate(this);
-            props.Clear();
-            Record.Log?.LogInfo("Boom-Rec " + label + " src=" + src);
+            WriteEffect(src, label);
         }
 
         private void OnUnitDisabled(Unit u)
@@ -109,13 +105,8 @@ namespace NOReplay
             base.disabled = true;
             props = new Dictionary<string, string>();
             props.Add("Visible", "0.0");
-            // A dump or bunker spawns its wreck in UnitDisabled, with no timer.
-            string label = unit.definition != null ? unit.definition.unitName : unit.unitName;
-            if (WreckMark.IsCookoff(label) && MarkBlast())
-            {
-                props.Add("Boom", "1");
-                Record.Log?.LogInfo("Boom-Rec " + label + " src=disable");
-            }
+            // UnitDisabled instantiates the building wreck immediately. That is the
+            // collapse, not a blast. Fire and explosions were written on the part.
             props.Add("Type", null);
 
             Engine.invokeWriterUpdate(this);

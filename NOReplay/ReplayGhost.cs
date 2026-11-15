@@ -1238,14 +1238,20 @@ namespace NOReplay
             if (_ordnance) TickWings(Plugin.Clock.Time);
             NoteSpoolClock(Plugin.Clock.Time);
             bool groundBlast = !_ordnance && !_ship && !_air;
-            if (groundBlast && Plugin.Clock != null)
+            // Vehicles, pallets, and ships. Aircraft and missiles keep their own death.
+            bool partFx = !_ordnance && !_air;
+            if (partFx && Plugin.Clock != null)
             {
-                AdvanceFires(Plugin.Clock.Time, Plugin.Clock.Speed >= 0f);
-                // The husk is the Visible=0 swap. It is not the blast schedule.
-                HoldRemovalWreck(Plugin.Clock.Time);
+                float nowFx = Plugin.Clock.Time;
+                bool forward = Plugin.Clock.Speed >= 0f;
+                AdvanceFires(nowFx, forward);
+                if (groundBlast)
+                    HoldRemovalWreck(nowFx);
+                // A part blast does not hide the unit. The mesh waits for Visible=0.
+                // Ships do not latch _boomed, so a compartment fire cannot skip the sink.
+                AdvanceBlasts(nowFx, forward, latchWreck: false);
             }
-            float boomAt = groundBlast ? UnitExplosionAt() : -1f;
-            bool blastNow = groundBlast && WreckMark.Due(Plugin.Clock.Time, boomAt);
+            bool blastNow = false;
             if (!IsTrackAlive() || blastNow)
             {
                 float nowDead = Plugin.Clock.Time;
@@ -1265,11 +1271,9 @@ namespace NOReplay
                     _boomed = false;
                 }
                 _boomClock = nowDead;
-                // A ground unit plays each recorded blast. Aircraft and missiles
-                // keep the removal time.
-                if (groundBlast)
-                    AdvanceBlasts(nowDead, Plugin.Clock.Speed >= 0f);
-                else if (!_boomed && (end < 0f || nowDead >= end))
+                // Part blasts already played above. Aircraft and missiles still
+                // use the removal time. A ground hull stays up until Visible=0.
+                if (!groundBlast && !_boomed && (end < 0f || nowDead >= end))
                 {
                     _boomed = true;
                     if (_ordnance && !IsFlareTrack())
@@ -1306,9 +1310,17 @@ namespace NOReplay
                 return;
             }
             _boomed = false;
-            _blastsPlayed = 0;
             ClearBoom();
-            if (!_ordnance)
+            if (!_ordnance && Plugin.Clock != null)
+            {
+                EnsureBlastTimes();
+                if (BlastSchedule.Due(Plugin.Clock.Time, _blastTimes) == 0)
+                {
+                    _blastsPlayed = 0;
+                    ClearSpawnedWreck();
+                }
+            }
+            else if (!_ordnance)
                 ClearSpawnedWreck();
             if (_ship && _splashGo != null)
                 ClearShipSplash();
@@ -1627,7 +1639,7 @@ namespace NOReplay
             _blastTimes = one >= 0f ? new[] { one } : Array.Empty<float>();
         }
 
-        void AdvanceBlasts(float now, bool play)
+        void AdvanceBlasts(float now, bool play, bool latchWreck = true)
         {
             EnsureBlastTimes();
             int due = BlastSchedule.Due(now, _blastTimes);
@@ -1644,7 +1656,8 @@ namespace NOReplay
             else
                 ClearSpawnedWreck();
             _blastsPlayed = due;
-            _boomed = due > 0;
+            if (latchWreck)
+                _boomed = due > 0;
         }
 
         static bool BurnOnly(ReplayObject track)

@@ -48,6 +48,7 @@ namespace NOReplay
             UpdatePose();
             Engine.invokeWriterUpdate(this);
             props.Clear();
+            RecordWreck.Watch(this, unitId);
             RecordTurrets.Attach(this, ship);
 
             if (unit != null)
@@ -118,6 +119,12 @@ namespace NOReplay
             props.Clear();
         }
 
+        internal override void NoteBlast(string src)
+        {
+            string label = unit != null && unit.definition != null ? unit.definition.unitName : "Ship";
+            WriteEffect(src, label);
+        }
+
         private void OnMissileRegistered(Missile missile)
         {
             if (missile == null) return;
@@ -172,6 +179,7 @@ namespace NOReplay
             if (_sinkEnded) return;
             _sinkEnded = true;
             WriteRemoval();
+            if (unit != null) RecordWreck.Forget(unit.persistentID.Id);
             Unsubscribe();
             enabled = false;
             UnityEngine.Object.Destroy(gameObject);

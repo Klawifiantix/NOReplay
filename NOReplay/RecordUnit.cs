@@ -68,6 +68,26 @@ namespace NOReplay
         {
         }
 
+        /// <summary>
+        /// One line when a part effect spawns. Fire stays on the part.
+        /// Anything else is the explosion. Disable and the wreck are not blasts.
+        /// </summary>
+        protected void WriteEffect(string src, string label)
+        {
+            bool fire = src.StartsWith("fire", StringComparison.Ordinal);
+            if (fire)
+            {
+                if (!MarkFire()) return;
+            }
+            else if (!MarkBlast()) return;
+            props.Clear();
+            if (unit != null) UpdatePose(true);
+            props[fire ? "Fire" : "Boom"] = "1";
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
+            Plugin.Log?.LogInfo((fire ? "Fire-Rec " : "Boom-Rec ") + label + " " + src);
+        }
+
         public virtual void LateUpdate()
         {
             if (!Record.Active) return;

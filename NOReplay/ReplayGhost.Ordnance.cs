@@ -42,6 +42,8 @@ namespace NOReplay
         float _boomClock = -1f;
 
         GameObject? _spawnedWreck;
+        GameObject? _husk;
+        bool _huskOn;
         readonly List<GameObject> _spawnedDamageFx = new();
 
         internal void ResetFx()
@@ -55,6 +57,8 @@ namespace NOReplay
                 _boomed = false;
                 ClearSpawnedWreck();
             }
+            if (!_ordnance && !_ship && !_air && Plugin.Clock != null)
+                HoldRemovalWreck(Plugin.Clock.Time);
         }
 
         bool GroundBlastDue()
@@ -225,7 +229,9 @@ namespace NOReplay
             // LateUpdate. Play any blast that is already due, including a second one.
             if (!_air)
             {
-                AdvanceBlasts(Plugin.Clock != null ? Plugin.Clock.Time : 0f, Plugin.Clock == null || Plugin.Clock.Speed >= 0f);
+                float now = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+                AdvanceBlasts(now, Plugin.Clock == null || Plugin.Clock.Speed >= 0f);
+                HoldRemovalWreck(now);
                 return;
             }
             if (_boomed) return;
@@ -508,7 +514,7 @@ namespace NOReplay
             catch { }
         }
 
-        bool TrySpawnVehicleWreckAndFire(Vector3 pos, Quaternion rot)
+        bool TrySpawnVehicleWreckAndFire(Vector3 pos, Quaternion rot, bool spawnModel = true)
         {
             bool spawnedAny = false;
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
@@ -562,9 +568,62 @@ namespace NOReplay
             }
             catch (Exception ex) { Plugin.Log?.LogWarning("Vehicle-DamageFX: " + ex.Message); }
 
-            // 2. Bleibendes Wrack-Modell (GroundVehicle.wreckage) auf den Boden stellen
+            // 2. Bleibendes Wrack-Modell (GroundVehicle.wreckage). The blast path
+            // skips this. The husk appears at Visible=0, not at the explosion.
+            if (spawnModel)
+            {
+                var wreckGo = CreateWreckModel(pos, rot);
+                if (wreckGo != null)
+                {
+                    _spawnedWreck = wreckGo;
+                    spawnedAny = true;
+                }
+            }
+
+            return spawnedAny;
+        }
+
+        void HoldRemovalWreck(float now)
+        {
+            bool due = Track != null && BlastSchedule.RemovalDue(now, Track.RemovedAt);
+            if (!due)
+            {
+                ClearHusk();
+                return;
+            }
+            if (_huskOn) return;
+            _huskOn = true;
+            var pos = transform.position;
+            var rot = transform.rotation;
+            string at = Track != null ? Track.RemovedAt.ToString("0.00") : now.ToString("0.00");
+            string who = Track?.Name ?? name;
+            var model = CreateWreckModel(pos, rot);
+            if (model != null)
+            {
+                _husk = model;
+                Plugin.Log?.LogInfo("Wreck " + who + " at=" + at + " prefab=" + _huskPrefabName);
+                return;
+            }
+            // Same stand-in the previous build logged. No part effects, so it is not a blast.
+            Plugin.Log?.LogInfo("Wreck " + who + " at=" + at + " prefab=VehicleWreckDestroyed");
+            PlayDestroyedWreck(pos, rot);
+        }
+
+        void ClearHusk()
+        {
+            _huskOn = false;
+            if (_husk == null) return;
+            UnityEngine.Object.Destroy(_husk);
+            _husk = null;
+        }
+
+        string _huskPrefabName = "";
+
+        GameObject? CreateWreckModel(Vector3 pos, Quaternion rot)
+        {
             try
             {
+                var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
                 _tGroundVehicle ??= Plugin.FindGameType("GroundVehicle");
                 Component? gv = null;
                 if (_tGroundVehicle != null)
@@ -589,47 +648,48 @@ namespace NOReplay
                         }
                     }
                 }
-
-                if (wreckPrefab != null)
+                if (wreckPrefab == null) return null;
+                _huskPrefabName = wreckPrefab.name;
+                var wreckGo = UnityEngine.Object.Instantiate(wreckPrefab, pos, rot);
+                wreckGo.name = "NOReplay_VehicleWreck";
+                wreckGo.transform.SetParent(null, true);
+                wreckGo.SetActive(true);
+                foreach (var mb in wreckGo.GetComponentsInChildren<MonoBehaviour>(true))
                 {
-                    var wreckGo = UnityEngine.Object.Instantiate(wreckPrefab, pos, rot);
-                    wreckGo.name = "NOReplay_VehicleWreck";
-                    wreckGo.transform.SetParent(null, true);
-                    wreckGo.SetActive(true);
-
-                    foreach (var mb in wreckGo.GetComponentsInChildren<MonoBehaviour>(true))
-                    {
-                        if (mb == null) continue;
-                        if (mb.GetType().Name == "Wreckage")
-                            UnityEngine.Object.Destroy(mb);
-                    }
-                    foreach (var rb in wreckGo.GetComponentsInChildren<Rigidbody>(true))
-                    {
-                        if (rb == null) continue;
-                        rb.isKinematic = true;
-                        rb.detectCollisions = false;
-                    }
-                    foreach (var c in wreckGo.GetComponentsInChildren<Collider>(true))
-                        if (c != null) c.enabled = false;
-
-                    PlayParticles(wreckGo);
-                    _spawnedWreck = wreckGo;
-                    spawnedAny = true;
+                    if (mb == null) continue;
+                    if (mb.GetType().Name == "Wreckage")
+                        UnityEngine.Object.Destroy(mb);
                 }
+                foreach (var rb in wreckGo.GetComponentsInChildren<Rigidbody>(true))
+                {
+                    if (rb == null) continue;
+                    rb.isKinematic = true;
+                    rb.detectCollisions = false;
+                }
+                foreach (var c in wreckGo.GetComponentsInChildren<Collider>(true))
+                    if (c != null) c.enabled = false;
+                PlayParticles(wreckGo);
+                return wreckGo;
             }
-            catch (Exception ex) { Plugin.Log?.LogWarning("Vehicle-Wreck: " + ex.Message); }
-
-            return spawnedAny;
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogWarning("Vehicle-Wreck: " + ex.Message);
+                return null;
+            }
         }
 
-        void PlayUnitWreckFx(Vector3 pos, Quaternion rot)
+        void PlayUnitWreckFx(Vector3 pos, Quaternion rot, bool spawnModel = true, bool destroyedFallback = true)
         {
             ClearSpawnedWreck();
-            TrySpawnVehicleWreckAndFire(pos, rot);
-            // The unit's own wreck prefab is the blast the game spawns.
-            // vehicleWreckDestroyed is a later wreck-decay effect, not a second explosion.
-            if (_spawnedWreck != null) return;
+            TrySpawnVehicleWreckAndFire(pos, rot, spawnModel);
+            // vehicleWreckDestroyed is the stand-in when the unit has no wreck prefab.
+            // A recorded blast does not use it, and it is not played on top of the husk.
+            if (_spawnedWreck != null || !destroyedFallback) return;
+            PlayDestroyedWreck(pos, rot);
+        }
 
+        void PlayDestroyedWreck(Vector3 pos, Quaternion rot)
+        {
             if (!_wreckTried)
             {
                 _wreckTried = true;

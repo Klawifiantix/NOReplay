@@ -20,6 +20,9 @@ namespace NOReplay.OrientationTests
             Check(BlastSchedule.Due(39f, times) == 0, "rewinding before the kill clears both");
             Check(BlastSchedule.OnRemoval(13.992f, 13.992f), "a boom on the wreck line is the removal");
             Check(!BlastSchedule.OnRemoval(8.917f, 13.992f), "the kill is not the wreck line");
+            Check(!BlastSchedule.RemovalDue(8.917f, 13.992f), "the wreck waits for Visible=0");
+            Check(BlastSchedule.RemovalDue(13.992f, 13.992f), "the wreck is due on the removal line");
+            Check(!BlastSchedule.RemovalDue(13.9f, 13.992f), "seeking back before removal clears the wreck");
         }
 
         static void Check(bool ok, string message)

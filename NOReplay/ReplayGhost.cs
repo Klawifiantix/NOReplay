@@ -1235,7 +1235,11 @@ namespace NOReplay
             NoteSpoolClock(Plugin.Clock.Time);
             bool groundBlast = !_ordnance && !_ship && !_air;
             if (groundBlast && Plugin.Clock != null)
+            {
                 AdvanceFires(Plugin.Clock.Time, Plugin.Clock.Speed >= 0f);
+                // The husk is the Visible=0 swap. It is not the blast schedule.
+                HoldRemovalWreck(Plugin.Clock.Time);
+            }
             float boomAt = groundBlast ? UnitExplosionAt() : -1f;
             bool blastNow = groundBlast && WreckMark.Due(Plugin.Clock.Time, boomAt);
             if (!IsTrackAlive() || blastNow)
@@ -1625,7 +1629,8 @@ namespace NOReplay
             {
                 if (play)
                 {
-                    PlayUnitWreckFx(transform.position, transform.rotation);
+                    // The explosion only. The husk waits for Visible=0.
+                    PlayUnitWreckFx(transform.position, transform.rotation, spawnModel: false, destroyedFallback: false);
                     LogUnitBoom(_blastTimes[due - 1], due);
                 }
             }

@@ -24,6 +24,12 @@ namespace NOReplay
             return time >= 0f && removed >= 0f && Math.Abs(time - removed) <= SameHitSeconds;
         }
 
+        /// <summary>The wreck model is due once the replay clock reaches Visible=0.</summary>
+        public static bool RemovalDue(float now, float removed)
+        {
+            return removed >= 0f && now + 0.0001f >= removed;
+        }
+
         public static int Due(float now, float[] times)
         {
             int n = times == null ? 0 : times.Length;

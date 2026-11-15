@@ -175,6 +175,22 @@ namespace NOReplay
             if (!BlastSchedule.IsLater(time, previous)) return;
             FireTimes.Add(time);
         }
+
+        /// <summary>Locked-target changes. Empty id clears the lock. Time order.</summary>
+        public List<LockClock.Mark> Locks = new List<LockClock.Mark>();
+
+        public void AddLock(float time, string? id)
+        {
+            string next = id ?? "";
+            if (Locks.Count > 0)
+            {
+                var prev = Locks[Locks.Count - 1];
+                if (string.Equals(prev.Id, next, StringComparison.OrdinalIgnoreCase)) return;
+            }
+            Locks.Add(new LockClock.Mark(time, next));
+        }
+
+        public string LockAt(float time) => LockClock.At(Locks, time);
         public bool HasPart;
         public byte PartId;
         public string? PartKind;

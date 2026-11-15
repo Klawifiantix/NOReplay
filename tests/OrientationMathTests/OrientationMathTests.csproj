@@ -36,6 +36,7 @@
     <Compile Include="..\..\NOReplay\NukeScale.cs" Link="NukeScale.cs" />
     <Compile Include="..\..\NOReplay\BoomDelay.cs" Link="BoomDelay.cs" />
     <Compile Include="..\..\NOReplay\BlastSchedule.cs" Link="BlastSchedule.cs" />
+    <Compile Include="..\..\NOReplay\LockClock.cs" Link="LockClock.cs" />
     <Compile Include="..\..\NOReplay\RecordingPath.cs" Link="RecordingPath.cs" />
   </ItemGroup>
   <ItemGroup>

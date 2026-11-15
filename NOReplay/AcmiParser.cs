@@ -306,6 +306,19 @@ namespace NOReplay
                         // Cook-off fire. Tacview ignores Fire.
                         obj.AddFire(time);
                     }
+                    else if (AcmiScan.KeyIs(key, "LockedTarget"))
+                    {
+                        string id = "";
+                        var raw = val.Trim();
+                        if (raw.Length > 0 && !(raw.Length == 1 && raw[0] == '0'))
+                            id = raw.ToString();
+                        obj.AddLock(time, id);
+                    }
+                    else if (AcmiScan.KeyIs(key, "LockedTargetMode")
+                        && val.Length > 0 && val[0] == '0')
+                    {
+                        obj.AddLock(time, "");
+                    }
                     else if ((key.Length == 1 && key[0] == 'T') || AcmiScan.KeyIs(key, "Transform"))
                     {
                         if (ParseTransform(val, ref sample))
@@ -436,6 +449,17 @@ namespace NOReplay
                     state[objId] = sample;
                 }
             }
+
+            int lockUnits = 0;
+            int lockEvents = 0;
+            foreach (var o in doc.Objects)
+            {
+                if (o == null || o.Locks.Count == 0) continue;
+                lockUnits++;
+                lockEvents += o.Locks.Count;
+            }
+            if (lockEvents > 0)
+                Plugin.Log.LogInfo("Locks units=" + lockUnits + " events=" + lockEvents);
 
             int promoted = 0;
             foreach (var o in doc.Objects)

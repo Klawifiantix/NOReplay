@@ -60,9 +60,6 @@ namespace NOReplay
         float _loadoutAge;
         float _loadoutWait;
         bool _loadoutDone;
-        readonly List<Unit> _targetScratch = new();
-        int _lastTargetCount;
-        long[] _lastTargetIds = Array.Empty<long>();
 
         public virtual void Init(Aircraft aircraft)
         {
@@ -141,42 +138,8 @@ namespace NOReplay
 
         internal override void UpdateTargets()
         {
-            _targetScratch.Clear();
-            foreach (var unitTarget in aircraft.weaponManager.GetTargetList())
-            {
-                if (unitTarget != null)
-                    _targetScratch.Add(unitTarget);
-            }
-            int n = _targetScratch.Count;
-            if (n == 0)
-                return;
-            bool changed = n != _lastTargetCount;
-            if (!changed)
-            {
-                for (int i = 0; i < n; i++)
-                {
-                    if (_targetScratch[i].persistentID.Id != _lastTargetIds[i])
-                    {
-                        changed = true;
-                        break;
-                    }
-                }
-            }
-            if (!changed)
-                return;
-            if (_lastTargetIds.Length < n)
-                _lastTargetIds = new long[n];
-            for (int i = 0; i < n; i++)
-                _lastTargetIds[i] = _targetScratch[i].persistentID.Id;
-            _lastTargetCount = n;
-            if (n <= 1)
-                return;
-            int max = n > 10 ? 10 : n;
-            for (int i = 0; i < max; i++)
-            {
-                lockedTargetString = i == 0 ? "LockedTarget" : $"LockedTarget{i:X}";
-                props.Add(lockedTargetString, $"{GetTacviewIdOfUnit(_lastTargetIds[i]):X}");
-            }
+            if (aircraft == null) return;
+            NoteLock(aircraft);
         }
 
         private float getAvgThrust()

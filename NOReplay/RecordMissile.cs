@@ -24,7 +24,6 @@ namespace NOReplay
         private float lastAGL = float.NaN;
         private float lastTAS = float.NaN;
         private float lastAOA = float.NaN;
-        private uint lastTarget = 0;
 
         internal bool Detonated
         {
@@ -232,21 +231,8 @@ namespace NOReplay
                 lastAGL = unit.radarAlt;
             }
 
-            if (missile.targetID.Id != lastTarget)
-            {
-                if (missile.targetID.Id != -1)
-                {
-                    props.Add("LockedTarget", $"{GetTacviewIdOfUnit(missile.targetID.Id):X}");
-
-                    if (lastTarget == -1)
-                        props.Add("LockedTargetMode", "1");
-                }
-                else
-                    props.Add("LockedTargetMode", "0");
-
-
-                lastTarget = missile.targetID.Id;
-            }
+            if (missile != null)
+                NoteLock(missile);
         }
     }
 }

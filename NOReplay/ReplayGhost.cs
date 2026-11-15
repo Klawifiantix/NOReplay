@@ -1228,6 +1228,7 @@ namespace NOReplay
 
         void LateUpdateMotion()
         {
+            ApplyLock();
             long mark = ReplayPerf.Stamp();
             if (_lasersBound && _lasers.Length > 0 && !_asleep)
                 ShowLaserMounts();

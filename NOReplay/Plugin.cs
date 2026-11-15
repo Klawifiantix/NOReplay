@@ -239,6 +239,12 @@ namespace NOReplay
                     Clock.WentBack = false;
                     ResetParticles();
                 }
+                if (Clock.SeekSerial != _lockSerial)
+                {
+                    _lockSerial = Clock.SeekSerial;
+                    for (int i = 0; i < _ghostComps.Count; i++)
+                        _ghostComps[i]?.ApplyLock();
+                }
                 long section = ReplayPerf.Stamp();
                 TickGhostSpawns();
                 KeepReplayCamera();
@@ -348,6 +354,7 @@ namespace NOReplay
         float _panelAt;
 
         int _ordSeekSerial;
+        int _lockSerial = -1;
 
         static readonly List<ReplayGhost> _ordRespawn = new List<ReplayGhost>();
 
@@ -479,6 +486,7 @@ namespace NOReplay
             {
                 var rg = _ghostComps[i];
                 if (rg == null) continue;
+                rg.ApplyLock();
                 var go = rg.gameObject;
                 if (go == null) continue;
                 bool on = rg.KeepsGhostActive();

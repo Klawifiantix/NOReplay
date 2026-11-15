@@ -310,13 +310,27 @@ namespace NOReplay
         }
 
         /// <summary>
-        /// MissionManager.StartMission is what spawns the buildings and scenery
-        /// written into the replay mission. SinglePlayerMenu.StartMission only
-        /// starts the host; the real call comes later from OnStartServer. If that
-        /// call never arrives, catch up once. A second call is skipped because
-        /// IsRunning is already true.
+        /// MissionManager.StartMission spawns the buildings and scenery in the
+        /// replay mission. OnStartServer calls it only after LevelInfo has map
+        /// settings. Calling it earlier throws and cancels that wait, so the
+        /// catch-up waits for the same condition and does not run again after
+        /// a start has returned.
         /// </summary>
         static bool _missionStartGuarded;
+        static bool _missionStartFinished;
+        static int _missionStartDepth;
+        static bool _missionCatchupCalled;
+        static bool _missionNoted;
+        static float _missionWaitLog = -999f;
+
+        internal static void ResetMissionCatchup()
+        {
+            _missionStartFinished = false;
+            _missionStartDepth = 0;
+            _missionCatchupCalled = false;
+            _missionNoted = false;
+            _missionWaitLog = -999f;
+        }
 
         internal static void EnsureReplayMissionStarted()
         {
@@ -325,24 +339,64 @@ namespace NOReplay
             if (mmType == null) return;
             var sflags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
             InstallMissionStartGuard(mmType, sflags);
-            if (MissionIsRunning(mmType, sflags))
+            if (_missionStartFinished)
             {
-                Log.LogInfo("Mission already running.");
+                if (!_missionNoted)
+                {
+                    _missionNoted = true;
+                    Log.LogInfo("Mission already running.");
+                }
                 return;
             }
+            if (!MissionWorldReady())
+            {
+                if (Time.unscaledTime - _missionWaitLog > 2f)
+                {
+                    _missionWaitLog = Time.unscaledTime;
+                    Log.LogInfo("StartMission wartet auf MapSettings.");
+                }
+                return;
+            }
+            if (_missionCatchupCalled) return;
+            _missionCatchupCalled = true;
             if (mmType.GetProperty("CurrentMission", sflags)?.GetValue(null) == null)
                 EnsureCurrentMission();
             try
             {
                 mmType.GetMethod("StartMission", sflags)?.Invoke(null, null);
-                Log.LogInfo(MissionIsRunning(mmType, sflags)
-                    ? "StartMission nachgeholt."
-                    : "StartMission nachgeholt, Mission laeuft nicht.");
             }
             catch (Exception ex)
             {
-                Log.LogWarning("StartMission nachgeholt: " + (ex.InnerException?.Message ?? ex.Message));
+                var inner = ex.InnerException ?? ex;
+                Log.LogWarning("StartMission nachgeholt: " + inner.GetType().Name + ": " + inner.Message);
             }
+            if (_missionStartFinished)
+                Log.LogInfo("StartMission nachgeholt.");
+            else
+                Log.LogInfo("StartMission nachgeholt, Mission laeuft nicht.");
+        }
+
+        static bool MissionWorldReady()
+        {
+            var levelType = FindGameType("LevelInfo");
+            var managerType = FindGameType("MissionManager");
+            if (levelType == null || managerType == null) return false;
+            object? level = FirstLive(levelType);
+            object? manager = FirstLive(managerType);
+            if (level == null || manager == null) return false;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            return levelType.GetProperty("LoadedMapSettings", flags)?.GetValue(level) != null;
+        }
+
+        static object? FirstLive(Type type)
+        {
+            foreach (var obj in Resources.FindObjectsOfTypeAll(type))
+            {
+                if (obj is not UnityEngine.Object u || u == null) continue;
+                if (u is Component c && !c.gameObject.scene.IsValid()) continue;
+                return obj;
+            }
+            return null;
         }
 
         static void InstallMissionStartGuard(Type mmType, BindingFlags sflags)
@@ -352,7 +406,9 @@ namespace NOReplay
             if (method == null) return;
             try
             {
-                Harmony.Patch(method, prefix: new HarmonyMethod(typeof(Plugin), nameof(SkipSecondMissionStart)));
+                Harmony.Patch(method,
+                    prefix: new HarmonyMethod(typeof(Plugin), nameof(SkipSecondMissionStart)),
+                    finalizer: new HarmonyMethod(typeof(Plugin), nameof(FinishMissionStart)));
                 _missionStartGuarded = true;
             }
             catch (Exception ex)
@@ -361,21 +417,27 @@ namespace NOReplay
             }
         }
 
-        // The recording hook on StartMission is a postfix and does not spawn units.
-        // This only drops a second entry after IsRunning is already true, so the
-        // buildings from the first start are not created again.
+        // A start that has returned owns the buildings. A start that threw does
+        // not, so the game's OnStartServer call is still allowed in.
         static bool SkipSecondMissionStart()
         {
-            var mmType = FindGameType("MissionManager");
-            var sflags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
-            if (!MissionIsRunning(mmType, sflags)) return true;
-            Log.LogInfo("StartMission skipped, already running.");
-            return false;
+            if (_missionStartFinished || _missionStartDepth > 0)
+            {
+                Log.LogInfo("StartMission skipped, already running.");
+                return false;
+            }
+            _missionStartDepth++;
+            return true;
         }
 
-        static bool MissionIsRunning(Type? mmType, BindingFlags sflags)
+        static Exception? FinishMissionStart(Exception __exception)
         {
-            return mmType?.GetProperty("IsRunning", sflags)?.GetValue(null) is bool on && on;
+            _missionStartDepth = 0;
+            if (__exception == null)
+                _missionStartFinished = true;
+            else
+                Log.LogWarning("StartMission exception: " + __exception.GetType().Name + ": " + __exception.Message);
+            return __exception;
         }
 
         static void DumpNetworkState(string tag)

@@ -188,6 +188,7 @@ namespace NOReplay
             CurrentDoc = null;
             FeedPlayback.Reset();
             _staticHandlerStarted = false;
+            ResetMissionCatchup();
             Clock.Reset(0f);
             _menuHooked = false;
             _replayBtn = null;
@@ -237,14 +238,17 @@ namespace NOReplay
                 TickGhostSleep();
                 ApplyOrdnanceSeeks();
                 ReplayPerf.Add("spawn", ReplayPerf.Stamp() - section);
-                if (!_staticHandlerStarted && InGameWorld() && Time.timeSinceLevelLoad > 2f)
+                if (InGameWorld() && Time.timeSinceLevelLoad > 2f)
                 {
-                    _staticHandlerStarted = true;
-                    // The game's OnStartServer calls StartMission a few frames after the
-                    // map is ready. If that never happens, the JSON buildings stay unspawned
-                    // and the static handler can only see map objects.
+                    // OnStartServer calls StartMission only after the map settings exist.
+                    // Keep trying until that start returns. One early call throws and
+                    // cancels the game's wait, so the catch-up uses the same gate.
                     EnsureReplayMissionStarted();
-                    ReplayStaticHandler.StartFor(CurrentDoc);
+                    if (!_staticHandlerStarted)
+                    {
+                        _staticHandlerStarted = true;
+                        ReplayStaticHandler.StartFor(CurrentDoc);
+                    }
                 }
                 section = ReplayPerf.Stamp();
                 TickMissileBooms();

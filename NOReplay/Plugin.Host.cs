@@ -419,6 +419,49 @@ namespace NOReplay
                 Log.LogInfo("Registry drop dead ids=" + dead.Count);
         }
 
+        // StartMission reads Unit.BuiltIn on every UnitRegistry.allUnits entry.
+        // That reads NetworkIdentity.gameObject. A destroyed or unspawned identity
+        // throws, and the custom buildings never spawn.
+        static void DropDeadRegisteredUnits()
+        {
+            var reg = FindGameType("UnitRegistry");
+            if (reg == null) return;
+            var flags = BindingFlags.Public | BindingFlags.Static;
+            int n = DropDeadList(reg.GetField("allUnits", flags)?.GetValue(null) as System.Collections.IList);
+            DropDeadList(reg.GetField("allAircraft", flags)?.GetValue(null) as System.Collections.IList);
+            if (n > 0)
+                Log.LogInfo("Registry drop dead units=" + n);
+        }
+
+        static int DropDeadList(System.Collections.IList? list)
+        {
+            if (list == null) return 0;
+            var dead = new List<object>();
+            foreach (var item in list)
+            {
+                if (item is not Component c || c == null)
+                {
+                    if (item != null) dead.Add(item);
+                    continue;
+                }
+                bool bad = false;
+                try
+                {
+                    var id = c.GetType().GetProperty("Identity",
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(c);
+                    bad = id is not UnityEngine.Object o || o == null;
+                }
+                catch
+                {
+                    bad = true;
+                }
+                if (bad) dead.Add(item);
+            }
+            for (int i = 0; i < dead.Count; i++)
+                list.Remove(dead[i]);
+            return dead.Count;
+        }
+
         static string ExcText(Exception ex)
         {
             var inner = ex is System.Reflection.TargetInvocationException && ex.InnerException != null
@@ -461,6 +504,7 @@ namespace NOReplay
         static bool SkipSecondMissionStart()
         {
             DropDestroyedCustomIds();
+            DropDeadRegisteredUnits();
             if (_missionStartFinished || _missionStartDepth > 0)
             {
                 Log.LogInfo("StartMission skipped, already running.");

@@ -95,9 +95,11 @@ Events are not the file. Fire, boom, gear, yield, kill feed, and chat have to su
 
 Grep of the playback project: `AcmiParser` stores `T`, `Q`, `TAS`, `Throttle`, `RpmRatio`, `JetRpm`, `TurbineRpm`, `AGL`, `LandingGear`, `Tilt`, `Tailhook`, `Fire`, `Boom`, `Visible`, `Dying`, `Sinking`, `Yield`, `Turrets`, `Lasers`, `Chute`, `Doors`, `Glass`, the gun-burst and part-break fields, `Map`, and the name/type/coalition/pilot/loadout/livery strings. `FeedLog.Collect` scans the raw text a second time for `Feed=`. `ReplayGhost.Airframe` and `ReplayGhost.MissileAudio` consume TAS, throttle, RPM, gear, AGL, and tailhook.
 
-Nothing in playback reads `Mach`, `AOA`, `PitchControlInput`, `RollControlInput`, `YawControlInput`, `EngineRPM`, `PilotHeadPitch`, `PilotHeadYaw`, `RadarMode`, `LockedTarget`, `Debug`, `Color`, or `EngagementRange`. `Mach` is `TAS/340` written beside `TAS`.
+Nothing in playback read `Mach`, `AOA`, `PitchControlInput`, `RollControlInput`, `YawControlInput`, `EngineRPM`, `PilotHeadPitch`, `PilotHeadYaw`, `RadarMode`, `Debug`, `Color`, or `EngagementRange` when this note was written. `Mach` is `TAS/340` written beside `TAS`.
 
-On Feldspar those unread keys are **1,412,547 bytes, 19.1% of the text**. **Measurement.** They are a Tacview leftover. Deflate already compresses `PitchControlInput=0` well, so deleting them shrinks the zip by less than 19%. The recording cost is real either way: each change allocates a string on the main thread.
+`LockedTarget` is not in that drop list. Kevin is keeping it. The map target line and the orbit Target field play it back, for missiles, aircraft, and other units. On Feldspar it was 175 KB (2.4% of the text), so the "19%" above includes it. Leaving it in, and dropping the rest, is about 16.7% of that file.
+
+On Feldspar the drop list plus `LockedTarget` is **1,412,547 bytes, 19.1% of the text**. **Measurement.** That total still counts `LockedTarget`, which stays. The rest is a Tacview leftover. Deflate already compresses `PitchControlInput=0` well, so deleting the leftovers shrinks the zip by less than 19%. The recording cost is real either way: each change allocates a string on the main thread.
 
 ## Recording CPU
 
@@ -222,7 +224,7 @@ The load win is larger than the disk win: no 14 MB string, no per-line id alloca
 
 Do these even if the format slips, and do the first one before the format so the property list is frozen.
 
-1. Stop writing the unread keys listed above. One flight tells us whether engine spool, gear, throttle, and TAS still play. They are the keys playback actually reads.
+1. Stop writing the unread keys listed above. Keep `LockedTarget`. One flight tells us whether engine spool, gear, throttle, and TAS still play. They are the keys playback actually reads.
 2. Quantize `Q` to three decimal places while the file is still text, only if (1) is not enough and the format PR is waiting. Half the digits are below the euler gate. Skip this if the binary PR is next; doing both confuses the comparison.
 3. Do not write `EngineRPM=NaN`.
 4. Format every remaining number with invariant culture. `AOA` is the one that does not.

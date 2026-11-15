@@ -23,6 +23,12 @@ namespace NOReplay.OrientationTests
             Check(!BlastSchedule.RemovalDue(8.917f, 13.992f), "the wreck waits for Visible=0");
             Check(BlastSchedule.RemovalDue(13.992f, 13.992f), "the wreck is due on the removal line");
             Check(!BlastSchedule.RemovalDue(13.9f, 13.992f), "seeking back before removal clears the wreck");
+            Check(FireFade.Opacity(0.5f, 4f, 2f) == 1f, "fire has not faded before the first tick");
+            Check(FireFade.Opacity(4.2f, 4f, 2f) == 1f, "the fade waits until time passes the gate");
+            Check(Math.Abs(FireFade.Opacity(5.2f, 4f, 2f) - 0.5f) < 0.001f, "one slow tick fades halfway at a two second fade");
+            Check(FireFade.Opacity(8f, 4f, 2f) == 0f, "the fade reaches zero");
+            Check(FireFade.Opacity(9f, 4f, 0f) == 1f, "a zero fade duration does not fade");
+            Check(Math.Abs(FireFade.ClearAt(4f, 2f, 3f) - 9f) < 0.001f, "the effect clears after the fade plus the particle life");
         }
 
         static void Check(bool ok, string message)

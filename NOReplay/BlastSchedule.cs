@@ -42,4 +42,30 @@ namespace NOReplay
             return due;
         }
     }
+
+    /// <summary>
+    /// DamageParticles.SlowUpdate fades new particles after the system duration.
+    /// The first tick is one second after the effect starts, then once a second.
+    /// fadeDuration of zero does not fade.
+    /// </summary>
+    public static class FireFade
+    {
+        public static float Opacity(float elapsed, float gate, float fadeDuration)
+        {
+            if (fadeDuration <= 0f || elapsed < 1f) return 1f;
+            int time = (int)elapsed;
+            int steps = time - (int)Math.Floor(gate);
+            if (steps <= 0) return 1f;
+            float opacity = 1f - steps / Math.Max(fadeDuration, 0.5f);
+            return opacity > 0f ? opacity : 0f;
+        }
+
+        public static float ClearAt(float gate, float fadeDuration, float life)
+        {
+            if (fadeDuration <= 0f) return life;
+            float step = 1f / Math.Max(fadeDuration, 0.5f);
+            int need = (int)Math.Ceiling(1f / step);
+            return (int)Math.Floor(gate) + need + life;
+        }
+    }
 }

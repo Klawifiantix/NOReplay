@@ -58,7 +58,10 @@ namespace NOReplay
                 ClearSpawnedWreck();
             }
             if (!_ordnance && !_ship && !_air && Plugin.Clock != null)
+            {
                 HoldRemovalWreck(Plugin.Clock.Time);
+                AdvanceFires(Plugin.Clock.Time, Plugin.Clock.Speed >= 0f);
+            }
         }
 
         bool GroundBlastDue()
@@ -232,6 +235,7 @@ namespace NOReplay
                 float now = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
                 AdvanceBlasts(now, Plugin.Clock == null || Plugin.Clock.Speed >= 0f);
                 HoldRemovalWreck(now);
+                AdvanceFires(now, Plugin.Clock == null || Plugin.Clock.Speed >= 0f);
                 return;
             }
             if (_boomed) return;

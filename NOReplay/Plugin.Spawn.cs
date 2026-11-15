@@ -9,6 +9,7 @@ namespace NOReplay
     public partial class Plugin
     {
         static bool _spawnLogged;
+        static bool _camStayLogged;
         static bool _gameSpawnDead;
         static readonly List<ReplayObject> _flareEvents = new List<ReplayObject>();
         static readonly HashSet<ReplayObject> _flareDone = new HashSet<ReplayObject>();
@@ -407,6 +408,7 @@ namespace NOReplay
             _flareClock = -1f;
             _followIndex = -1;
             _follow = false;
+            _camStayLogged = false;
             _spawnLogged = false;
             _gameSpawnDead = false;
         }
@@ -506,12 +508,13 @@ namespace NOReplay
                     AddGhost(go);
                     bool mapFallback = !string.IsNullOrEmpty(obj.Map);
                     if (!mapFallback && _ghost == null && !IsOrdnance(obj.Type, obj.Name)) _ghost = go;
-                    if (follow && !mapFallback)
+                    // The first ghost used to call SetFollowingUnit and switch to TV.
+                    // That moved the camera on its own. Selection still follows.
+                    if (follow && !mapFallback && !_camStayLogged)
                     {
-                        try { TryFollowGhost(go); }
-                        catch (Exception ex) { Log.LogWarning("Follow: " + (ex.InnerException?.Message ?? ex.Message)); }
+                        _camStayLogged = true;
+                        Log.LogInfo("Cam bleibt, kein Auto-Follow.");
                     }
-
                 }
                 _pendingAir.RemoveAt(i);
                 budget--;
@@ -1836,8 +1839,6 @@ namespace NOReplay
                     try { mapType.GetMethod("GetOrAddIcon", flags)?.Invoke(map, new object[] { unit }); } catch { }
                 }
             }
-            if (followCam)
-                TryFollowGhost(go);
         }
 
         static System.Collections.IEnumerator SimpleLiveryFix(GameObject go)

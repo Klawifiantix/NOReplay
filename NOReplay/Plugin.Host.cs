@@ -318,7 +318,9 @@ namespace NOReplay
         /// a start has returned.
         /// </summary>
         static bool _missionStartGuarded;
+        static bool _spawnGuardInstalled;
         static bool _missionStartFinished;
+        static bool _missionStartFailed;
         static int _missionStartDepth;
         static bool _missionCatchupCalled;
         static bool _missionNoted;
@@ -327,6 +329,7 @@ namespace NOReplay
         internal static void ResetMissionCatchup()
         {
             _missionStartFinished = false;
+            _missionStartFailed = false;
             _missionStartDepth = 0;
             _missionCatchupCalled = false;
             _missionNoted = false;
@@ -340,9 +343,22 @@ namespace NOReplay
             if (mmType == null) return;
             var sflags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
             InstallMissionStartGuard(mmType, sflags);
-            if (_missionStartFinished || MissionIsRunning(mmType, sflags))
+            if (_missionStartFailed)
             {
-                _missionStartFinished = true;
+                // The start already ran and threw. A second StartMission does not
+                // spawn the units that were still in that outcome.
+                SetMissionRunning(false);
+                if (!_missionNoted)
+                {
+                    _missionNoted = true;
+                    Log.LogInfo("StartMission unvollstaendig, kein zweiter Lauf.");
+                }
+                return;
+            }
+            // IsRunning is set before objectives spawn. A throw after that flag
+            // used to look like a finished start, and the buildings never appeared.
+            if (_missionStartFinished && !_missionStartFailed)
+            {
                 if (!_missionNoted)
                 {
                     _missionNoted = true;
@@ -518,10 +534,66 @@ namespace NOReplay
         {
             _missionStartDepth = 0;
             if (__exception == null)
+            {
                 _missionStartFinished = true;
+                _missionStartFailed = false;
+            }
             else
+            {
+                _missionStartFailed = true;
+                _missionStartFinished = false;
                 Log.LogWarning("StartMission exception: " + ExcText(__exception));
+                SetMissionRunning(false);
+                Log.LogInfo("StartMission fehlgeschlagen, IsRunning zurueck.");
+            }
             return __exception;
+        }
+
+        static void SetMissionRunning(bool on)
+        {
+            var mm = FindGameType("MissionManager");
+            var prop = mm?.GetProperty("IsRunning",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            try { prop?.SetValue(null, on); } catch { }
+        }
+
+        internal static void InstallSpawnGuard()
+        {
+            if (_spawnGuardInstalled || Harmony == null) return;
+            var spawner = FindGameType("Spawner");
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var method = spawner?.GetMethod("SpawnSavedUnit", flags);
+            if (method == null) return;
+            try
+            {
+                Harmony.Patch(method,
+                    finalizer: new HarmonyMethod(typeof(Plugin), nameof(KeepMissionAfterSpawnFailure)));
+                _spawnGuardInstalled = true;
+                Log.LogInfo("Patch Spawner.SpawnSavedUnit guard x1");
+            }
+            catch (Exception ex)
+            {
+                Log.LogWarning("SpawnSavedUnit guard: " + ex.Message);
+            }
+        }
+
+        // One bad saved unit must not abort MissionRunner. The naval container is
+        // written as scenery, and SpawnScenery then has no Scenery component.
+        static Exception? KeepMissionAfterSpawnFailure(Exception? __exception, object? savedUnit)
+        {
+            if (__exception == null || CurrentDoc == null) return __exception;
+            string type = "";
+            string id = "";
+            try
+            {
+                var t = savedUnit?.GetType();
+                type = t?.GetField("type")?.GetValue(savedUnit) as string ?? "";
+                id = t?.GetProperty("UniqueName")?.GetValue(savedUnit) as string ?? "";
+            }
+            catch { }
+            Log.LogWarning("SpawnSavedUnit skip type=" + type + " id=" + id
+                + " " + __exception.GetType().Name + ": " + __exception.Message);
+            return null;
         }
 
         static bool MissionIsRunning(Type? mmType, BindingFlags sflags)

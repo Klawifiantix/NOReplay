@@ -148,6 +148,7 @@ namespace NOReplay
                     var mm = FindGameType("MissionManager");
                     if (mm != null)
                         InstallMissionStartGuard(mm, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    InstallSpawnGuard();
                 }
                 catch (Exception ex) { Log.LogError("StartMission guard: " + ex); }
                 Log.LogInfo($"{PluginName} {PluginVersion} geladen.");
@@ -587,6 +588,9 @@ namespace NOReplay
 
         void LoadReplayAt(int index)
         {
+            // A live mission's StartMission sets the finished flag. Leaving that
+            // world for a replay does not, so the replay start was skipped.
+            ResetMissionCatchup();
             if (_replayFiles.Count == 0) return;
             if (index < 0) index = 0;
             if (index >= _replayFiles.Count) index = _replayFiles.Count - 1;

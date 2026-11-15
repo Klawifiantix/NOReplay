@@ -151,6 +151,18 @@ namespace NOReplay
         readonly List<Transform> _brakeTr = new();
         readonly List<Quaternion> _brakeRest = new();
         bool _boomed;
+        int _blastsPlayed;
+        float[] _blastTimes = Array.Empty<float>();
+        ReplayObject? _blastTrack;
+        float[] _fireTimes = Array.Empty<float>();
+        ReplayObject? _fireTrack;
+        bool _cookFireOn;
+        readonly List<CookFlame> _cookFire = new List<CookFlame>();
+        bool _cookFirePaused;
+        bool _fireCulled;
+        bool _fireCullLogged;
+        float _fireSimClock = -1f;
+        float _fireSimSpeed = -999f;
         internal bool IsWrecked => _boomed;
         bool _ordAudioOn;
         bool _ordVoiceHeld;
@@ -1226,8 +1238,20 @@ namespace NOReplay
             if (_ordnance) TickWings(Plugin.Clock.Time);
             NoteSpoolClock(Plugin.Clock.Time);
             bool groundBlast = !_ordnance && !_ship && !_air;
-            float boomAt = groundBlast ? UnitExplosionAt() : -1f;
-            bool blastNow = groundBlast && WreckMark.Due(Plugin.Clock.Time, boomAt);
+            // Vehicles, pallets, and ships. Aircraft and missiles keep their own death.
+            bool partFx = !_ordnance && !_air;
+            if (partFx && Plugin.Clock != null)
+            {
+                float nowFx = Plugin.Clock.Time;
+                bool forward = Plugin.Clock.Speed >= 0f;
+                AdvanceFires(nowFx, forward);
+                if (groundBlast)
+                    HoldRemovalWreck(nowFx);
+                // A part blast does not hide the unit. The mesh waits for Visible=0.
+                // Ships do not latch _boomed, so a compartment fire cannot skip the sink.
+                AdvanceBlasts(nowFx, forward, latchWreck: false);
+            }
+            bool blastNow = false;
             if (!IsTrackAlive() || blastNow)
             {
                 float nowDead = Plugin.Clock.Time;
@@ -1247,12 +1271,9 @@ namespace NOReplay
                     _boomed = false;
                 }
                 _boomClock = nowDead;
-                // A ground unit plays at its blast time, which can be the death
-                // rather than the wreck. Aircraft and missiles keep the removal time.
-                bool playBlast = groundBlast && boomAt >= 0f
-                    ? !_boomed && WreckMark.Due(nowDead, boomAt)
-                    : !_boomed && (end < 0f || nowDead >= end);
-                if (playBlast)
+                // Part blasts already played above. Aircraft and missiles still
+                // use the removal time. A ground hull stays up until Visible=0.
+                if (!groundBlast && !_boomed && (end < 0f || nowDead >= end))
                 {
                     _boomed = true;
                     if (_ordnance && !IsFlareTrack())
@@ -1262,11 +1283,7 @@ namespace NOReplay
                         PlayWarheadBoom(transform.position);
                     }
                     else if (!_ordnance && !_ship)
-                    {
                         PlayUnitWreckFx(transform.position, transform.rotation);
-                        if (groundBlast)
-                            LogUnitBoom(boomAt);
-                    }
                 }
                 if (_ship)
                 {
@@ -1294,7 +1311,16 @@ namespace NOReplay
             }
             _boomed = false;
             ClearBoom();
-            if (!_ordnance)
+            if (!_ordnance && Plugin.Clock != null)
+            {
+                EnsureBlastTimes();
+                if (BlastSchedule.Due(Plugin.Clock.Time, _blastTimes) == 0)
+                {
+                    _blastsPlayed = 0;
+                    ClearSpawnedWreck();
+                }
+            }
+            else if (!_ordnance)
                 ClearSpawnedWreck();
             if (_ship && _splashGo != null)
                 ClearShipSplash();
@@ -1582,14 +1608,583 @@ namespace NOReplay
             return WreckMark.At(Track.BoomAt, Track.DyingAt, Track.RemovedAt, WreckMark.IsCookoff(Track.Name));
         }
 
-        void LogUnitBoom(float at)
+        void EnsureBlastTimes()
+        {
+            if (ReferenceEquals(_blastTrack, Track)) return;
+            _blastTrack = Track;
+            _blastsPlayed = 0;
+            var list = Track?.BoomTimes;
+            if (list != null && list.Count > 0)
+            {
+                var kept = new List<float>(list.Count);
+                float removed = Track != null ? Track.RemovedAt : -1f;
+                // A Boom glued to Visible=0 with no Fire is the old wreck stamp.
+                // A Fire earlier in the track means a later Boom on that line is the
+                // killing explosion (a pallet's second hit), so it stays.
+                bool keepKill = Track?.FireTimes != null && Track.FireTimes.Count > 0;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (!keepKill && BlastSchedule.OnRemoval(list[i], removed)) continue;
+                    kept.Add(list[i]);
+                }
+                _blastTimes = kept.ToArray();
+                return;
+            }
+            if (Track?.FireTimes != null && Track.FireTimes.Count > 0)
+            {
+                _blastTimes = Array.Empty<float>();
+                return;
+            }
+            float one = UnitExplosionAt();
+            _blastTimes = one >= 0f ? new[] { one } : Array.Empty<float>();
+        }
+
+        void AdvanceBlasts(float now, bool play, bool latchWreck = true)
+        {
+            EnsureBlastTimes();
+            int due = BlastSchedule.Due(now, _blastTimes);
+            if (due == _blastsPlayed) return;
+            if (due > _blastsPlayed)
+            {
+                if (play)
+                {
+                    // The explosion only. The husk waits for Visible=0.
+                    PlayUnitWreckFx(transform.position, transform.rotation, spawnModel: false, destroyedFallback: false);
+                    LogUnitBoom(_blastTimes[due - 1], due);
+                }
+            }
+            else
+                ClearSpawnedWreck();
+            _blastsPlayed = due;
+            if (latchWreck)
+                _boomed = due > 0;
+        }
+
+        static bool BurnOnly(ReplayObject track)
+        {
+            if (track.FireTimes != null && track.FireTimes.Count > 0) return false;
+            if (track.BoomTimes == null || track.BoomTimes.Count == 0) return false;
+            for (int i = 0; i < track.BoomTimes.Count; i++)
+            {
+                if (!BlastSchedule.OnRemoval(track.BoomTimes[i], track.RemovedAt)) return false;
+            }
+            return true;
+        }
+
+        void AdvanceFires(float now, bool play)
+        {
+            if (!ReferenceEquals(_fireTrack, Track))
+            {
+                StopCookoffFire();
+                _fireTrack = Track;
+                var list = Track?.FireTimes;
+                if (list != null && list.Count > 0)
+                    _fireTimes = list.ToArray();
+                else if (Track != null && WreckMark.IsCookoff(Track.Name) && Track.DyingAt >= 0f
+                    && BurnOnly(Track))
+                    _fireTimes = new[] { Track.DyingAt };
+                else
+                    _fireTimes = Array.Empty<float>();
+            }
+            int due = BlastSchedule.Due(now, _fireTimes);
+            if (due <= 0)
+            {
+                if (_cookFireOn) StopCookoffFire();
+                return;
+            }
+            if (!_cookFireOn)
+            {
+                StartCookoffFire();
+                Plugin.Log?.LogInfo("Fire " + (Track?.Name ?? name)
+                    + " at=" + _fireTimes[due - 1].ToString("0.00"));
+            }
+            bool removed = Track != null && BlastSchedule.RemovalDue(now, Track.RemovedAt);
+            if (!removed && _fireCulled)
+            {
+                // The cull destroyed the light. Rebuild so a seek back shows the burning truck.
+                StopCookoffFire();
+                StartCookoffFire();
+            }
+            if (removed && now > Track!.RemovedAt + FireLinger())
+            {
+                StopCookoffFire();
+                return;
+            }
+            bool running = play && Plugin.Clock != null && !Plugin.Clock.Paused && Plugin.Clock.Speed > 0.001f;
+            bool jump = Plugin.Clock == null || Plugin.Clock.Speed < 0f || FireClockJumped(now);
+            if (jump)
+                ScrubCookoffFire(now, removed, running);
+            else
+                DriveCookoffFire(now, removed, running);
+            _fireSimClock = now;
+        }
+
+        float FireLinger()
+        {
+            float linger = 0.5f;
+            float born = _fireTimes.Length > 0 ? _fireTimes[0] : 0f;
+            float removed = Track != null ? Track.RemovedAt : born;
+            for (int i = 0; i < _cookFire.Count; i++)
+            {
+                var f = _cookFire[i];
+                if (f.StopOnCull)
+                {
+                    if (f.Life > linger) linger = f.Life;
+                    continue;
+                }
+                float end = 0f;
+                for (int s = 0; s < f.Fade.Length; s++)
+                {
+                    if (f.Fade[s] <= 0f) continue;
+                    float clear = FireFade.ClearAt(f.Gate[s], f.Fade[s], f.Life);
+                    float after = clear - (removed - born);
+                    if (after > end) end = after;
+                }
+                // Neither stop nor fade: the emitters stay. Cap the replay copy so it cannot run for the whole file.
+                if (end <= 0f) end = Mathf.Max(f.Life, 12f);
+                if (end > linger) linger = end;
+            }
+            return linger;
+        }
+
+        bool FireClockJumped(float now)
+        {
+            if (_fireSimClock < 0f) return true;
+            float speed = Plugin.Clock != null ? Mathf.Abs(Plugin.Clock.Speed) : 1f;
+            float step = Time.unscaledDeltaTime * Mathf.Max(speed, 0.01f);
+            float d = now - _fireSimClock;
+            if (d < -0.001f) return true;
+            return d > Mathf.Max(0.35f, step * 4f);
+        }
+
+        static FieldInfo? _cookFx;
+        static FieldInfo? _cookStop;
+        static FieldInfo? _cookBehaviours;
+        static PropertyInfo? _psMain;
+        static PropertyInfo? _psSimSpeed;
+        static MethodInfo? _psSimulate;
+        static bool _firePsBound;
+        int _fadeTick = -1;
+        static int _staticMask = int.MinValue;
+
+        sealed class CookFlame
+        {
+            public GameObject Go = null!;
+            public Transform? Anchor;
+            public Vector3 LocalPos;
+            public Quaternion LocalRot;
+            public bool StopOnCull;
+            public float Life = 2f;
+            public Component[] Systems = Array.Empty<Component>();
+            public float[] Fade = Array.Empty<float>();
+            public float[] Gate = Array.Empty<float>();
+            public bool Culled;
+            public bool GroundChecked;
+            public bool Grounded;
+            public Color[] BaseColor = Array.Empty<Color>();
+            public bool ColorReady;
+        }
+
+        void StartCookoffFire()
+        {
+            _cookFireOn = true;
+            _cookFirePaused = false;
+            _fireCulled = false;
+            _fireCullLogged = false;
+            _fireSimClock = -1f;
+            _fireSimSpeed = -999f;
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+            _cookFx ??= typeof(UnitPart).GetField("damageEffects", flags);
+            int n = 0;
+            foreach (var part in GetComponentsInChildren<UnitPart>(true))
+            {
+                if (part == null || _cookFx?.GetValue(part) is not System.Collections.IList list) continue;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (list[i] is not DamageEffect effect || effect.prefab == null) continue;
+                    if (effect.prefab.GetComponent<DamageParticles>() == null) continue;
+                    // An inactive parent keeps Awake from starting DetachTimer on real time.
+                    var quiet = new GameObject("NOReplay_FireHold");
+                    quiet.SetActive(false);
+                    var go = UnityEngine.Object.Instantiate(effect.prefab, quiet.transform);
+                    var flame = ReadCookFlame(go, part.transform, flags);
+                    go.transform.SetParent(part.transform, false);
+                    go.transform.localPosition = flame.LocalPos;
+                    go.transform.localRotation = flame.LocalRot;
+                    UnityEngine.Object.Destroy(quiet);
+                    go.SetActive(true);
+                    _cookFire.Add(flame);
+                    n++;
+                }
+            }
+            if (n == 0)
+                Plugin.Log?.LogInfo("Fire " + (Track?.Name ?? name) + " no prefab");
+        }
+
+        static CookFlame ReadCookFlame(GameObject go, Transform anchor, System.Reflection.BindingFlags flags)
+        {
+            var flame = new CookFlame
+            {
+                Go = go,
+                Anchor = anchor,
+                LocalPos = go.transform.localPosition,
+                LocalRot = go.transform.localRotation
+            };
+            _cookStop ??= typeof(DamageParticles).GetField("stopWhenParentCulled", flags);
+            _cookBehaviours ??= typeof(DamageParticles).GetField("systemBehaviours", flags);
+            var parts = go.GetComponentsInChildren<DamageParticles>(true);
+            var fades = new List<float>();
+            var gates = new List<float>();
+            var systems = new List<Component>();
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var dp = parts[i];
+                if (dp == null) continue;
+                if (_cookStop?.GetValue(dp) is bool stop && stop) flame.StopOnCull = true;
+                if (_cookBehaviours?.GetValue(dp) is not System.Array behaviours) continue;
+                for (int b = 0; b < behaviours.Length; b++)
+                {
+                    var beh = behaviours.GetValue(b);
+                    if (beh == null) continue;
+                    var bt = beh.GetType();
+                    float fade = bt.GetField("fadeDuration", flags)?.GetValue(beh) is float fd ? fd : 0f;
+                    if (bt.GetField("system", flags)?.GetValue(beh) is not Component sys) continue;
+                    float dur = ParticleMainFloat(sys, "duration");
+                    float life = ParticleLife(sys);
+                    if (life > flame.Life) flame.Life = life;
+                    systems.Add(sys);
+                    fades.Add(fade);
+                    gates.Add(dur - fade);
+                }
+            }
+            if (systems.Count == 0)
+            {
+                var pt = ParticleType();
+                if (pt != null)
+                {
+                    foreach (var c in go.GetComponentsInChildren(pt, true))
+                    {
+                        if (c is not Component sys) continue;
+                        float life = ParticleLife(sys);
+                        if (life > flame.Life) flame.Life = life;
+                        systems.Add(sys);
+                        fades.Add(0f);
+                        gates.Add(0f);
+                    }
+                }
+            }
+            for (int i = 0; i < parts.Length; i++)
+                if (parts[i] != null) UnityEngine.Object.Destroy(parts[i]);
+            flame.Systems = systems.ToArray();
+            flame.Fade = fades.ToArray();
+            flame.Gate = gates.ToArray();
+            return flame;
+        }
+
+        void StopCookoffFire()
+        {
+            _cookFireOn = false;
+            _cookFirePaused = false;
+            _fireCulled = false;
+            _fireCullLogged = false;
+            _fireSimClock = -1f;
+            _fireSimSpeed = -999f;
+            for (int i = 0; i < _cookFire.Count; i++)
+            {
+                var go = _cookFire[i].Go;
+                if (go != null) UnityEngine.Object.Destroy(go);
+            }
+            _cookFire.Clear();
+        }
+
+        void DriveCookoffFire(float now, bool removed, bool running)
+        {
+            float speed = Plugin.Clock != null ? Mathf.Abs(Plugin.Clock.Speed) : 1f;
+            if (Mathf.Abs(speed - _fireSimSpeed) > 0.01f)
+            {
+                _fireSimSpeed = speed;
+                for (int i = 0; i < _cookFire.Count; i++)
+                    SetFlameSpeed(_cookFire[i], running ? speed : 0f);
+            }
+            if (removed && !_fireCulled)
+                CullCookoffFire(now, live: true, running: running);
+            else if (running && !_fireCulled && _fireSimClock < 0f)
+            {
+                _cookFirePaused = true;
+                HoldFlames(false);
+            }
+            else if (!running)
+                HoldFlames(true);
+            else if (_cookFirePaused)
+                HoldFlames(false);
+            if (_fireCulled)
+            {
+                float born = _fireTimes.Length > 0 ? _fireTimes[0] : now;
+                int tick = (int)(now - born);
+                if (tick != _fadeTick)
+                {
+                    _fadeTick = tick;
+                    for (int i = 0; i < _cookFire.Count; i++)
+                        if (!_cookFire[i].StopOnCull && _cookFire[i].Grounded)
+                            ApplyFlameFade(_cookFire[i], now - born);
+                }
+            }
+        }
+
+        void ScrubCookoffFire(float now, bool removed, bool running)
+        {
+            float born = _fireTimes.Length > 0 ? _fireTimes[0] : now;
+            float emit = removed && Track != null ? Mathf.Max(0f, Track.RemovedAt - born) : Mathf.Max(0f, now - born);
+            float tail = removed && Track != null ? Mathf.Max(0f, now - Track.RemovedAt) : 0f;
+            float speed = Mathf.Abs(Plugin.Clock != null ? Plugin.Clock.Speed : 1f);
+            for (int i = 0; i < _cookFire.Count; i++)
+            {
+                var f = _cookFire[i];
+                if (f.Go == null) continue;
+                PlaceFlame(f, removed);
+                // StopEmitting when the prefab says so, or when the ground ray misses.
+                bool stop = removed && (f.StopOnCull || !f.Grounded);
+                for (int s = 0; s < f.Systems.Length; s++)
+                {
+                    var ps = f.Systems[s];
+                    if (ps == null) continue;
+                    SetSimSpeed(ps, 1f);
+                    EnableParticleEmission(ps);
+                    SimulateParticles(ps, emit, restart: true, precise: true);
+                    if (stop)
+                        DisableParticleEmission(ps);
+                    if (tail > 0.02f)
+                        SimulateParticles(ps, tail, restart: false, precise: tail > 0.5f);
+                    SetSimSpeed(ps, running ? speed : 0f);
+                    // Play resumes a paused system. Emission stays off after the cull, so it does not restart the fire.
+                    if (running) PlayParticleSystem(ps);
+                    else PauseOne(ps);
+                }
+                if (removed && !stop)
+                    ApplyFlameFade(f, now - born);
+            }
+            _fireCulled = removed;
+            _fireSimSpeed = running ? Mathf.Abs(Plugin.Clock != null ? Plugin.Clock.Speed : 1f) : 0f;
+            _cookFirePaused = !running;
+            if (removed) LogFireCull();
+        }
+
+        void CullCookoffFire(float now, bool live, bool running)
+        {
+            float born = _fireTimes.Length > 0 ? _fireTimes[0] : now;
+            for (int i = 0; i < _cookFire.Count; i++)
+            {
+                var f = _cookFire[i];
+                if (f.Go == null || f.Culled) continue;
+                PlaceFlame(f, true);
+                bool stop = f.StopOnCull || !f.Grounded;
+                for (int s = 0; s < f.Systems.Length; s++)
+                {
+                    var ps = f.Systems[s];
+                    if (ps == null) continue;
+                    if (stop)
+                    {
+                        // ParticleSystem.Stop() is StopEmitting. Particles already born live out their lifetime.
+                        DisableParticleEmission(ps);
+                        StopParticleSystem(ps, false);
+                    }
+                    SetSimSpeed(ps, running ? Mathf.Abs(Plugin.Clock != null ? Plugin.Clock.Speed : 1f) : 0f);
+                    if (!running) PauseOne(ps);
+                }
+                if (!stop)
+                    ApplyFlameFade(f, now - born);
+            }
+            _fireCulled = true;
+            _cookFirePaused = !running;
+            if (live) LogFireCull();
+        }
+
+        void PlaceFlame(CookFlame f, bool culled)
+        {
+            if (f.Go == null) return;
+            if (!culled)
+            {
+                if (f.Culled && f.Anchor != null)
+                {
+                    f.Go.transform.SetParent(f.Anchor, false);
+                    f.Go.transform.localPosition = f.LocalPos;
+                    f.Go.transform.localRotation = f.LocalRot;
+                }
+                f.Culled = false;
+                return;
+            }
+            if (f.Culled) return;
+            f.Go.transform.SetParent(null, true);
+            var lights = f.Go.GetComponentsInChildren<Light>(true);
+            for (int i = 0; i < lights.Length; i++)
+                if (lights[i] != null) UnityEngine.Object.Destroy(lights[i].gameObject);
+            if (!f.StopOnCull && !f.GroundChecked)
+            {
+                f.GroundChecked = true;
+                int mask = StaticMask();
+                var t = f.Go.transform;
+                if (mask != 0 && Physics.Linecast(t.position + Vector3.up * 10f, t.position - Vector3.up * 30f, out var hit, mask))
+                {
+                    t.position = hit.point;
+                    f.Grounded = true;
+                }
+            }
+            f.Culled = true;
+        }
+
+        void LogFireCull()
+        {
+            if (_fireCullLogged) return;
+            _fireCullLogged = true;
+            bool stop = true;
+            for (int i = 0; i < _cookFire.Count; i++)
+                if (!_cookFire[i].StopOnCull && _cookFire[i].Grounded) stop = false;
+            float at = Track != null && Track.RemovedAt >= 0f ? Track.RemovedAt : _fireSimClock;
+            Plugin.Log?.LogInfo("Fire-Cull " + (Track?.Name ?? name)
+                + " at=" + at.ToString("0.00")
+                + " stop=" + (stop ? "1" : "0"));
+        }
+
+        void HoldFlames(bool paused)
+        {
+            if (paused == _cookFirePaused) return;
+            _cookFirePaused = paused;
+            for (int i = 0; i < _cookFire.Count; i++)
+            {
+                var systems = _cookFire[i].Systems;
+                if (paused) PauseParticleSystems(systems);
+                else
+                {
+                    for (int p = 0; p < systems.Length; p++)
+                        PlayParticleSystem(systems[p]);
+                }
+            }
+        }
+
+        void SetFlameSpeed(CookFlame f, float speed)
+        {
+            for (int i = 0; i < f.Systems.Length; i++)
+                SetSimSpeed(f.Systems[i], speed);
+        }
+
+        static void SetSimSpeed(Component? ps, float speed)
+        {
+            if (ps == null) return;
+            BindFireParticles();
+            try { _psSimSpeed?.SetValue(ps, speed); } catch { }
+        }
+
+        static void SimulateParticles(Component ps, float seconds, bool restart, bool precise)
+        {
+            if (seconds < 0f) seconds = 0f;
+            BindFireParticles();
+            if (_psSimulate == null) return;
+            try { _psSimulate.Invoke(ps, new object[] { seconds, false, restart, precise }); }
+            catch { }
+        }
+
+        static void BindFireParticles()
+        {
+            if (_firePsBound) return;
+            _firePsBound = true;
+            var pt = ParticleType();
+            if (pt == null) return;
+            _psMain = pt.GetProperty("main");
+            _psSimSpeed = pt.GetProperty("simulationSpeed");
+            _psSimulate = pt.GetMethod("Simulate", new[] { typeof(float), typeof(bool), typeof(bool), typeof(bool) });
+        }
+
+        static float ParticleLife(Component ps)
+        {
+            float max = ParticleCurve(ps, "startLifetime", "constantMax");
+            float cons = ParticleCurve(ps, "startLifetime", "constant");
+            float life = max > cons ? max : cons;
+            return life > 0.05f ? life : 2f;
+        }
+
+        static float ParticleMainFloat(Component ps, string prop)
+        {
+            BindFireParticles();
+            try
+            {
+                var main = _psMain?.GetValue(ps);
+                if (main == null) return 0f;
+                var value = main.GetType().GetProperty(prop)?.GetValue(main);
+                return value is float f ? f : 0f;
+            }
+            catch { return 0f; }
+        }
+
+        static float ParticleCurve(Component ps, string prop, string field)
+        {
+            BindFireParticles();
+            try
+            {
+                var main = _psMain?.GetValue(ps);
+                if (main == null) return 0f;
+                var curve = main.GetType().GetProperty(prop)?.GetValue(main);
+                if (curve == null) return 0f;
+                var value = curve.GetType().GetProperty(field)?.GetValue(curve);
+                return value is float f ? f : 0f;
+            }
+            catch { return 0f; }
+        }
+
+        static void ApplyFlameFade(CookFlame f, float elapsed)
+        {
+            if (f.BaseColor.Length != f.Systems.Length)
+                f.BaseColor = new Color[f.Systems.Length];
+            for (int i = 0; i < f.Systems.Length && i < f.Fade.Length; i++)
+            {
+                if (f.Fade[i] <= 0f || f.Systems[i] == null) continue;
+                float opacity = FireFade.Opacity(elapsed, f.Gate[i], f.Fade[i]);
+                try
+                {
+                    BindFireParticles();
+                    var main = _psMain?.GetValue(f.Systems[i]);
+                    if (main == null) continue;
+                    var sc = main.GetType().GetProperty("startColor");
+                    var grad = sc?.GetValue(main);
+                    if (grad == null || sc == null) continue;
+                    var color = grad.GetType().GetProperty("color");
+                    if (color?.GetValue(grad) is not Color c) continue;
+                    if (!f.ColorReady)
+                        f.BaseColor[i] = c;
+                    var faded = f.BaseColor[i];
+                    faded.a = f.BaseColor[i].a * opacity;
+                    color.SetValue(grad, faded);
+                    sc.SetValue(main, grad);
+                    _psMain?.SetValue(f.Systems[i], main);
+                }
+                catch { }
+            }
+            f.ColorReady = true;
+        }
+
+        static int StaticMask()
+        {
+            if (_staticMask != int.MinValue) return _staticMask;
+            _staticMask = 0;
+            try
+            {
+                var t = Plugin.FindGameType("PhysicsLayers");
+                var f = t?.GetField("StaticsMask", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                if (f?.GetValue(null) is LayerMask mask) _staticMask = mask.value;
+            }
+            catch { _staticMask = 0; }
+            return _staticMask;
+        }
+
+        void LogUnitBoom(float at, int n)
         {
             bool cook = WreckMark.IsCookoff(Track?.Name);
-            string src = WreckMark.Source(Track?.BoomAt ?? -1f, Track?.DyingAt ?? -1f, cook);
+            bool recorded = Track != null && Track.BoomTimes != null && Track.BoomTimes.Count > 0;
+            string src = recorded ? "boom" : WreckMark.Source(Track?.BoomAt ?? -1f, Track?.DyingAt ?? -1f, cook);
             Plugin.Log?.LogInfo("Boom " + (Track?.Name ?? name)
                 + " at=" + at.ToString("0.00")
                 + " cook=" + (cook ? "1" : "0")
-                + " src=" + src);
+                + " src=" + src
+                + " n=" + n.ToString());
         }
 
         internal bool VehicleIsDying(float t)

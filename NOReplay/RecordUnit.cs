@@ -49,6 +49,45 @@ namespace NOReplay
         {
         }
 
+        float _blastAt = -999f;
+        float _fireAt = -999f;
+
+        /// <summary>False when this hit was already written. A later blast is a new line.</summary>
+        protected bool MarkBlast() => MarkTime(ref _blastAt);
+
+        protected bool MarkFire() => MarkTime(ref _fireAt);
+
+        bool MarkTime(ref float last)
+        {
+            if (UnityEngine.Time.time - last < BlastSchedule.SameHitSeconds) return false;
+            last = UnityEngine.Time.time;
+            return true;
+        }
+
+        internal virtual void NoteBlast(string src)
+        {
+        }
+
+        /// <summary>
+        /// One line when a part effect spawns. Fire stays on the part.
+        /// Anything else is the explosion. Disable and the wreck are not blasts.
+        /// </summary>
+        protected void WriteEffect(string src, string label)
+        {
+            bool fire = src.StartsWith("fire", StringComparison.Ordinal);
+            if (fire)
+            {
+                if (!MarkFire()) return;
+            }
+            else if (!MarkBlast()) return;
+            props.Clear();
+            if (unit != null) UpdatePose(true);
+            props[fire ? "Fire" : "Boom"] = "1";
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
+            Plugin.Log?.LogInfo((fire ? "Fire-Rec " : "Boom-Rec ") + label + " " + src);
+        }
+
         public virtual void LateUpdate()
         {
             if (!Record.Active) return;

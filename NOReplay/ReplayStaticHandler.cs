@@ -38,6 +38,9 @@ namespace NOReplay
             public Renderer[] Meshes = Array.Empty<Renderer>();
             public bool HitPending;
             public int HitTries;
+            public int FiresOn;
+            public int BoomsOn;
+            public GameObject? TimedFx;
         }
 
         public static void StartFor(ReplayDocument doc)
@@ -282,8 +285,13 @@ namespace NOReplay
                     shown = new Shown();
                     _shown[key] = shown;
                 }
-                float blast = WreckMark.At(obj.BoomAt, obj.DyingAt, obj.RemovedAt, WreckMark.IsCookoff(obj.Name));
-                bool dead = WreckMark.Due(t, blast);
+                // The building stays up until Visible=0. A part fire or blast
+                // earlier than that does not collapse it.
+                bool dead = obj.RemovedAt >= 0f
+                    ? t + 0.0001f >= obj.RemovedAt
+                    : WreckMark.Due(t, WreckMark.At(obj.BoomAt, obj.DyingAt, obj.RemovedAt, WreckMark.IsCookoff(obj.Name)));
+                if (TimelineOwnsFx(obj))
+                    TickBuildingFx(unit, shown, obj, t, paused);
                 if (dead && !shown.Dead)
                     ShowWreck(unit, shown, obj);
                 else if (!dead && shown.Dead)
@@ -330,6 +338,103 @@ namespace NOReplay
 
         // During a replay the building's own UnitDisabled collapses the mesh and
         // can destroy it. Visuals are owned here so a rewind can put it back.
+        static bool TimelineOwnsFx(ReplayObject obj)
+        {
+            if (obj.FireTimes != null && obj.FireTimes.Count > 0) return true;
+            if (obj.BoomTimes == null) return false;
+            for (int i = 0; i < obj.BoomTimes.Count; i++)
+                if (!BlastSchedule.OnRemoval(obj.BoomTimes[i], obj.RemovedAt)) return true;
+            return false;
+        }
+
+        void TickBuildingFx(Unit unit, Shown shown, ReplayObject obj, float t, bool paused)
+        {
+            var fires = obj.FireTimes != null ? obj.FireTimes.ToArray() : Array.Empty<float>();
+            var booms = obj.BoomTimes != null ? obj.BoomTimes.ToArray() : Array.Empty<float>();
+            int fd = BlastSchedule.Due(t, fires);
+            int bd = BlastSchedule.Due(t, booms);
+            if (fd < shown.FiresOn || bd < shown.BoomsOn)
+            {
+                if (shown.TimedFx != null)
+                {
+                    UnityEngine.Object.Destroy(shown.TimedFx);
+                    shown.TimedFx = null;
+                }
+                shown.FiresOn = 0;
+                shown.BoomsOn = 0;
+                fd = BlastSchedule.Due(t, fires);
+                bd = BlastSchedule.Due(t, booms);
+            }
+            string label = unit.definition != null ? unit.definition.unitName : unit.name;
+            if (fd > shown.FiresOn)
+            {
+                SpawnTimedEffects(unit, shown, wantFire: true);
+                shown.FiresOn = fd;
+                Plugin.Log?.LogInfo("Fire " + label + " at=" + fires[fd - 1].ToString("0.00"));
+            }
+            if (bd > shown.BoomsOn)
+            {
+                SpawnTimedEffects(unit, shown, wantFire: false);
+                shown.BoomsOn = bd;
+                Plugin.Log?.LogInfo("Boom " + label + " at=" + booms[bd - 1].ToString("0.00")
+                    + " cook=" + (WreckMark.IsCookoff(label) ? "1" : "0") + " src=boom n=" + bd);
+            }
+            var ps = ParticlesOf(shown.TimedFx);
+            if (paused) ReplayGhost.PauseParticleSystems(ps);
+            else
+            {
+                for (int i = 0; i < ps.Length; i++)
+                    ReplayGhost.PlayParticleSystem(ps[i]);
+            }
+        }
+
+        static void SpawnTimedEffects(Unit unit, Shown shown, bool wantFire)
+        {
+            if (shown.TimedFx == null)
+            {
+                shown.TimedFx = new GameObject("NOReplay_PartFx");
+                shown.TimedFx.transform.SetPositionAndRotation(unit.transform.position, unit.transform.rotation);
+            }
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var dmgField = typeof(UnitPart).GetField("damageEffects", flags);
+            var disField = typeof(UnitPart).GetField("disintegrationEffects", flags);
+            FieldInfo? prefabField = null;
+            foreach (var part in unit.GetComponentsInChildren<UnitPart>(true))
+            {
+                if (part == null) continue;
+                if (dmgField?.GetValue(part) is System.Collections.IList effects)
+                {
+                    for (int i = 0; i < effects.Count; i++)
+                    {
+                        var eff = effects[i];
+                        if (eff == null) continue;
+                        prefabField ??= eff.GetType().GetField("prefab", flags);
+                        if (prefabField?.GetValue(eff) is not GameObject prefab || prefab == null) continue;
+                        bool fire = prefab.GetComponent<DamageParticles>() != null;
+                        if (fire != wantFire) continue;
+                        PlaceQuiet(prefab, part.transform.position, part.transform.rotation, shown.TimedFx.transform);
+                    }
+                }
+                if (wantFire) continue;
+                if (disField?.GetValue(part) is GameObject[] extra)
+                {
+                    for (int i = 0; i < extra.Length; i++)
+                    {
+                        if (extra[i] == null) continue;
+                        if (extra[i].GetComponent<DamageParticles>() != null) continue;
+                        PlaceQuiet(extra[i], part.transform.position, part.transform.rotation, shown.TimedFx.transform);
+                    }
+                }
+            }
+        }
+
+        static void StopBuildingFire(Shown shown)
+        {
+            var ps = ParticlesOf(shown.TimedFx);
+            for (int i = 0; i < ps.Length; i++)
+                ReplayGhost.DisableParticleEmission(ps[i]);
+        }
+
         static bool SkipBuildingFx()
         {
             return Plugin.CurrentDoc == null;
@@ -350,13 +455,16 @@ namespace NOReplay
             HoldIntact(shown);
             float blast = WreckMark.At(obj.BoomAt, obj.DyingAt, obj.RemovedAt, WreckMark.IsCookoff(obj.Name));
             shown.Wreck = SpawnWreck(unit, blast);
-            if (WreckMark.IsCookoff(obj.Name))
+            if (WreckMark.IsCookoff(obj.Name) && !TimelineOwnsFx(obj))
             {
                 Plugin.Log?.LogInfo("Boom " + (unit.definition != null ? unit.definition.unitName : unit.name)
                     + " at=" + blast.ToString("0.00")
                     + " cook=1 src=" + WreckMark.Source(obj.BoomAt, obj.DyingAt, true));
             }
-            shown.Fx = SpawnPartEffects(unit, obj);
+            if (!TimelineOwnsFx(obj))
+                shown.Fx = SpawnPartEffects(unit, obj);
+            else
+                StopBuildingFire(shown);
             RefreshFx(shown);
             HoldIntact(shown);
         }
@@ -457,6 +565,8 @@ namespace NOReplay
             shown.FxPaused = false;
             shown.HitPending = false;
             shown.HitTries = 0;
+            shown.FiresOn = 0;
+            shown.BoomsOn = 0;
             if (shown.Wreck != null)
             {
                 UnityEngine.Object.Destroy(shown.Wreck);
@@ -466,6 +576,11 @@ namespace NOReplay
             {
                 UnityEngine.Object.Destroy(shown.Fx);
                 shown.Fx = null;
+            }
+            if (shown.TimedFx != null)
+            {
+                UnityEngine.Object.Destroy(shown.TimedFx);
+                shown.TimedFx = null;
             }
             shown.Particles = Array.Empty<Component>();
             for (int i = 0; i < shown.Hidden.Count; i++)

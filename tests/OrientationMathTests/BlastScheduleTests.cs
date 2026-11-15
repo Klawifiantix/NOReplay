@@ -18,6 +18,8 @@ namespace NOReplay.OrientationTests
             Check(BlastSchedule.Due(45.2f, times) == 2, "the wreck blast plays at its own time");
             Check(BlastSchedule.Due(80f, times) == 2, "both blasts stay due after the wreck");
             Check(BlastSchedule.Due(39f, times) == 0, "rewinding before the kill clears both");
+            Check(BlastSchedule.OnRemoval(13.992f, 13.992f), "a boom on the wreck line is the removal");
+            Check(!BlastSchedule.OnRemoval(8.917f, 13.992f), "the kill is not the wreck line");
         }
 
         static void Check(bool ok, string message)

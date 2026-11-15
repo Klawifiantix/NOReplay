@@ -50,12 +50,17 @@ namespace NOReplay
         }
 
         float _blastAt = -999f;
+        float _fireAt = -999f;
 
         /// <summary>False when this hit was already written. A later blast is a new line.</summary>
-        protected bool MarkBlast()
+        protected bool MarkBlast() => MarkTime(ref _blastAt);
+
+        protected bool MarkFire() => MarkTime(ref _fireAt);
+
+        bool MarkTime(ref float last)
         {
-            if (UnityEngine.Time.time - _blastAt < BlastSchedule.SameHitSeconds) return false;
-            _blastAt = UnityEngine.Time.time;
+            if (UnityEngine.Time.time - last < BlastSchedule.SameHitSeconds) return false;
+            last = UnityEngine.Time.time;
             return true;
         }
 

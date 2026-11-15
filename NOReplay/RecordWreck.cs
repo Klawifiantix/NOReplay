@@ -78,25 +78,81 @@ namespace NOReplay
         }
 
         static void BeforeDamage(UnitPart __instance, float netPierceDamage, float netBlastDamage,
-            float netFireDamage, float netImpactDamage, out bool __state)
+            float netFireDamage, float netImpactDamage, out int __state)
         {
-            __state = false;
+            __state = 0;
             if (!Recording() || __instance == null) return;
             float after = __instance.hitPoints - (netPierceDamage + netBlastDamage + netFireDamage + netImpactDamage);
-            __state = WillBlast(__instance, after);
+            __state = EffectsOf(__instance, after, includeFragments: true);
         }
 
-        static void AfterDamage(UnitPart __instance, bool __state)
+        static void AfterDamage(UnitPart __instance, int __state)
         {
-            if (__state) Note(__instance);
+            Note(__instance, __state);
         }
 
         static void AfterFragments(UnitPart __instance)
         {
             if (!Recording() || __instance == null || !Cookoff(__instance)) return;
             if (_fragments?.GetValue(__instance) is not GameObject[] extra) return;
+            int flags = 0;
             for (int i = 0; i < extra.Length; i++)
-                if (IsBlast(extra[i])) { Note(__instance); return; }
+                flags |= Kind(extra[i]);
+            Note(__instance, flags);
+        }
+
+        // The game itself splits the prefab in ApplyDamage and SpawnFragments.
+        // A root DamageParticles stays on the part: that is the fire.
+        // Anything else is parented to the world: that is the explosion.
+        // ExplosionAudio and Shockwave are not required. The wreck prefab is neither.
+        const int FireBit = 1;
+        const int BoomBit = 2;
+
+        static int EffectsOf(UnitPart part, float hpAfter, bool includeFragments)
+        {
+            if (!Cookoff(part)) return 0;
+            int flags = 0;
+            if (_effects?.GetValue(part) is IList list)
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (list[i] is DamageEffect effect && hpAfter < effect.threshold)
+                        flags |= Kind(effect.prefab);
+                }
+            }
+            bool already = _fragmented?.GetValue(part) is bool done && done;
+            float integrity = _integrity?.GetValue(part) is float gate ? gate : float.MinValue;
+            if (includeFragments && !already && hpAfter < integrity && _fragments?.GetValue(part) is GameObject[] extra)
+            {
+                for (int i = 0; i < extra.Length; i++)
+                    flags |= Kind(extra[i]);
+            }
+            return flags;
+        }
+
+        static int Kind(GameObject prefab)
+        {
+            if (prefab == null) return 0;
+            // TryGetComponent on the instantiated root is the game's test.
+            if (prefab.GetComponent<DamageParticles>() != null) return FireBit;
+            return BoomBit;
+        }
+
+        static void Note(UnitPart part, int flags)
+        {
+            if (flags == 0 || part == null) return;
+            var unit = part.GetUnit();
+            if (unit == null) return;
+            try
+            {
+                if (!_blast.TryGetValue(unit.persistentID.Id, out var rec) || rec == null) return;
+                if ((flags & FireBit) != 0) rec.NoteBlast("fire part=" + part.id.ToString());
+                if ((flags & BoomBit) != 0) rec.NoteBlast("boom part=" + part.id.ToString());
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogWarning("Blast-Record: " + ex.Message);
+            }
         }
 
         static bool Recording()
@@ -110,50 +166,6 @@ namespace NOReplay
             if (unit == null) return false;
             string name = unit.definition != null ? unit.definition.unitName : unit.unitName;
             return WreckMark.IsCookoff(name);
-        }
-
-        static bool WillBlast(UnitPart part, float hpAfter)
-        {
-            if (!Cookoff(part)) return false;
-            if (_effects?.GetValue(part) is IList list)
-            {
-                for (int i = 0; i < list.Count; i++)
-                {
-                    if (list[i] is DamageEffect effect && hpAfter < effect.threshold && IsBlast(effect.prefab))
-                        return true;
-                }
-            }
-            bool already = _fragmented?.GetValue(part) is bool done && done;
-            float integrity = _integrity?.GetValue(part) is float gate ? gate : float.MinValue;
-            if (!already && hpAfter < integrity && _fragments?.GetValue(part) is GameObject[] extra)
-            {
-                for (int i = 0; i < extra.Length; i++)
-                    if (IsBlast(extra[i])) return true;
-            }
-            return false;
-        }
-
-        static bool IsBlast(GameObject prefab)
-        {
-            if (prefab == null) return false;
-            if (prefab.GetComponentInChildren<ExplosionAudio>(true) != null) return true;
-            if (prefab.GetComponentInChildren<Shockwave>(true) != null) return true;
-            return false;
-        }
-
-        static void Note(UnitPart part)
-        {
-            var unit = part.GetUnit();
-            if (unit == null) return;
-            try
-            {
-                if (_blast.TryGetValue(unit.persistentID.Id, out var rec) && rec != null)
-                    rec.NoteBlast("part");
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log?.LogWarning("Blast-Record: " + ex.Message);
-            }
         }
 
         static void AfterSpawn(GroundVehicle __instance)

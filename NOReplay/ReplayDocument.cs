@@ -165,6 +165,16 @@ namespace NOReplay
             BoomTimes.Add(time);
             if (BoomAt < 0f) BoomAt = time;
         }
+
+        /// <summary>Every Fire=1, when a cook-off part starts burning. Empty when the file has none.</summary>
+        public List<float> FireTimes = new List<float>();
+
+        public void AddFire(float time)
+        {
+            float previous = FireTimes.Count > 0 ? FireTimes[FireTimes.Count - 1] : -1f;
+            if (!BlastSchedule.IsLater(time, previous)) return;
+            FireTimes.Add(time);
+        }
         public bool HasPart;
         public byte PartId;
         public string? PartKind;

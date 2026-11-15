@@ -300,6 +300,12 @@ namespace NOReplay
                         // Each Boom=1 is one blast. Tacview ignores Boom.
                         obj.AddBoom(time);
                     }
+                    else if (AcmiScan.KeyIs(key, "Fire")
+                        && val.Length > 0 && val[0] == '1')
+                    {
+                        // Cook-off fire. Tacview ignores Fire.
+                        obj.AddFire(time);
+                    }
                     else if ((key.Length == 1 && key[0] == 'T') || AcmiScan.KeyIs(key, "Transform"))
                     {
                         if (ParseTransform(val, ref sample))

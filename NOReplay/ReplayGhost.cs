@@ -154,6 +154,11 @@ namespace NOReplay
         int _blastsPlayed;
         float[] _blastTimes = Array.Empty<float>();
         ReplayObject? _blastTrack;
+        float[] _fireTimes = Array.Empty<float>();
+        ReplayObject? _fireTrack;
+        bool _cookFireOn;
+        readonly List<GameObject> _cookFire = new List<GameObject>();
+        bool _cookFirePaused;
         internal bool IsWrecked => _boomed;
         bool _ordAudioOn;
         bool _ordVoiceHeld;
@@ -1229,6 +1234,8 @@ namespace NOReplay
             if (_ordnance) TickWings(Plugin.Clock.Time);
             NoteSpoolClock(Plugin.Clock.Time);
             bool groundBlast = !_ordnance && !_ship && !_air;
+            if (groundBlast && Plugin.Clock != null)
+                AdvanceFires(Plugin.Clock.Time, Plugin.Clock.Speed >= 0f);
             float boomAt = groundBlast ? UnitExplosionAt() : -1f;
             bool blastNow = groundBlast && WreckMark.Due(Plugin.Clock.Time, boomAt);
             if (!IsTrackAlive() || blastNow)
@@ -1589,7 +1596,20 @@ namespace NOReplay
             var list = Track?.BoomTimes;
             if (list != null && list.Count > 0)
             {
-                _blastTimes = list.ToArray();
+                var kept = new List<float>(list.Count);
+                float removed = Track != null ? Track.RemovedAt : -1f;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    // The old recorder wrote Boom on the wreck line. That is not a blast.
+                    if (BlastSchedule.OnRemoval(list[i], removed)) continue;
+                    kept.Add(list[i]);
+                }
+                _blastTimes = kept.ToArray();
+                return;
+            }
+            if (Track?.FireTimes != null && Track.FireTimes.Count > 0)
+            {
+                _blastTimes = Array.Empty<float>();
                 return;
             }
             float one = UnitExplosionAt();
@@ -1613,6 +1633,104 @@ namespace NOReplay
                 ClearSpawnedWreck();
             _blastsPlayed = due;
             _boomed = due > 0;
+        }
+
+        static bool BurnOnly(ReplayObject track)
+        {
+            if (track.FireTimes != null && track.FireTimes.Count > 0) return false;
+            if (track.BoomTimes == null || track.BoomTimes.Count == 0) return false;
+            for (int i = 0; i < track.BoomTimes.Count; i++)
+            {
+                if (!BlastSchedule.OnRemoval(track.BoomTimes[i], track.RemovedAt)) return false;
+            }
+            return true;
+        }
+
+        void AdvanceFires(float now, bool play)
+        {
+            if (!ReferenceEquals(_fireTrack, Track))
+            {
+                StopCookoffFire();
+                _fireTrack = Track;
+                var list = Track?.FireTimes;
+                if (list != null && list.Count > 0)
+                    _fireTimes = list.ToArray();
+                else if (Track != null && WreckMark.IsCookoff(Track.Name) && Track.DyingAt >= 0f
+                    && BurnOnly(Track))
+                    _fireTimes = new[] { Track.DyingAt };
+                else
+                    _fireTimes = Array.Empty<float>();
+            }
+            int due = BlastSchedule.Due(now, _fireTimes);
+            bool gone = Track != null && Track.RemovedAt >= 0f && now + 0.0001f >= Track.RemovedAt;
+            bool show = due > 0 && !gone;
+            if (show && !_cookFireOn && play)
+            {
+                StartCookoffFire();
+                Plugin.Log?.LogInfo("Fire " + (Track?.Name ?? name)
+                    + " at=" + _fireTimes[due - 1].ToString("0.00"));
+            }
+            else if (!show && _cookFireOn)
+                StopCookoffFire();
+            else if (show && _cookFireOn && Plugin.Clock != null)
+                HoldCookoffFire(Plugin.Clock.Paused);
+        }
+
+        static FieldInfo? _cookFx;
+
+        void StartCookoffFire()
+        {
+            _cookFireOn = true;
+            _cookFirePaused = false;
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+            _cookFx ??= typeof(UnitPart).GetField("damageEffects", flags);
+            var dmg = typeof(DamageParticles).GetField("fireDamage", flags);
+            int n = 0;
+            foreach (var part in GetComponentsInChildren<UnitPart>(true))
+            {
+                if (part == null || _cookFx?.GetValue(part) is not System.Collections.IList list) continue;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (list[i] is not DamageEffect effect || effect.prefab == null) continue;
+                    if (effect.prefab.GetComponent<DamageParticles>() == null) continue;
+                    var go = UnityEngine.Object.Instantiate(effect.prefab, part.transform);
+                    go.SetActive(false);
+                    foreach (var dp in go.GetComponentsInChildren<DamageParticles>(true))
+                        dmg?.SetValue(dp, 0f);
+                    go.SetActive(true);
+                    _cookFire.Add(go);
+                    n++;
+                }
+            }
+            if (n == 0)
+                Plugin.Log?.LogInfo("Fire " + (Track?.Name ?? name) + " no prefab");
+        }
+
+        void StopCookoffFire()
+        {
+            _cookFireOn = false;
+            _cookFirePaused = false;
+            for (int i = 0; i < _cookFire.Count; i++)
+                if (_cookFire[i] != null) UnityEngine.Object.Destroy(_cookFire[i]);
+            _cookFire.Clear();
+        }
+
+        void HoldCookoffFire(bool paused)
+        {
+            if (paused == _cookFirePaused) return;
+            _cookFirePaused = paused;
+            for (int i = 0; i < _cookFire.Count; i++)
+            {
+                var go = _cookFire[i];
+                if (go == null) continue;
+                var systems = go.GetComponentsInChildren<Component>(true);
+                if (paused) PauseParticleSystems(systems);
+                else
+                {
+                    for (int p = 0; p < systems.Length; p++)
+                        PlayParticleSystem(systems[p]);
+                }
+            }
         }
 
         void LogUnitBoom(float at, int n)

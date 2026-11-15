@@ -252,13 +252,18 @@ namespace NOReplay
 
         internal override void NoteBlast(string src)
         {
-            if (!MarkBlast()) return;
+            bool fire = src.StartsWith("fire", StringComparison.Ordinal);
+            if (fire)
+            {
+                if (!MarkFire()) return;
+            }
+            else if (!MarkBlast()) return;
             props.Clear();
             if (unit != null) UpdatePose(true);
-            props["Boom"] = "1";
+            props[fire ? "Fire" : "Boom"] = "1";
             Engine.invokeWriterUpdate(this);
             props.Clear();
-            Record.Log?.LogInfo("Boom-Rec " + _unitName + " src=" + src);
+            Plugin.Log?.LogInfo((fire ? "Fire-Rec " : "Boom-Rec ") + _unitName + " " + src);
         }
 
         internal void OnWreckSpawned()
@@ -270,13 +275,9 @@ namespace NOReplay
                 props.Clear();
                 if (unit != null) UpdatePose(true);
                 props["Visible"] = "0.0";
-                // SpawnWreckage is the delayed blast. A part explosion earlier
-                // already wrote its own Boom line.
-                if (WreckMark.IsCookoff(_unitName) && MarkBlast())
-                {
-                    props["Boom"] = "1";
-                    Record.Log?.LogInfo("Boom-Rec " + _unitName + " src=wreck");
-                }
+                // SpawnWreckage hides the mesh and shows the wreck model.
+                // It does not detonate. Fire and explosions were already written
+                // when ApplyDamage or SpawnFragments instantiated them.
                 props["Type"] = null!;
                 Engine.invokeWriterUpdate(this);
                 props.Clear();

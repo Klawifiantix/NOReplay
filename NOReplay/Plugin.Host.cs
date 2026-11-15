@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Reflection;
 using System.Runtime.Serialization;
+using HarmonyLib;
 using UnityEngine;
 
 namespace NOReplay
@@ -315,13 +316,16 @@ namespace NOReplay
         /// call never arrives, catch up once. A second call is skipped because
         /// IsRunning is already true.
         /// </summary>
+        static bool _missionStartGuarded;
+
         internal static void EnsureReplayMissionStarted()
         {
             if (CurrentDoc == null) return;
             var mmType = FindGameType("MissionManager");
             if (mmType == null) return;
             var sflags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
-            if (mmType.GetProperty("IsRunning", sflags)?.GetValue(null) is bool running && running)
+            InstallMissionStartGuard(mmType, sflags);
+            if (MissionIsRunning(mmType, sflags))
             {
                 Log.LogInfo("Mission already running.");
                 return;
@@ -331,8 +335,7 @@ namespace NOReplay
             try
             {
                 mmType.GetMethod("StartMission", sflags)?.Invoke(null, null);
-                bool now = mmType.GetProperty("IsRunning", sflags)?.GetValue(null) is bool on && on;
-                Log.LogInfo(now
+                Log.LogInfo(MissionIsRunning(mmType, sflags)
                     ? "StartMission nachgeholt."
                     : "StartMission nachgeholt, Mission laeuft nicht.");
             }
@@ -340,6 +343,39 @@ namespace NOReplay
             {
                 Log.LogWarning("StartMission nachgeholt: " + (ex.InnerException?.Message ?? ex.Message));
             }
+        }
+
+        static void InstallMissionStartGuard(Type mmType, BindingFlags sflags)
+        {
+            if (_missionStartGuarded || Harmony == null) return;
+            var method = mmType.GetMethod("StartMission", sflags);
+            if (method == null) return;
+            try
+            {
+                Harmony.Patch(method, prefix: new HarmonyMethod(typeof(Plugin), nameof(SkipSecondMissionStart)));
+                _missionStartGuarded = true;
+            }
+            catch (Exception ex)
+            {
+                Log.LogWarning("StartMission guard: " + ex.Message);
+            }
+        }
+
+        // The recording hook on StartMission is a postfix and does not spawn units.
+        // This only drops a second entry after IsRunning is already true, so the
+        // buildings from the first start are not created again.
+        static bool SkipSecondMissionStart()
+        {
+            var mmType = FindGameType("MissionManager");
+            var sflags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+            if (!MissionIsRunning(mmType, sflags)) return true;
+            Log.LogInfo("StartMission skipped, already running.");
+            return false;
+        }
+
+        static bool MissionIsRunning(Type? mmType, BindingFlags sflags)
+        {
+            return mmType?.GetProperty("IsRunning", sflags)?.GetValue(null) is bool on && on;
         }
 
         static void DumpNetworkState(string tag)

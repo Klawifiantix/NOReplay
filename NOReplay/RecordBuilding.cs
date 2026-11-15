@@ -62,9 +62,22 @@ namespace NOReplay
                 return;
             }
 
-            // Kein weiteres Update/LateUpdate mehr
-            this.enabled = false;
-            base.enabled = false;
+            // Pose stays event-driven. Update only watches the turret lock.
+            this.enabled = true;
+        }
+
+        float _lockPoll;
+
+        public override void Update()
+        {
+            if (!Record.Active || unit == null || base.disabled || unit.disabled) return;
+            _lockPoll += Time.deltaTime;
+            if (_lockPoll < 0.5f) return;
+            _lockPoll = 0f;
+            NoteLock(unit);
+            if (props.Count == 0) return;
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
         }
 
         private void OnFactionChanged(Unit u)
@@ -138,11 +151,6 @@ namespace NOReplay
         private void OnDestroy()
         {
             Unsubscribe();
-        }
-
-        public override void Update()
-        {
-            // Absichtlich leer – kein Polling mehr
         }
 
         public override void LateUpdate()

@@ -148,6 +148,7 @@ namespace NOReplay
                     var mm = FindGameType("MissionManager");
                     if (mm != null)
                         InstallMissionStartGuard(mm, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    InstallSpawnGuard();
                 }
                 catch (Exception ex) { Log.LogError("StartMission guard: " + ex); }
                 Log.LogInfo($"{PluginName} {PluginVersion} geladen.");
@@ -238,6 +239,12 @@ namespace NOReplay
                 {
                     Clock.WentBack = false;
                     ResetParticles();
+                }
+                if (Clock.SeekSerial != _lockSerial)
+                {
+                    _lockSerial = Clock.SeekSerial;
+                    for (int i = 0; i < _ghostComps.Count; i++)
+                        _ghostComps[i]?.ApplyLock();
                 }
                 long section = ReplayPerf.Stamp();
                 TickGhostSpawns();
@@ -348,6 +355,7 @@ namespace NOReplay
         float _panelAt;
 
         int _ordSeekSerial;
+        int _lockSerial = -1;
 
         static readonly List<ReplayGhost> _ordRespawn = new List<ReplayGhost>();
 
@@ -479,6 +487,7 @@ namespace NOReplay
             {
                 var rg = _ghostComps[i];
                 if (rg == null) continue;
+                rg.ApplyLock();
                 var go = rg.gameObject;
                 if (go == null) continue;
                 bool on = rg.KeepsGhostActive();
@@ -579,6 +588,9 @@ namespace NOReplay
 
         void LoadReplayAt(int index)
         {
+            // A live mission's StartMission sets the finished flag. Leaving that
+            // world for a replay does not, so the replay start was skipped.
+            ResetMissionCatchup();
             if (_replayFiles.Count == 0) return;
             if (index < 0) index = 0;
             if (index >= _replayFiles.Count) index = _replayFiles.Count - 1;

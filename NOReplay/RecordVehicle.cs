@@ -177,56 +177,8 @@ namespace NOReplay
         }
         internal override void UpdateTargets()
         {
-            foreach (WeaponStation station in unit.weaponStations)
-            {
-                try
-                {
-                    targets.AddItem<Unit>(station.GetTurret().GetTarget());
-                }
-                catch
-                {
-                    //no target
-                }
-
-            }
-
-            if (targets.Any())
-            {
-                if (!lastTargets.Any())
-                {
-                    lastTargets = targets;
-                }
-                else
-                {
-                    if (lastTargets == targets)
-                    {
-                        return;
-                    }
-                }
-                lastTargets = targets;
-                int max = targets.Length;
-                if (max > 10)
-                {
-                    max = 10;
-                }
-                if (targets.Length > 1)
-                {
-
-                    for (int i = 0; i < max; i++)
-                    {
-                        if (i == 0)
-                        {
-                            lockedTargetString = "LockedTarget";
-                        }
-                        else
-                        {
-                            lockedTargetString = $"LockedTarget{i:X}";
-                        }
-                        props.Add(lockedTargetString, $"{GetTacviewIdOfUnit(targets[i].persistentID.Id):X}");
-                    }
-                }
-            }
-            targets = [];
+            if (unit == null) return;
+            NoteLock(unit);
         }
 
         public override void LateUpdate()

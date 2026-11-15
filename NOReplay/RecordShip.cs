@@ -75,6 +75,7 @@ namespace NOReplay
             if (timer < RecordConfig.vehicleUpdateDelta.Value) return;
 
             UpdatePose();
+            if (unit != null) NoteLock(unit);
             if (props.Count > 0)
             {
                 Engine.invokeWriterUpdate(this);
@@ -225,6 +226,9 @@ namespace NOReplay
         }
 
         public override void LateUpdate() { }
-        internal override void UpdateTargets() { }
+        internal override void UpdateTargets()
+        {
+            if (unit != null) NoteLock(unit);
+        }
     }
 }

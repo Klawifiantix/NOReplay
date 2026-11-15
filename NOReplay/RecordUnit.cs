@@ -195,6 +195,65 @@ namespace NOReplay
         }
 
 
+        long _lockSeen = -1;
+
+        /// <summary>
+        /// One line when the locked target changes. 0 clears it.
+        /// The value is the same hex id the recorder already uses for the unit.
+        /// </summary>
+        internal void NoteLock(Unit host)
+        {
+            uint id = 0;
+            if (host is Missile missile)
+                id = missile.targetID.IsValid ? missile.targetID.Id : 0;
+            else
+            {
+                var target = FirstLock(host);
+                if (target != null && target.persistentID.IsValid)
+                    id = target.persistentID.Id;
+            }
+            if (_lockSeen == id) return;
+            if (_lockSeen < 0 && id == 0)
+            {
+                _lockSeen = 0;
+                return;
+            }
+            _lockSeen = id;
+            string hex = id == 0 ? "0" : (id + 1).ToString("X", CultureInfo.InvariantCulture);
+            props["LockedTarget"] = hex;
+            string who = host != null && !string.IsNullOrEmpty(host.unitName) ? host.unitName : name;
+            Plugin.Log?.LogInfo("Lock-Rec " + who + " -> " + hex);
+        }
+
+        internal static Unit? FirstLock(Unit host)
+        {
+            if (host == null) return null;
+            if (host is Aircraft aircraft && aircraft.weaponManager != null)
+            {
+                var list = aircraft.weaponManager.GetTargetList();
+                if (list != null)
+                {
+                    for (int i = 0; i < list.Count; i++)
+                        if (list[i] != null) return list[i];
+                }
+            }
+            try
+            {
+                var stations = host.weaponStations;
+                if (stations == null) return null;
+                for (int i = 0; i < stations.Count; i++)
+                {
+                    var station = stations[i];
+                    if (station == null) continue;
+                    var turret = station.GetTurret();
+                    var target = turret != null ? turret.GetTarget() : null;
+                    if (target != null) return target;
+                }
+            }
+            catch { }
+            return null;
+        }
+
         internal long GetTacviewIdOfUnit(long unitId)
         {
             try

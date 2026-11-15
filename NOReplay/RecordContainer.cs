@@ -38,25 +38,21 @@ namespace NOReplay
 
         string _name = "";
 
-        protected override void OnDyingProps()
-        {
-            // A pallet or container hides as soon as it is disabled. There is no cook-off timer.
-            if (!props.ContainsKey("Boom") && WreckMark.IsCookoff(_name) && MarkBlast())
-            {
-                props["Boom"] = "1";
-                Record.Log?.LogInfo("Boom-Rec " + _name + " src=disable");
-            }
-        }
-
         internal override void NoteBlast(string src)
         {
-            if (!MarkBlast()) return;
+            // Same split as a truck. Disable only hides the pallet. It is not the blast.
+            bool fire = src.StartsWith("fire");
+            if (fire)
+            {
+                if (!MarkFire()) return;
+            }
+            else if (!MarkBlast()) return;
             props.Clear();
             if (unit != null) UpdatePose(true);
-            props["Boom"] = "1";
+            props[fire ? "Fire" : "Boom"] = "1";
             Engine.invokeWriterUpdate(this);
             props.Clear();
-            Record.Log?.LogInfo("Boom-Rec " + _name + " src=" + src);
+            Plugin.Log?.LogInfo((fire ? "Fire-Rec " : "Boom-Rec ") + _name + " " + src);
         }
 
         public override void Update()

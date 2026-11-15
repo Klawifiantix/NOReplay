@@ -587,6 +587,17 @@ namespace NOReplay
             return spawnedAny;
         }
 
+        bool RemovalBoomKept()
+        {
+            if (Track == null || Track.RemovedAt < 0f) return false;
+            if (Track.FireTimes == null || Track.FireTimes.Count == 0) return false;
+            var booms = Track.BoomTimes;
+            if (booms == null) return false;
+            for (int i = 0; i < booms.Count; i++)
+                if (BlastSchedule.OnRemoval(booms[i], Track.RemovedAt)) return true;
+            return false;
+        }
+
         void HoldRemovalWreck(float now)
         {
             bool due = Track != null && BlastSchedule.RemovalDue(now, Track.RemovedAt);
@@ -608,6 +619,10 @@ namespace NOReplay
                 Plugin.Log?.LogInfo("Wreck " + who + " at=" + at + " prefab=" + _huskPrefabName);
                 return;
             }
+            // The killing explosion is already the Boom. A second destroyed-effect
+            // on the same tick would be another blast.
+            if (RemovalBoomKept())
+                return;
             // Same stand-in the previous build logged. No part effects, so it is not a blast.
             Plugin.Log?.LogInfo("Wreck " + who + " at=" + at + " prefab=VehicleWreckDestroyed");
             PlayDestroyedWreck(pos, rot);

@@ -1606,10 +1606,13 @@ namespace NOReplay
             {
                 var kept = new List<float>(list.Count);
                 float removed = Track != null ? Track.RemovedAt : -1f;
+                // A Boom glued to Visible=0 with no Fire is the old wreck stamp.
+                // A Fire earlier in the track means a later Boom on that line is the
+                // killing explosion (a pallet's second hit), so it stays.
+                bool keepKill = Track?.FireTimes != null && Track.FireTimes.Count > 0;
                 for (int i = 0; i < list.Count; i++)
                 {
-                    // The old recorder wrote Boom on the wreck line. That is not a blast.
-                    if (BlastSchedule.OnRemoval(list[i], removed)) continue;
+                    if (!keepKill && BlastSchedule.OnRemoval(list[i], removed)) continue;
                     kept.Add(list[i]);
                 }
                 _blastTimes = kept.ToArray();

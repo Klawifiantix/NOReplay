@@ -131,10 +131,17 @@ namespace NOReplay
             }
         }
 
-        private string UpdatePosition(Vector3 newPos)
+        void SnapPose(float x, float y, float z, Quaternion q)
         {
-            // Raw Unity global position – no geo conversion
-            return $"{newPos.x.ToString(CultureInfo.InvariantCulture)}|{newPos.y.ToString(CultureInfo.InvariantCulture)}|{newPos.z.ToString(CultureInfo.InvariantCulture)}";
+            // Numbers only. The file thread formats T and Q.
+            poseSnap = true;
+            poseX = x;
+            poseY = y;
+            poseZ = z;
+            poseQx = q.x;
+            poseQy = q.y;
+            poseQz = q.z;
+            poseQw = q.w;
         }
 
         internal void UpdatePose(bool force = false)
@@ -152,15 +159,7 @@ namespace NOReplay
 
             if (force || newPos != lastPos || newRot != lastRot)
             {
-                if (!props.ContainsKey("T"))
-                    props.Add("T", UpdatePosition(newPos));
-
-                // Raw transform quaternion
-                if (!props.ContainsKey("Q"))
-                {
-                    var q = unit.transform.rotation;
-                    props.Add("Q", $"{q.x.ToString(CultureInfo.InvariantCulture)}|{q.y.ToString(CultureInfo.InvariantCulture)}|{q.z.ToString(CultureInfo.InvariantCulture)}|{q.w.ToString(CultureInfo.InvariantCulture)}");
-                }
+                SnapPose(fx, fy, fz, unit.transform.rotation);
                 lastPos = newPos;
                 lastRot = newRot;
             }
@@ -168,16 +167,11 @@ namespace NOReplay
 
         internal void RepeatPoseIfStill()
         {
-            if (props.ContainsKey("T") || float.IsNaN(lastPos.x)) return;
+            if (poseSnap || float.IsNaN(lastPos.x)) return;
             if (!props.ContainsKey("RpmRatio") && !props.ContainsKey("JetRpm")
                 && !props.ContainsKey("TurbineRpm") && !props.ContainsKey("Throttle"))
                 return;
-            props.Add("T", UpdatePosition(lastPos));
-            var q = unit.transform.rotation;
-            props.Add("Q", q.x.ToString(CultureInfo.InvariantCulture) + "|"
-                + q.y.ToString(CultureInfo.InvariantCulture) + "|"
-                + q.z.ToString(CultureInfo.InvariantCulture) + "|"
-                + q.w.ToString(CultureInfo.InvariantCulture));
+            SnapPose(lastPos.x, lastPos.y, lastPos.z, unit.transform.rotation);
         }
 
         internal void UpdateState()

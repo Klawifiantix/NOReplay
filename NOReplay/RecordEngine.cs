@@ -165,8 +165,11 @@ namespace NOReplay
             Record.Manual = false;
 
         }
+        float _lockAt = -1f;
+
         void Update()
         {
+            long t0 = RecordPerf.Stamp();
             curTime += TimeSpan.FromSeconds(Time.deltaTime);
             PilotNameCache.Tick();
             if (processUnits)
@@ -289,20 +292,35 @@ namespace NOReplay
                 }
                 processShockWaves = false;
             }
+            RecordPerf.Add("engine", RecordPerf.Stamp() - t0);
         }
         void LateUpdate()
         {
+            long t0 = RecordPerf.Stamp();
             unitDiscoveryTimer += Time.deltaTime;
             shockwaveDiscoveryTimer += Time.deltaTime;
             if (shockwaveDiscoveryTimer >= RecordConfig.shockwaveDiscoveryDelta.Value)
             {
+                long shock = RecordPerf.Stamp();
                 processShockWaves = ShockWaveDiscovery();
+                RecordPerf.Add("shock", RecordPerf.Stamp() - shock);
             }
             if (Record.Active)
             {
+                if (_lockAt < 0f || Time.unscaledTime >= _lockAt)
+                {
+                    _lockAt = Time.unscaledTime + 0.5f;
+                    long locks = RecordPerf.Stamp();
+                    RecordBuilding.Poll();
+                    RecordPerf.Add("locks", RecordPerf.Stamp() - locks);
+                }
+                long bay = RecordPerf.Stamp();
                 try { RecordBay.Sample(); }
                 catch { }
+                RecordPerf.Add("bay", RecordPerf.Stamp() - bay);
             }
+            RecordPerf.Add("engine-late", RecordPerf.Stamp() - t0);
+            RecordPerf.Frame(unitObjects.Count);
             // Unit discovery is now event-driven via RecordListener (UnitRegistry.RegisterUnit).
             // Periodic FindObjectsByType scan disabled.
             // if (unitDiscoveryTimer >= RecordConfig.unitDiscoveryDelta.Value)

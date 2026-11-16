@@ -1007,6 +1007,13 @@ namespace NOReplay
         {
             if (__originalMethod == null) return;
             string name = __originalMethod.Name;
+            if (name == "SetMission")
+            {
+                // These are spawn events since the last SetMission, not live units.
+                _nAir = 0;
+                _nVeh = 0;
+                _nShip = 0;
+            }
             if (name == "SpawnAircraft") _nAir++;
             else if (name == "SpawnVehicle") _nVeh++;
             else if (name == "SpawnShip") _nShip++;

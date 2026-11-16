@@ -91,20 +91,38 @@ namespace NOReplay
 
         public void UpdateObject(RecordObject aObject, DateTime updateTime)
         {
-            if (_shut || aObject.props.Count == 0)
-                return;
+            if (_shut) return;
+            bool pose = aObject.poseSnap;
+            if (!pose && aObject.props.Count == 0) return;
 
-            TimeSpan diff = updateTime - reference;
-            if (diff != lastUpdate)
+            var job = RecordJob.Rent();
+            job.Time = (updateTime - reference).TotalSeconds;
+            job.Id = aObject.tacviewId;
+            if (pose)
             {
-                lastUpdate = diff;
-                //output.WriteLine("#" + diff.TotalSeconds);
-                WriteLine("#" + diff.TotalSeconds.ToString(CultureInfo.InvariantCulture));
+                job.HasPose = true;
+                job.X = aObject.poseX;
+                job.Y = aObject.poseY;
+                job.Z = aObject.poseZ;
+                job.Qx = aObject.poseQx;
+                job.Qy = aObject.poseQy;
+                job.Qz = aObject.poseQz;
+                job.Qw = aObject.poseQw;
+                aObject.poseSnap = false;
             }
-
-            //output.WriteLine($"{aObject.id:X},{StringifyProps(props)}");
-            WriteLine($"{aObject.tacviewId:X},{StringifyProps(aObject.props)}");
-            //Record.Log.LogDebug($"Time Elapsed = {diff.TotalSeconds}");
+            foreach (var kv in aObject.props)
+            {
+                if (pose && (kv.Key == "T" || kv.Key == "Q")) continue;
+                job.AddProp(kv.Key, kv.Value);
+            }
+            if (!job.HasPose && job.PropCount == 0)
+            {
+                RecordJob.Return(job);
+                return;
+            }
+            lastUpdate = updateTime - reference;
+            output.Enqueue(job);
+            RecordPerf.Sampled();
         }
 
         internal void RemoveObject(RecordObject aObject, DateTime updateTime)

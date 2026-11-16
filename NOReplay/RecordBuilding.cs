@@ -62,18 +62,41 @@ namespace NOReplay
                 return;
             }
 
-            // Pose stays event-driven. Update only watches the turret lock.
-            this.enabled = true;
+            // One shared poll. A component Update on every building is the
+            // per-frame cost, and the lock only changes occasionally.
+            Watch(this);
+            this.enabled = false;
         }
 
-        float _lockPoll;
+        static readonly System.Collections.Generic.List<RecordBuilding> _locks =
+            new System.Collections.Generic.List<RecordBuilding>();
 
-        public override void Update()
+        static void Watch(RecordBuilding building)
+        {
+            if (building != null && !_locks.Contains(building))
+                _locks.Add(building);
+        }
+
+        internal static int Poll()
+        {
+            int n = 0;
+            for (int i = _locks.Count - 1; i >= 0; i--)
+            {
+                var building = _locks[i];
+                if (building == null)
+                {
+                    _locks.RemoveAt(i);
+                    continue;
+                }
+                n++;
+                building.PollLock();
+            }
+            return n;
+        }
+
+        void PollLock()
         {
             if (!Record.Active || unit == null || base.disabled || unit.disabled) return;
-            _lockPoll += Time.deltaTime;
-            if (_lockPoll < 0.5f) return;
-            _lockPoll = 0f;
             NoteLock(unit);
             if (props.Count == 0) return;
             Engine.invokeWriterUpdate(this);
@@ -150,6 +173,7 @@ namespace NOReplay
 
         private void OnDestroy()
         {
+            _locks.Remove(this);
             Unsubscribe();
         }
 

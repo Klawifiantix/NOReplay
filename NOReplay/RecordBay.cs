@@ -36,6 +36,7 @@ namespace NOReplay
         static FieldInfo _openAmount, _currentAngle, _defaultAngle, _hingeAngle, _ejection, _firing;
         static bool _fieldsReady;
         static float _scanAt = -1f;
+        static float _workAt = -1f;
 
         struct GlassState
         {
@@ -70,6 +71,7 @@ namespace NOReplay
             _mounts.Clear();
             _canopies.Clear();
             _scanAt = -1f;
+            _workAt = -1f;
             Record.Log?.LogInfo("Bay rec stopped");
         }
 
@@ -114,6 +116,11 @@ namespace NOReplay
                     Fill(_mounts, _mountType);
                     Fill(_canopies, _canopyType);
                 }
+                // Door angles are read here, on the main thread. 10 Hz still
+                // catches a 0.5 degree move and skips the per-frame box of
+                // FieldInfo.GetValue while a door is sitting still.
+                if (_workAt >= 0f && Time.unscaledTime < _workAt) return;
+                _workAt = Time.unscaledTime + 0.1f;
                 SampleDoors();
                 SampleMounts();
                 SampleGlass();

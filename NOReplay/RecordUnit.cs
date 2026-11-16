@@ -9,6 +9,10 @@ namespace NOReplay
     internal class RecordUnit : RecordObject
     {
         private Vector3 lastPos = new(float.NaN, float.NaN, float.NaN);
+        float _poseAt = -1f;
+        bool _holdArm;
+        float _holdQx, _holdQy, _holdQz, _holdQw;
+        static int _holdLogs;
         private Vector3 lastRot = new(float.NaN, float.NaN, float.NaN);
         internal Unit unit;
         internal Unit.UnitState lastState;
@@ -148,8 +152,18 @@ namespace NOReplay
             poseQw = q.w;
         }
 
+        internal bool MotionDue => poseSnap || props.Count > 0;
+
+        internal void CommitMotion()
+        {
+            if (!MotionDue || Engine == null) return;
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
+        }
+
         internal void UpdatePose(bool force = false)
         {
+            if (unit == null) return;
             float fx = MathF.Round(unit.transform.position.GlobalX(), 2);
             float fy = MathF.Round(unit.transform.position.GlobalY(), 2);
             float fz = MathF.Round(unit.transform.position.GlobalZ(), 2);
@@ -160,13 +174,35 @@ namespace NOReplay
 
             Vector3 newPos = new(fx, fy, fz);
             Vector3 newRot = new(fax, fay, faz);
+            bool moved = newPos != lastPos || newRot != lastRot;
+            if (!force && !moved) return;
 
-            if (force || newPos != lastPos || newRot != lastRot)
+            float now = Time.time;
+            // Repeat the pose we already stored, at this timestamp, before
+            // the first sample of a move. The replay then holds until here.
+            if (!force && !_holdArm && _poseAt >= 0f && PoseHold.Pause(now - _poseAt))
             {
-                SnapPose(fx, fy, fz, unit.transform.rotation);
-                lastPos = newPos;
-                lastRot = newRot;
+                _holdArm = true;
+                SnapPose(lastPos.x, lastPos.y, lastPos.z, new Quaternion(_holdQx, _holdQy, _holdQz, _holdQw));
+                if (_holdLogs < 8)
+                {
+                    _holdLogs++;
+                    string name = unit.definition != null ? unit.definition.unitName : unit.name;
+                    Record.Log?.LogInfo("Pose hold " + name
+                        + " gap=" + (now - _poseAt).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                }
+                return;
             }
+            _holdArm = false;
+            var q = unit.transform.rotation;
+            SnapPose(fx, fy, fz, q);
+            lastPos = newPos;
+            lastRot = newRot;
+            _holdQx = q.x;
+            _holdQy = q.y;
+            _holdQz = q.z;
+            _holdQw = q.w;
+            _poseAt = now;
         }
 
         internal void RepeatPoseIfStill()

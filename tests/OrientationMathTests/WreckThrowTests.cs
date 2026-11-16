@@ -51,6 +51,16 @@ namespace NOReplay.OrientationTests
             WreckThrow.Place(1f, 0f, 10f, 0f, WreckThrow.Seed(7, 0, 10f), 0f, out float fx, out float fy, out float fz);
             Expect(System.Math.Abs(fx) + System.Math.Abs(fz) > 0.5f, "one second of flight leaves the spawn point");
             Expect(fy > 0f, "the piece is still in the air at one second");
+            Expect(!PoseHold.Pause(-1f) && !PoseHold.Pause(1f) && PoseHold.Pause(30f),
+                "a long sit, not a normal sample, needs a hold keyframe");
+            Expect(!PoseHold.Rested(0.2f, 0f) && !PoseHold.Rested(2f, 4f) && PoseHold.Rested(1.2f, 0.04f),
+                "the top of an arc is not a rest, a second of sitting is");
+            Expect(!WreckPose.GroundBelow(10f, 10f) && !WreckPose.GroundBelow(10f, 9.8f)
+                && WreckPose.GroundBelow(10f, 4f),
+                "the ground is below the piece, not the piece itself");
+            Expect(WreckPose.ToppleDegrees(45f, 1f) == 45f && WreckPose.ToppleDegrees(45f, 10f) == 90f
+                && WreckPose.ToppleDegrees(-45f, 10f) == -90f,
+                "a collapse lies down and stays");
         }
 
         static bool Near(float a, float b) => System.Math.Abs(a - b) < 0.05f;

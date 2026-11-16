@@ -14,6 +14,7 @@ namespace NOReplay
         private Ship ship;
         bool _sinking;
         bool _sinkQuiet;
+        float _sinkStill;
         bool _sinkEnded;
         float _sinkFor;
         float _despawnLimit;
@@ -77,11 +78,7 @@ namespace NOReplay
 
             UpdatePose();
             if (unit != null) NoteLock(unit);
-            if (props.Count > 0)
-            {
-                Engine.invokeWriterUpdate(this);
-                props.Clear();
-            }
+            CommitMotion();
             timer = 0;
         }
 
@@ -97,7 +94,7 @@ namespace NOReplay
             if (_sinkQuiet)
             {
                 var rb = unit != null ? unit.rb : null;
-                if (rb != null && rb.velocity.sqrMagnitude > 0.25f)
+                if (rb != null && rb.velocity.sqrMagnitude > PoseHold.RestSpeedSqr)
                     _sinkQuiet = false;
                 else
                     return;
@@ -106,16 +103,20 @@ namespace NOReplay
             if (timer < DyingSampleSeconds) return;
             timer = 0f;
             UpdatePose();
-            if (props.Count == 0)
+            if (MotionDue)
             {
-                var rb = unit != null ? unit.rb : null;
-                if (rb == null || rb.velocity.sqrMagnitude < 0.05f)
-                    _sinkQuiet = true;
+                _sinkStill = 0f;
+                CommitMotion();
                 return;
             }
-            _sinkQuiet = false;
-            Engine.invokeWriterUpdate(this);
-            props.Clear();
+            _sinkStill += DyingSampleSeconds;
+            var body = unit != null ? unit.rb : null;
+            float speed = body != null ? body.velocity.sqrMagnitude : 0f;
+            if (!PoseHold.Rested(_sinkStill, speed)) return;
+            if (unit != null) UpdatePose(true);
+            CommitMotion();
+            _sinkQuiet = true;
+            Record.Log?.LogInfo("Pose rest ship " + tacviewId.ToString("X"));
         }
 
         private void OnFactionChanged(Unit u)

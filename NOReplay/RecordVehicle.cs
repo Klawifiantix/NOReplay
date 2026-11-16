@@ -140,6 +140,7 @@ namespace NOReplay
         bool _dying;
         bool _wrecked;
         bool _settled;
+        float _stillFor;
         const float DyingSampleSeconds = 0.2f;
 
         public override void Update()
@@ -156,8 +157,11 @@ namespace NOReplay
                 if (_settled)
                 {
                     var rb = unit.rb;
-                    if (rb != null && rb.velocity.sqrMagnitude > 0.25f)
+                    if (rb != null && rb.velocity.sqrMagnitude > PoseHold.RestSpeedSqr)
+                    {
                         _settled = false;
+                        _stillFor = 0f;
+                    }
                     else
                         return;
                 }
@@ -165,16 +169,20 @@ namespace NOReplay
                 if (timer < DyingSampleSeconds) return;
                 timer = 0f;
                 UpdatePose();
-                if (props.Count == 0)
+                if (MotionDue)
                 {
-                    var rb = unit.rb;
-                    if (rb == null || rb.velocity.sqrMagnitude < 0.05f)
-                        _settled = true;
+                    _stillFor = 0f;
+                    CommitMotion();
                     return;
                 }
-                _settled = false;
-                Engine.invokeWriterUpdate(this);
-                props.Clear();
+                _stillFor += DyingSampleSeconds;
+                var body = unit.rb;
+                float speed = body != null ? body.velocity.sqrMagnitude : 0f;
+                if (!PoseHold.Rested(_stillFor, speed)) return;
+                UpdatePose(true);
+                CommitMotion();
+                _settled = true;
+                Record.Log?.LogInfo("Pose rest " + _unitName);
                 return;
             }
             timer += Time.deltaTime;

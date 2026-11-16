@@ -384,15 +384,26 @@ namespace NOReplay
                 float dx = x - st.X, dy = y - st.Y, dz = z - st.Z;
                 bool moved = !st.Thrown || dx * dx + dy * dy + dz * dz > GlassMeters * GlassMeters;
                 st.Thrown = true;
-                st.X = x; st.Y = y; st.Z = z;
                 if (!moved)
                 {
+                    // Measured from the last written pose, so a slow fall
+                    // adds up. One quiet sample is the top of the arc.
                     st.Still++;
-                    if (st.Still >= 4) st.Settled = true;
+                    if (st.Still < 12)
+                    {
+                        _glass[id] = st;
+                        continue;
+                    }
+                    st.Settled = true;
+                    st.X = x; st.Y = y; st.Z = z;
                     _glass[id] = st;
-                    continue;
+                    Record.Log?.LogInfo("Glass rest " + NameOf(unit) + " key=" + st.Key);
                 }
-                st.Still = 0;
+                else
+                {
+                    st.Still = 0;
+                    st.X = x; st.Y = y; st.Z = z;
+                }
                 st.Wrote = Time.time;
                 _glass[id] = st;
                 var q = thrown.rotation;

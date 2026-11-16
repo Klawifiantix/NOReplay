@@ -75,6 +75,7 @@ namespace NOReplay
         float _prevAge = -1f;
         bool _dustMiss;
         bool _flewLogged;
+        bool _restLogged;
         static bool _speedLogged;
 
         public void Arm(Component manager, int seed)
@@ -116,9 +117,7 @@ namespace NOReplay
                     rb.useGravity = false;
                     rb.velocity = Vector3.zero;
                     rb.angularVelocity = Vector3.zero;
-                    float ground = tr.position.y;
-                    if (Physics.Raycast(tr.position + Vector3.up * 4f, Vector3.down, out var hit, 80f, ~0, QueryTriggerInteraction.Ignore))
-                        ground = hit.point.y;
+                    float ground = GroundUnder(tr.position, transform);
                     pieces.Add(new Piece
                     {
                         Tr = tr,
@@ -339,10 +338,50 @@ namespace NOReplay
                 _main.position = Vector3.Lerp(_mainFrom, _mainTo, u);
             }
             if (_collapser != null && _toppleSpeed != 0f && age > 0f)
-                _collapser.rotation = Quaternion.AngleAxis(_toppleSpeed * age, _toppleAxis) * _collapserRot;
+            {
+                float lean = WreckPose.ToppleDegrees(_toppleSpeed, age);
+                _collapser.rotation = Quaternion.AngleAxis(lean, _toppleAxis) * _collapserRot;
+            }
+            if (!_restLogged && _pieces.Length > 0 && AllRested(age))
+            {
+                _restLogged = true;
+                Plugin.Log?.LogInfo("Wreck rest age=" + age.ToString("0.00")
+                    + " pieces=" + _pieces.Length);
+            }
             if (!paused)
                 EmitDust(age);
             _prevAge = age;
+        }
+
+        bool AllRested(float age)
+        {
+            for (int i = 0; i < _pieces.Length; i++)
+            {
+                var p = _pieces[i];
+                float hit = WreckThrow.ImpactTime(p.P0.y, p.Throw.Vy, p.GroundY);
+                if (age + 0.05f < hit) return false;
+            }
+            return true;
+        }
+
+        static float GroundUnder(Vector3 pos, Transform wreck)
+        {
+            Vector3 from = pos + Vector3.up * 40f;
+            float left = 300f;
+            for (int n = 0; n < 8 && left > 1f; n++)
+            {
+                if (!Physics.Raycast(from, Vector3.down, out var hit, left, ~0, QueryTriggerInteraction.Ignore))
+                    break;
+                bool own = hit.collider != null
+                    && (hit.collider.transform == wreck || hit.collider.transform.IsChildOf(wreck));
+                if (!own && WreckPose.GroundBelow(pos.y, hit.point.y))
+                    return hit.point.y;
+                float step = hit.distance + 0.25f;
+                if (step < 0.3f) step = 0.3f;
+                from += Vector3.down * step;
+                left -= step;
+            }
+            return pos.y;
         }
 
         void EmitDust(float age)

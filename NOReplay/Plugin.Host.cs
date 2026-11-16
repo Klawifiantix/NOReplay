@@ -515,10 +515,18 @@ namespace NOReplay
             }
         }
 
+        // Live play, including a recording, must not touch mission start.
+        // The skip and the registry cleanup exist only while a replay is loaded.
+        static bool ReplayMission()
+        {
+            return CurrentDoc != null;
+        }
+
         // A start that has returned owns the buildings. A start that threw does
         // not, so the game's OnStartServer call is still allowed in.
         static bool SkipSecondMissionStart()
         {
+            if (!ReplayMission()) return true;
             DropDestroyedCustomIds();
             DropDeadRegisteredUnits();
             if (_missionStartFinished || _missionStartDepth > 0)
@@ -532,6 +540,7 @@ namespace NOReplay
 
         static Exception? FinishMissionStart(Exception __exception)
         {
+            if (!ReplayMission()) return __exception;
             _missionStartDepth = 0;
             if (__exception == null)
             {

@@ -32,6 +32,28 @@ namespace NOReplay
             return gear[key] > 0.5f;
         }
 
+        /// <summary>
+        /// Fold amount at a replay time. 0 is extended, 1 is fully retracted.
+        /// The live hinge used to step 0.6 per second. The amount here is only
+        /// a function of the clock, so a seek lands in the middle of the fold.
+        /// </summary>
+        public const float FoldPerSecond = 0.6f;
+
+        public static float Fold(bool surfaceSpawn, float time, float[] times, float[] gear)
+        {
+            float spawn = surfaceSpawn ? 0f : 1f;
+            int key = ActiveKey(time, times);
+            if (key < 0 || gear == null || key >= gear.Length) return spawn;
+            bool down = gear[key] > 0.5f;
+            float target = down ? 0f : 1f;
+            float from = key == 0 ? spawn : (gear[key - 1] > 0.5f ? 0f : 1f);
+            float span = time - times[key];
+            if (span < 0f) span = 0f;
+            float u = span * FoldPerSecond;
+            if (u > 1f) u = 1f;
+            return from + (target - from) * u;
+        }
+
         public static int ActiveKey(float time, float[] times)
         {
             int found = -1;

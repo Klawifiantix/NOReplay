@@ -896,6 +896,8 @@ namespace NOReplay
         float[] _gearTimes = Array.Empty<float>();
         float[] _gearVals = Array.Empty<float>();
         int _gearLog;
+        int _gearPhase = -1;
+        int _gearPhaseLogs;
 
         // Aircraft.CheckRadarAlt uses Statics (6) and Ships (11). A carrier deck is a ship.
         const int SurfaceMask = (1 << 6) | (1 << 11);
@@ -1142,7 +1144,19 @@ namespace NOReplay
                     src = _surfaceSpawn ? "spawn-ground" : "spawn-air";
                 }
                 bool changed = _gearDownSent != gearDown;
-                ApplyReplayGear(gearDown);
+                float fold = GearClock.Fold(_surfaceSpawn, now, _gearTimes, _gearVals);
+                PoseReplayGear(fold);
+                if (changed) _gearDownSent = gearDown;
+                int phase = fold < 0.02f ? 0 : (fold > 0.98f ? 2 : 1);
+                if (phase != _gearPhase && _gearPhaseLogs < 8)
+                {
+                    _gearPhase = phase;
+                    _gearPhaseLogs++;
+                    Plugin.Log.LogInfo("Gear move " + gameObject.name
+                        + " fold=" + fold.ToString("0.00")
+                        + " down=" + (gearDown ? "1" : "0")
+                        + " t=" + now.ToString("0.00"));
+                }
                 if (changed && _gearDownSent == gearDown)
                 {
                     string line = "Gear " + gameObject.name
@@ -1425,35 +1439,39 @@ namespace NOReplay
         static object? _gsLockedDown;
         static MethodInfo? _mSetGearState;
 
-        void ApplyReplayGear(bool gearDown)
+        void PoseReplayGear(float fold)
         {
-            if (_gearDownSent == gearDown) return;
-            _gearDownSent = gearDown;
-            var act = Plugin.FindGameType("Aircraft");
-            if (act == null) return;
-            var ac = GetComponent(act) ?? GetComponentInChildren(act, true);
-            if (ac == null) return;
-            // LockedRetracted / LockedExtended snap the hinge. Extending and
-            // Retracting start LandingGear.MoveGear, which runs on real time and
-            // pushes foldAmount past 1. SetGear(bool) is already blocked on ghosts;
-            // calling it here would also start that animation.
-            try
+            if (_gears == null || _gears.Length == 0) return;
+            if (fold < 0f) fold = 0f;
+            if (fold > 1f) fold = 1f;
+            for (int i = 0; i < _gears.Length; i++)
             {
-                if (_gearStateEnum == null)
+                var c = _gears[i];
+                if (c == null) continue;
+                try
                 {
-                    var lg = Plugin.FindGameType("LandingGear");
-                    _gearStateEnum = lg?.GetNestedType("GearState");
-                    if (_gearStateEnum != null)
+                    _fFold?.SetValue(c, fold);
+                    var hinge = _fGearHinge?.GetValue(c) as Transform;
+                    if (hinge != null)
                     {
-                        _gsLockedUp = Enum.Parse(_gearStateEnum, "LockedRetracted");
-                        _gsLockedDown = Enum.Parse(_gearStateEnum, "LockedExtended");
-                        _mSetGearState = act.GetMethod("SetGear", new[] { _gearStateEnum });
+                        Vector3 baseAng = _fHingeBase != null && _fHingeBase.GetValue(c) is Vector3 ba ? ba : hinge.localEulerAngles;
+                        Vector3 basePos = _fHingePos != null && _fHingePos.GetValue(c) is Vector3 bp ? bp : hinge.localPosition;
+                        Vector3 motion = _fHingeMotion != null && _fHingeMotion.GetValue(c) is Vector3 mo ? mo : Vector3.zero;
+                        float deg = _fFoldDeg != null && _fFoldDeg.GetValue(c) is float fd ? fd : 90f;
+                        hinge.localEulerAngles = baseAng + new Vector3(deg * fold, 0f, 0f);
+                        hinge.localPosition = Vector3.Lerp(basePos, basePos + motion, fold);
+                    }
+                    if (_fGearDoors?.GetValue(c) is System.Collections.IEnumerable doors)
+                    {
+                        foreach (var d in doors)
+                        {
+                            if (d == null) continue;
+                            d.GetType().GetMethod("Animate")?.Invoke(d, new object[] { 1f - fold });
+                        }
                     }
                 }
-                if (_mSetGearState != null)
-                    _mSetGearState.Invoke(ac, new[] { gearDown ? _gsLockedDown : _gsLockedUp });
+                catch { }
             }
-            catch { }
         }
 
 

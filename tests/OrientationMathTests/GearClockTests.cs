@@ -40,7 +40,19 @@ namespace NOReplay.OrientationTests
             Check(!GearClock.Extended(true, 80f, times, gear), "a retract key overrides a ground spawn");
             Check(GearClock.ActiveKey(223.7f, times) == 0, "just before the second key the first key is active");
             Check(GearClock.ActiveKey(223.784f, times) == 1, "the second key is active on its timestamp");
+            Check(Near(GearClock.Fold(false, 10f, times, gear), 1f), "before any key an air spawn is folded");
+            Check(Near(GearClock.Fold(true, 10f, times, gear), 0f), "before any key a ground spawn is down");
+            Check(Near(GearClock.Fold(true, 50f, times, gear), 0f), "a retract key on a ground spawn starts the fold");
+            float mid = 50f + 0.5f / GearClock.FoldPerSecond;
+            float half = GearClock.Fold(true, mid, times, gear);
+            Check(half > 0.45f && half < 0.55f, "halfway through the retract the strut is half folded, got " + half.ToString("0.00"));
+            Check(Near(GearClock.Fold(true, 50f + 5f, times, gear), 1f), "after the fold time the gear is fully up");
+            Check(Near(GearClock.Fold(false, 223.784f + 0.5f / GearClock.FoldPerSecond, times, gear), 0.5f),
+                "an extend key animates back down from the previous key");
+            Check(Near(GearClock.Fold(false, 10f, times, gear), 1f), "rewinding before the keys returns the air spawn");
         }
+
+        static bool Near(float a, float b) => System.Math.Abs(a - b) < 0.02f;
 
         static void Check(bool ok, string message)
         {

@@ -61,6 +61,11 @@ namespace NOReplay.OrientationTests
             Expect(WreckPose.ToppleDegrees(45f, 1f) == 45f && WreckPose.ToppleDegrees(45f, 10f) == 90f
                 && WreckPose.ToppleDegrees(-45f, 10f) == -90f,
                 "a collapse lies down and stays");
+            Expect(LaunchFx.LaunchName("launchParticles") && LaunchFx.LaunchName("MuzzleFlash")
+                && !LaunchFx.LaunchName("engineSmoke"),
+                "launch and muzzle mounts are the puff, engine smoke is not");
+            Expect(LaunchFx.Stray(5f, 800f) && !LaunchFx.Stray(5f, 4f) && !LaunchFx.Stray(500f, 800f),
+                "a puff beside the camera and far from the missile is stray");
         }
 
         static bool Near(float a, float b) => System.Math.Abs(a - b) < 0.05f;

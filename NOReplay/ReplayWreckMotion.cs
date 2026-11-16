@@ -40,10 +40,12 @@ namespace NOReplay
         {
             public Transform Tr;
             public Rigidbody Rb;
-            public Vector3 P0;
+            public Renderer[] Rends;
+            public Vector3 LocalP;
             public Quaternion R0;
-            public float GroundY;
+            public float LocalGround;
             public WreckThrow.Throw Throw;
+            public bool Hidden;
         }
 
         struct Dust
@@ -68,11 +70,11 @@ namespace NOReplay
         Vector3 _mainFrom;
         Vector3 _mainTo;
         bool _haveMain;
-        Transform? _collapser;
-        Quaternion _collapserRot;
-        float _toppleSpeed;
-        Vector3 _toppleAxis;
+        Vector3 _mainFromLocal;
+        Vector3 _mainToLocal;
         float _prevAge = -1f;
+        int _kicked;
+        int _fromGame;
         bool _dustMiss;
         bool _flewLogged;
         bool _restLogged;
@@ -110,6 +112,22 @@ namespace NOReplay
                     var joints = tr.GetComponents<Joint>();
                     for (int j = 0; j < joints.Length; j++)
                         if (joints[j] != null) UnityEngine.Object.Destroy(joints[j]);
+                    Vector3 vel = rb.velocity;
+                    bool fromGame = vel.sqrMagnitude > 0.25f;
+                    if (!fromGame && speed > 0.5f)
+                    {
+                        Vector3 away = VisualCenter(tr) - manager.transform.position;
+                        if (away.sqrMagnitude < 0.25f)
+                        {
+                            var spray = WreckThrow.Seed(seed, i, 1f);
+                            away = new Vector3(spray.Vx, 0.45f, spray.Vz);
+                        }
+                        away.y += 0.35f * away.magnitude;
+                        vel = away.normalized * speed;
+                        _kicked++;
+                    }
+                    else if (fromGame)
+                        _fromGame++;
                     rb.isKinematic = true;
                     rb.interpolation = RigidbodyInterpolation.None;
                     rb.constraints = RigidbodyConstraints.None;
@@ -118,23 +136,29 @@ namespace NOReplay
                     rb.velocity = Vector3.zero;
                     rb.angularVelocity = Vector3.zero;
                     float ground = GroundUnder(tr.position, transform);
+                    if (!WreckPose.GroundBelow(tr.position.y, ground))
+                        ground = manager.transform.position.y;
+                    Vector3 localP = ToLocal(tr.position);
+                    Vector3 localV = ToLocalDir(vel);
                     pieces.Add(new Piece
                     {
                         Tr = tr,
                         Rb = rb,
-                        P0 = tr.position,
+                        Rends = tr.GetComponentsInChildren<Renderer>(true),
+                        LocalP = localP,
                         R0 = tr.rotation,
-                        GroundY = ground,
-                        Throw = WreckThrow.Seed(seed, i, speed)
+                        LocalGround = ToLocal(new Vector3(tr.position.x, ground, tr.position.z)).y,
+                        Throw = new WreckThrow.Throw { Vx = localV.x, Vy = localV.y, Vz = localV.z }
                     });
                 }
             }
             _pieces = pieces.ToArray();
             ReadMain(manager, flags, t);
             ReadDust(manager, flags, t);
-            Plugin.Log?.LogInfo("Wreck pieces=" + _pieces.Length + " dust=" + _dust.Length
-                + " main=" + (_main != null ? _main.name : "none")
-                + " rise=" + _mainTime.ToString("0.##")
+            Plugin.Log?.LogInfo("Wreck drive pieces=" + _pieces.Length
+                + " gameVel=" + _fromGame + " kicked=" + _kicked
+                + " speed=" + speed.ToString("0.##")
+                + " dust=" + _dust.Length
                 + " " + Census());
         }
 
@@ -227,25 +251,19 @@ namespace NOReplay
         void ReadMain(Component manager, BindingFlags flags, Type t)
         {
             _main = t.GetField("mainDebris", flags)?.GetValue(manager) as Transform;
-            _collapser = t.GetField("mainCollapser", flags)?.GetValue(manager) as Transform;
             _mainTime = t.GetField("mainDebrisAppearanceTime", flags)?.GetValue(manager) is float mt && mt > 0.05f ? mt : 0f;
             _mainRise = t.GetField("mainDebrisRiseAmount", flags)?.GetValue(manager) is float rise ? rise : 0f;
-            _toppleSpeed = t.GetField("toppleSpeed", flags)?.GetValue(manager) is float ts ? ts : 0f;
             if (_main != null && _mainTime > 0f)
             {
                 _mainTo = _main.position;
                 _mainFrom = _mainTo - Vector3.up * _mainRise;
+                _mainFromLocal = ToLocal(_mainFrom);
+                _mainToLocal = ToLocal(_mainTo);
                 _main.position = _mainFrom;
                 _haveMain = true;
             }
-            if (_collapser != null)
-            {
-                _collapserRot = _collapser.rotation;
-                var spin = WreckThrow.Seed(manager.GetInstanceID(), 99, 1f);
-                _toppleAxis = new Vector3(spin.Ax, 0f, spin.Az);
-                if (_toppleAxis.sqrMagnitude < 0.01f) _toppleAxis = Vector3.right;
-                _toppleAxis.Normalize();
-            }
+            // mainCollapser stays put. Rotating it swings every child around
+            // the building pivot, which is the depot orbit.
         }
 
         void ReadDust(Component manager, BindingFlags flags, Type t)
@@ -311,57 +329,90 @@ namespace NOReplay
             {
                 var p = _pieces[i];
                 if (p.Tr == null) continue;
-                WreckThrow.Place(age, p.P0.x, p.P0.y, p.P0.z, p.Throw, p.GroundY, out float x, out float y, out float z);
-                float spinAge = age;
-                float hit = WreckThrow.ImpactTime(p.P0.y, p.Throw.Vy, p.GroundY);
-                if (spinAge > hit) spinAge = hit;
-                var pos = new Vector3(x, y, z);
-                var rot = Quaternion.AngleAxis(p.Throw.Spin * spinAge * Mathf.Rad2Deg, new Vector3(p.Throw.Ax, p.Throw.Ay, p.Throw.Az)) * p.R0;
+                WreckThrow.Place(age, p.LocalP.x, p.LocalP.y, p.LocalP.z, p.Throw, p.LocalGround,
+                    out float x, out float y, out float z);
+                var pos = ToWorld(new Vector3(x, y, z));
                 if (p.Rb != null)
                 {
                     p.Rb.position = pos;
-                    p.Rb.rotation = rot;
+                    p.Rb.rotation = p.R0;
                 }
-                p.Tr.SetPositionAndRotation(pos, rot);
+                p.Tr.SetPositionAndRotation(pos, p.R0);
+                float hit = WreckThrow.ImpactTime(p.LocalP.y, p.Throw.Vy, p.LocalGround);
+                bool hide = age > hit + 8f || age > 25f;
+                if (hide != p.Hidden)
+                {
+                    var rends = p.Rends;
+                    for (int r = 0; r < rends.Length; r++)
+                    {
+                        if (rends[r] == null) continue;
+                        string tn = rends[r].GetType().Name;
+                        if (tn == "ParticleSystemRenderer" || tn == "TrailRenderer") continue;
+                        rends[r].enabled = !hide;
+                    }
+                    p.Hidden = hide;
+                    _pieces[i] = p;
+                    if (hide && !_restLogged)
+                    {
+                        _restLogged = true;
+                        Plugin.Log?.LogInfo("Wreck fade age=" + age.ToString("0.00")
+                            + " pieces=" + _pieces.Length);
+                    }
+                }
             }
             if (!_flewLogged && age > 0.75f && _pieces.Length > 0 && _pieces[0].Tr != null)
             {
                 _flewLogged = true;
-                var off = _pieces[0].Tr.position - _pieces[0].P0;
-                Plugin.Log?.LogInfo("Wreck fly age=" + age.ToString("0.00") + " off=" + off.ToString("0.0"));
+                var home = ToWorld(_pieces[0].LocalP);
+                var off = _pieces[0].Tr.position - home;
+                Plugin.Log?.LogInfo("Wreck fly age=" + age.ToString("0.00") + " off=" + off.ToString("0.0")
+                    + " gameVel=" + _fromGame + " kicked=" + _kicked);
             }
             if (_haveMain && _main != null && _mainTime > 0f)
             {
                 float u = age / _mainTime;
                 if (u < 0f) u = 0f;
                 if (u > 1f) u = 1f;
-                _main.position = Vector3.Lerp(_mainFrom, _mainTo, u);
-            }
-            if (_collapser != null && _toppleSpeed != 0f && age > 0f)
-            {
-                float lean = WreckPose.ToppleDegrees(_toppleSpeed, age);
-                _collapser.rotation = Quaternion.AngleAxis(lean, _toppleAxis) * _collapserRot;
-            }
-            if (!_restLogged && _pieces.Length > 0 && AllRested(age))
-            {
-                _restLogged = true;
-                Plugin.Log?.LogInfo("Wreck rest age=" + age.ToString("0.00")
-                    + " pieces=" + _pieces.Length);
+                _main.position = ToWorld(Vector3.Lerp(_mainFromLocal, _mainToLocal, u));
             }
             if (!paused)
                 EmitDust(age);
             _prevAge = age;
         }
 
-        bool AllRested(float age)
+        static Vector3 VisualCenter(Transform tr)
         {
-            for (int i = 0; i < _pieces.Length; i++)
+            var rends = tr.GetComponentsInChildren<Renderer>(true);
+            bool any = false;
+            Bounds box = new Bounds(tr.position, Vector3.zero);
+            for (int i = 0; i < rends.Length; i++)
             {
-                var p = _pieces[i];
-                float hit = WreckThrow.ImpactTime(p.P0.y, p.Throw.Vy, p.GroundY);
-                if (age + 0.05f < hit) return false;
+                var r = rends[i];
+                if (r == null) continue;
+                string tn = r.GetType().Name;
+                if (tn == "ParticleSystemRenderer" || tn == "TrailRenderer" || tn == "LineRenderer") continue;
+                if (!any) { box = r.bounds; any = true; }
+                else box.Encapsulate(r.bounds);
             }
-            return true;
+            return any ? box.center : tr.position;
+        }
+
+        static Vector3 ToLocal(Vector3 world)
+        {
+            var datum = Plugin.Datum;
+            return datum != null ? datum.InverseTransformPoint(world) : world;
+        }
+
+        static Vector3 ToLocalDir(Vector3 worldDir)
+        {
+            var datum = Plugin.Datum;
+            return datum != null ? datum.InverseTransformDirection(worldDir) : worldDir;
+        }
+
+        static Vector3 ToWorld(Vector3 local)
+        {
+            var datum = Plugin.Datum;
+            return datum != null ? datum.TransformPoint(local) : local;
         }
 
         static float GroundUnder(Vector3 pos, Transform wreck)

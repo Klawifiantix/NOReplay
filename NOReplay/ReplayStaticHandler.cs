@@ -639,6 +639,28 @@ namespace NOReplay
             catch { }
         }
 
+        static int KickFragments(Component? manager)
+        {
+            if (manager == null) return 0;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            int n = 0;
+            foreach (var method in manager.GetType().GetMethods(flags))
+            {
+                if (method.GetParameters().Length != 0) continue;
+                if (method.Name != "Start" && method.Name != "Awake") continue;
+                try
+                {
+                    method.Invoke(manager, null);
+                    n++;
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log?.LogInfo("Wreck kick " + method.Name + " " + (ex.InnerException ?? ex).Message);
+                }
+            }
+            return n;
+        }
+
         static FieldInfo? WreckField(Type type)
         {
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
@@ -686,9 +708,9 @@ namespace NOReplay
                     try { mb.GetType().GetField("stopWhenParentCulled", flags)?.SetValue(mb, false); } catch { }
                     continue;
                 }
-                // Off before the object wakes, so FragmentManager.Start cannot
-                // push the pieces with a live force we then freeze in place.
-                if (n == "Wreckage" || n == "FragmentManager")
+                // Wreckage applies damage. FragmentManager stays on so its
+                // Start can give the pieces the game's ejection velocity.
+                if (n == "Wreckage")
                     mb.enabled = false;
             }
             go.isStatic = false;
@@ -703,6 +725,7 @@ namespace NOReplay
             if (blast == null) blast = go.AddComponent<ReplayBlast>();
             blast.Born = born;
             var fm = go.GetComponentInChildren<FragmentManager>(true);
+            int kicked = KickFragments(fm);
             if (fm is Behaviour fmBeh) fmBeh.enabled = false;
             var motion = go.GetComponent<ReplayWreckMotion>();
             if (motion == null) motion = go.AddComponent<ReplayWreckMotion>();
@@ -710,7 +733,9 @@ namespace NOReplay
             if (fm != null)
                 motion.Arm(fm, unit.GetInstanceID());
             else
-                Plugin.Log?.LogInfo("Wreck no FragmentManager " + label + " prefab=" + prefab.name);
+                Plugin.Log?.LogInfo("Wreck no FragmentManager " + label);
+            if (kicked > 0)
+                Plugin.Log?.LogInfo("Wreck kick " + label + " methods=" + kicked);
             motion.PlayPieces();
             foreach (var rb in go.GetComponentsInChildren<Rigidbody>(true))
             {

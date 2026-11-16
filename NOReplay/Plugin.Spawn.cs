@@ -9,6 +9,7 @@ namespace NOReplay
     public partial class Plugin
     {
         static bool _spawnLogged;
+        static int _launchSig;
         static bool _camStayLogged;
         static bool _gameSpawnDead;
         static readonly List<ReplayObject> _flareEvents = new List<ReplayObject>();
@@ -1346,6 +1347,8 @@ namespace NOReplay
                         if (ps.Length < 6) continue;
                         object? arg0 = ps[0].ParameterType == typeof(GameObject) ? prefab : def;
                         if (arg0 == null) continue;
+                        var anchor = new GameObject("NOReplay_LaunchAt");
+                        anchor.transform.SetPositionAndRotation(pos, rot);
                         var args = new object?[ps.Length];
                         args[0] = arg0;
                         args[1] = pos;
@@ -1353,14 +1356,40 @@ namespace NOReplay
                         args[3] = vel;
                         args[4] = null;
                         args[5] = owner;
+                        for (int i = 0; i < ps.Length; i++)
+                        {
+                            if (ps[i].ParameterType != typeof(Transform)) continue;
+                            args[i] = anchor.transform;
+                        }
+                        if (_launchSig < 2)
+                        {
+                            _launchSig++;
+                            var sig = new System.Text.StringBuilder();
+                            for (int i = 0; i < ps.Length; i++)
+                            {
+                                if (i > 0) sig.Append(',');
+                                sig.Append(ps[i].Name).Append(':').Append(ps[i].ParameterType.Name);
+                            }
+                            Log.LogInfo("SpawnMissile sig " + sig);
+                        }
                         var ret = m.Invoke(inst, args);
                         GameObject? go = (ret as Component)?.gameObject ?? ret as GameObject;
                         if (go != null)
                         {
+                            go.transform.SetPositionAndRotation(pos, rot);
                             ShowMissile(go);
-                            Log.LogInfo("GameSpawn SpawnMissile " + obj.Name + " coal=" + coal);
+                            int moved = RetargetStrayLaunchFx(pos, rot);
+                            var ownerComp = owner as Component;
+                            float dist = ownerComp != null ? Vector3.Distance(ownerComp.transform.position, pos) : -1f;
+                            Log.LogInfo("GameSpawn SpawnMissile " + obj.Name + " coal=" + coal
+                                + " owner=" + (ownerComp != null ? ownerComp.name : "?")
+                                + " dist=" + dist.ToString("0")
+                                + " fx=" + moved);
+                            if (anchor.transform.childCount == 0)
+                                UnityEngine.Object.Destroy(anchor, 8f);
                             return go;
                         }
+                        UnityEngine.Object.Destroy(anchor);
                     }
             }
             catch (Exception ex)
@@ -1372,6 +1401,56 @@ namespace NOReplay
                 AllowOrdnanceSpawn = false;
             }
             return null;
+        }
+
+        static int RetargetStrayLaunchFx(Vector3 pos, Quaternion rot)
+        {
+            var cam = Camera.main;
+            if (cam == null || _ghosts.Count == 0) return 0;
+            var pt = Type.GetType("UnityEngine.ParticleSystem, UnityEngine.ParticleSystemModule")
+                     ?? FindGameType("ParticleSystem");
+            if (pt == null) return 0;
+            var stop = pt.GetMethod("Stop", new[] { typeof(bool) });
+            var clear = pt.GetMethod("Clear", Type.EmptyTypes);
+            var play = pt.GetMethod("Play", new[] { typeof(bool) });
+            int n = 0;
+            Vector3 camPos = cam.transform.position;
+            for (int g = 0; g < _ghosts.Count; g++)
+            {
+                var host = _ghosts[g];
+                if (host == null) continue;
+                var raw = host.GetComponentsInChildren(pt, true);
+                for (int i = 0; i < raw.Length; i++)
+                {
+                    if (raw[i] is not Component c) continue;
+                    if (!LaunchFx.LaunchName(c.gameObject.name) && !LaunchFx.LaunchName(c.transform.parent != null ? c.transform.parent.name : ""))
+                        continue;
+                    float camDist = Vector3.Distance(c.transform.position, camPos);
+                    float launchDist = Vector3.Distance(c.transform.position, pos);
+                    if (!LaunchFx.Stray(camDist, launchDist)) continue;
+                    try
+                    {
+                        stop?.Invoke(raw[i], new object[] { true });
+                        clear?.Invoke(raw[i], null);
+                    }
+                    catch { }
+                    GameObject copy;
+                    try { copy = UnityEngine.Object.Instantiate(c.gameObject, pos, rot); }
+                    catch { continue; }
+                    copy.name = "NOReplay_LaunchFx";
+                    foreach (var ps in copy.GetComponentsInChildren(pt, true))
+                    {
+                        try { play?.Invoke(ps, new object[] { true }); } catch { }
+                    }
+                    UnityEngine.Object.Destroy(copy, 8f);
+                    n++;
+                    if (n >= 4) break;
+                }
+                if (n >= 4) break;
+            }
+            if (n > 0)
+                Log.LogInfo("Launch fx off camera n=" + n + " at=" + pos.ToString("0"));
+            return n;
         }
 
         static GameObject? SpawnSavedMissile(ReplayObject obj, UnityEngine.Object? def, Vector3 pos, Quaternion rot, Vector3 vel)

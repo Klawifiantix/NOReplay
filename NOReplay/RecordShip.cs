@@ -13,6 +13,7 @@ namespace NOReplay
 
         private Ship ship;
         bool _sinking;
+        bool _sinkQuiet;
         bool _sinkEnded;
         float _sinkFor;
         float _despawnLimit;
@@ -93,15 +94,28 @@ namespace NOReplay
                 EndSink();
                 return;
             }
+            if (_sinkQuiet)
+            {
+                var rb = unit != null ? unit.rb : null;
+                if (rb != null && rb.velocity.sqrMagnitude > 0.25f)
+                    _sinkQuiet = false;
+                else
+                    return;
+            }
             timer += Time.deltaTime;
             if (timer < DyingSampleSeconds) return;
             timer = 0f;
             UpdatePose();
-            if (props.Count > 0)
+            if (props.Count == 0)
             {
-                Engine.invokeWriterUpdate(this);
-                props.Clear();
+                var rb = unit != null ? unit.rb : null;
+                if (rb == null || rb.velocity.sqrMagnitude < 0.05f)
+                    _sinkQuiet = true;
+                return;
             }
+            _sinkQuiet = false;
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
         }
 
         private void OnFactionChanged(Unit u)
@@ -146,6 +160,8 @@ namespace NOReplay
             props["Sinking"] = "1";
             Engine.invokeWriterUpdate(this);
             props.Clear();
+            var turrets = GetComponent<RecordTurrets>();
+            if (turrets != null) turrets.enabled = false;
             if (base.destroyedEvent)
                 Engine.invokeWriterDestroy(this);
             Record.Log?.LogInfo("Schiff sinkt " + tacviewId.ToString("X")
@@ -180,9 +196,14 @@ namespace NOReplay
             if (_sinkEnded) return;
             _sinkEnded = true;
             WriteRemoval();
-            if (unit != null) RecordWreck.Forget(unit.persistentID.Id);
+            if (unit != null)
+            {
+                RecordWreck.Forget(unit.persistentID.Id);
+                RecordBay.Forget(unit);
+            }
             Unsubscribe();
             enabled = false;
+            Engine.Retire(unitId, gameObject);
             UnityEngine.Object.Destroy(gameObject);
         }
 

@@ -101,6 +101,9 @@ namespace NOReplay
                     {
                         props.Clear();
                         UpdatePose(true);
+                        var turrets = GetComponent<RecordTurrets>();
+                        if (turrets != null) turrets.enabled = false;
+                        RecordBay.Forget(unit);
                     }
                     if (!props.ContainsKey("Visible"))
                         props.Add("Visible", "0.0");
@@ -119,7 +122,8 @@ namespace NOReplay
                         Engine.invokeWriterRemove(this);
                         this.enabled = false;
                         Record.Log?.LogDebug($"DISABLING UNIT {unitId.ToString(CultureInfo.InvariantCulture)}");
-                        GameObject.Destroy(this);
+                        Engine.Retire(unitId, gameObject);
+                        GameObject.Destroy(gameObject);
                     }
                     //this is to stagger the Destroyed Event and the Remove call to 2 different time steps, as having them both on the same time step will confuse Tacview
                     purge = true;

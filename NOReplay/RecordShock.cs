@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.Threading;
+using HarmonyLib;
 using UnityEngine;
 
 namespace NOReplay
@@ -120,6 +121,33 @@ namespace NOReplay
             base.enabled = false;
             props.Clear();
             GameObject.Destroy(this);
+        }
+
+        static bool _hooked;
+
+        internal static void Install()
+        {
+            if (_hooked) return;
+            _hooked = true;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var harmony = new Harmony("noreplay.shock");
+            int n = 0;
+            var names = new[] { "Awake", "Start" };
+            for (int i = 0; i < names.Length; i++)
+            {
+                var method = typeof(Shockwave).GetMethod(names[i], flags, null, Type.EmptyTypes, null);
+                if (method == null) continue;
+                harmony.Patch(method, postfix: new HarmonyMethod(typeof(RecordShock), nameof(AfterSpawn)));
+                n++;
+            }
+            Plugin.Log?.LogInfo("Shock hook=" + n);
+        }
+
+        static void AfterSpawn(Shockwave __instance)
+        {
+            if (!Record.Active || __instance == null || Record.Host == null) return;
+            var engine = Record.Host.GetComponent<RecordEngine>();
+            engine?.WatchShock(__instance);
         }
     }
 }

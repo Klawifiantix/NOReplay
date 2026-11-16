@@ -81,6 +81,7 @@ namespace NOReplay
             Unsubscribe();
             this.enabled = false;
             Record.Log?.LogDebug($"SCENERY DESTROYED {unitId}");
+            Engine.Retire(unitId, gameObject);
             UnityEngine.Object.Destroy(this.gameObject);
         }
 

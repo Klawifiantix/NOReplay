@@ -139,6 +139,7 @@ namespace NOReplay
 
         bool _dying;
         bool _wrecked;
+        bool _settled;
         const float DyingSampleSeconds = 0.2f;
 
         public override void Update()
@@ -152,15 +153,28 @@ namespace NOReplay
             if (_dying || unit.disabled)
             {
                 if (!_dying) BeginDying();
+                if (_settled)
+                {
+                    var rb = unit.rb;
+                    if (rb != null && rb.velocity.sqrMagnitude > 0.25f)
+                        _settled = false;
+                    else
+                        return;
+                }
                 timer += Time.deltaTime;
                 if (timer < DyingSampleSeconds) return;
                 timer = 0f;
                 UpdatePose();
-                if (props.Count > 0)
+                if (props.Count == 0)
                 {
-                    Engine.invokeWriterUpdate(this);
-                    props.Clear();
+                    var rb = unit.rb;
+                    if (rb == null || rb.velocity.sqrMagnitude < 0.05f)
+                        _settled = true;
+                    return;
                 }
+                _settled = false;
+                Engine.invokeWriterUpdate(this);
+                props.Clear();
                 return;
             }
             timer += Time.deltaTime;
@@ -198,6 +212,8 @@ namespace NOReplay
             props.Clear();
             if (destroyedEvent)
                 Engine.invokeWriterDestroy(this);
+            var turrets = GetComponent<RecordTurrets>();
+            if (turrets != null) turrets.enabled = false;
         }
 
         internal override void NoteBlast(string src)
@@ -225,8 +241,13 @@ namespace NOReplay
             {
                 Record.Log?.LogDebug("Vehicle wreck: " + ex.Message);
             }
-            if (unit != null) RecordWreck.Forget(unit.persistentID.Id);
+            if (unit != null)
+            {
+                RecordWreck.Forget(unit.persistentID.Id);
+                RecordBay.Forget(unit);
+            }
             enabled = false;
+            Engine.Retire(unitId, gameObject);
             UnityEngine.Object.Destroy(gameObject);
         }
 

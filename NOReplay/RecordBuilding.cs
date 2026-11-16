@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
+using HarmonyLib;
 using UnityEngine;
 
 namespace NOReplay
@@ -62,39 +64,51 @@ namespace NOReplay
                 return;
             }
 
-            // One shared poll. A component Update on every building is the
-            // per-frame cost, and the lock only changes occasionally.
-            Watch(this);
             this.enabled = false;
         }
 
-        static readonly System.Collections.Generic.List<RecordBuilding> _locks =
-            new System.Collections.Generic.List<RecordBuilding>();
+        static bool _lockHook;
 
-        static void Watch(RecordBuilding building)
+        internal static void Install()
         {
-            if (building != null && !_locks.Contains(building))
-                _locks.Add(building);
-        }
-
-        internal static int Poll()
-        {
+            if (_lockHook) return;
+            _lockHook = true;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var methods = typeof(Turret).GetMethods(flags);
             int n = 0;
-            for (int i = _locks.Count - 1; i >= 0; i--)
+            var harmony = new Harmony("noreplay.building.lock");
+            for (int i = 0; i < methods.Length; i++)
             {
-                var building = _locks[i];
-                if (building == null)
+                if (methods[i].Name != "SetTarget") continue;
+                try
                 {
-                    _locks.RemoveAt(i);
-                    continue;
+                    harmony.Patch(methods[i], postfix: new HarmonyMethod(typeof(RecordBuilding), nameof(AfterTarget)));
+                    n++;
                 }
-                n++;
-                building.PollLock();
+                catch (Exception ex)
+                {
+                    Plugin.Log?.LogInfo("Building lock " + methods[i] + " " + ex.Message);
+                }
             }
-            return n;
+            Plugin.Log?.LogInfo("Building lock hook SetTarget=" + n);
         }
 
-        void PollLock()
+        static void AfterTarget(Turret __instance)
+        {
+            try
+            {
+                if (!Record.Active || __instance == null || Plugin.CurrentDoc != null) return;
+                var unit = __instance.GetComponentInParent<Building>();
+                if (unit == null || Record.Host == null) return;
+                var engine = Record.Host.GetComponent<RecordEngine>();
+                if (engine == null || !engine.unitObjects.TryGetValue(unit.persistentID.Id, out var go) || go == null)
+                    return;
+                go.GetComponent<RecordBuilding>()?.CaptureLock();
+            }
+            catch { }
+        }
+
+        internal void CaptureLock()
         {
             if (!Record.Active || unit == null || base.disabled || unit.disabled) return;
             NoteLock(unit);
@@ -156,6 +170,7 @@ namespace NOReplay
             Unsubscribe();
             this.enabled = false;
             Record.Log?.LogDebug($"STATIC DESTROYED {unitId}");
+            Engine.Retire(unitId, gameObject);
             UnityEngine.Object.Destroy(this.gameObject);
         }
 
@@ -173,7 +188,6 @@ namespace NOReplay
 
         private void OnDestroy()
         {
-            _locks.Remove(this);
             Unsubscribe();
         }
 

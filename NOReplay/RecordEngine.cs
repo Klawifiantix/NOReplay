@@ -7,21 +7,18 @@ namespace NOReplay
     internal class RecordEngine : MonoBehaviour
     {
         private Dictionary<Shockwave, GameObject> waves = [];
-        readonly List<Shockwave> deadWaves = new();
-        Shockwave[] shockwaves = [];
 
         private DateTime startDate;
         private DateTime curTime;
         public static RecordWriter writer;
         private float unitDiscoveryTimer = 0f;
-        private float shockwaveDiscoveryTimer = 0f;
 
         internal Dictionary<long, GameObject> unitObjects = [];
         internal Dictionary<long, long> tacviewIds = [];
 
         private Unit[] units = [];
         private bool processUnits = false;
-        private bool processShockWaves = false;
+        internal int Retired { get; private set; }
 
         public void invokeWriterUpdate(RecordObject obj)
         {
@@ -72,7 +69,7 @@ namespace NOReplay
                     break;
             }
             if (acmi != null)
-                unitObjects.Add(unit.persistentID.Id, acmi);
+                Track(unit, acmi);
         }
 
         public void CaptureExistingUnits()
@@ -121,11 +118,55 @@ namespace NOReplay
                 }
                 if (acmi != null)
                 {
-                    unitObjects.Add(unit.persistentID.Id, acmi);
+                    Track(unit, acmi);
                     captured++;
                 }
             }
             Plugin.Log.LogInfo("Start-Capture: " + captured + " vorhandene Einheiten");
+            SeedShocks();
+        }
+
+        void Track(Unit unit, GameObject acmi)
+        {
+            if (acmi == null) return;
+            var rec = acmi.GetComponent<RecordUnit>();
+            if (rec != null && rec.disabled)
+            {
+                RecordBay.Forget(unit);
+                Retired++;
+                return;
+            }
+            unitObjects.Add(unit.persistentID.Id, acmi);
+            if (unit is Aircraft || unit is Ship || unit is GroundVehicle)
+                RecordBay.Watch(unit);
+        }
+
+        public void Retire(long id, GameObject recorder)
+        {
+            if (unitObjects.Remove(id))
+                Retired++;
+            tacviewIds.Remove(id);
+            if (recorder == null) return;
+            var turrets = recorder.GetComponent<RecordTurrets>();
+            if (turrets != null) turrets.enabled = false;
+            recorder.SetActive(false);
+        }
+
+        public void WatchShock(Shockwave wave)
+        {
+            if (wave == null || waves.ContainsKey(wave)) return;
+            var host = new GameObject();
+            var rec = host.AddComponent<RecordShock>();
+            rec.Init(wave);
+            rec.enabled = true;
+            waves.Add(wave, host);
+        }
+
+        void SeedShocks()
+        {
+            var found = UnityEngine.Object.FindObjectsOfType<Shockwave>();
+            for (int i = 0; i < found.Length; i++)
+                WatchShock(found[i]);
         }
 
         public void invokeWriterRemove(RecordObject obj)
@@ -196,7 +237,7 @@ namespace NOReplay
                                 Record.Log?.LogDebug($"RECORDED UNIT,{unit.definition.name}," +
                                     $"{unit.definition.unitName}," +
                                     $"{unit.definition.code}");
-                                unitObjects.Add(unit.persistentID.Id, acmi);
+                                Track(unit, acmi);
                                 isNew = true;
                                 break;
                             case Missile missile:
@@ -207,7 +248,7 @@ namespace NOReplay
                                 Record.Log?.LogDebug($"RECORDED UNIT,{unit.definition.name}," +
                                     $"{unit.definition.unitName}," +
                                     $"{unit.definition.code}");
-                                unitObjects.Add(unit.persistentID.Id, acmi);
+                                Track(unit, acmi);
                                 isNew = true;
                                 break;
                             case GroundVehicle vehicle:
@@ -218,7 +259,7 @@ namespace NOReplay
                                 Record.Log?.LogDebug($"RECORDED UNIT,{unit.definition.name}," +
                                     $"{unit.definition.unitName}," +
                                     $"{unit.definition.code}");
-                                unitObjects.Add(unit.persistentID.Id, acmi);
+                                Track(unit, acmi);
                                 isNew = true;
                                 break;
                             case Ship ship:
@@ -229,7 +270,7 @@ namespace NOReplay
                                 Record.Log?.LogDebug($"RECORDED UNIT,{unit.definition.name}," +
                                     $"{unit.definition.unitName}," +
                                     $"{unit.definition.code}");
-                                unitObjects.Add(unit.persistentID.Id, acmi);
+                                Track(unit, acmi);
                                 isNew = true;
                                 break;
                             case PilotDismounted pilot:
@@ -237,7 +278,7 @@ namespace NOReplay
                                 acmi.AddComponent<RecordPilot>();
                                 acmi.GetComponent<RecordPilot>().Init(pilot);
                                 acmi.GetComponent<RecordPilot>().enabled = true;
-                                unitObjects.Add(unit.persistentID.Id, acmi);
+                                Track(unit, acmi);
                                 isNew = true;
                                 break;
                             case Container cargo:
@@ -245,7 +286,7 @@ namespace NOReplay
                                 acmi.AddComponent<RecordContainer>();
                                 acmi.GetComponent<RecordContainer>().Init(cargo);
                                 acmi.GetComponent<RecordContainer>().enabled = true;
-                                unitObjects.Add(unit.persistentID.Id, acmi);
+                                Track(unit, acmi);
                                 isNew = true;
                                 break;
                             case Building building:
@@ -256,7 +297,7 @@ namespace NOReplay
                                 Record.Log?.LogDebug($"RECORDED UNIT,{unit.definition.name}," +
                                     $"{unit.definition.unitName}," +
                                     $"{unit.definition.code}");
-                                unitObjects.Add(unit.persistentID.Id, acmi);
+                                Track(unit, acmi);
                                 isNew = true;
                                 break;
                             case Scenery scenery:
@@ -267,7 +308,7 @@ namespace NOReplay
                                 Record.Log?.LogDebug($"RECORDED UNIT,{unit.definition.name}," +
                                     $"{unit.definition.unitName}," +
                                     $"{unit.definition.code}");
-                                unitObjects.Add(unit.persistentID.Id, acmi);
+                                Track(unit, acmi);
                                 isNew = true;
                                 break;
                             default:
@@ -278,49 +319,21 @@ namespace NOReplay
                 }
                 processUnits = false;
             }
-            if (processShockWaves)
-            {
-                foreach (Shockwave wave in shockwaves)
-                {
-                    if (wave == null || waves.ContainsKey(wave))
-                        continue;
-                    GameObject shockwave = new GameObject();
-                    shockwave.AddComponent<RecordShock>();
-                    shockwave.GetComponent<RecordShock>().Init(wave);
-                    shockwave.GetComponent<RecordShock>().enabled = true;
-                    waves.Add(wave, shockwave);
-                }
-                processShockWaves = false;
-            }
             RecordPerf.Add("engine", RecordPerf.Stamp() - t0);
         }
         void LateUpdate()
         {
             long t0 = RecordPerf.Stamp();
             unitDiscoveryTimer += Time.deltaTime;
-            shockwaveDiscoveryTimer += Time.deltaTime;
-            if (shockwaveDiscoveryTimer >= RecordConfig.shockwaveDiscoveryDelta.Value)
-            {
-                long shock = RecordPerf.Stamp();
-                processShockWaves = ShockWaveDiscovery();
-                RecordPerf.Add("shock", RecordPerf.Stamp() - shock);
-            }
+            RecordPerf.Add("engine-late", RecordPerf.Stamp() - t0);
             if (Record.Active)
             {
-                if (_lockAt < 0f || Time.unscaledTime >= _lockAt)
-                {
-                    _lockAt = Time.unscaledTime + 0.5f;
-                    long locks = RecordPerf.Stamp();
-                    RecordBuilding.Poll();
-                    RecordPerf.Add("locks", RecordPerf.Stamp() - locks);
-                }
                 long bay = RecordPerf.Stamp();
                 try { RecordBay.Sample(); }
                 catch { }
                 RecordPerf.Add("bay", RecordPerf.Stamp() - bay);
             }
-            RecordPerf.Add("engine-late", RecordPerf.Stamp() - t0);
-            RecordPerf.Frame(unitObjects.Count);
+            RecordPerf.Frame(unitObjects.Count, Retired);
             // Unit discovery is now event-driven via RecordListener (UnitRegistry.RegisterUnit).
             // Periodic FindObjectsByType scan disabled.
             // if (unitDiscoveryTimer >= RecordConfig.unitDiscoveryDelta.Value)
@@ -339,6 +352,7 @@ namespace NOReplay
             unitObjects = [];
             tacviewIds = [];
             waves = [];
+            Retired = 0;
             writer?.Close();
             Record.Log?.LogDebug("DESTROYED MONO RECORDER");
         }
@@ -361,19 +375,5 @@ namespace NOReplay
 
         }
 
-        public bool ShockWaveDiscovery()
-        {
-            deadWaves.Clear();
-            foreach (var kv in waves)
-            {
-                if (kv.Value == null)
-                    deadWaves.Add(kv.Key);
-            }
-            for (int i = 0; i < deadWaves.Count; i++)
-                waves.Remove(deadWaves[i]);
-            shockwaves = UnityEngine.Object.FindObjectsByType<Shockwave>(FindObjectsSortMode.None);
-            shockwaveDiscoveryTimer = 0f;
-            return true;
-        }
     }
 }

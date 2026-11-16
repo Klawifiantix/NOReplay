@@ -7,9 +7,8 @@ namespace NOReplay
     /// <summary>
     /// Five-second average of recording work on the main thread.
     /// gc0 is how many generation-0 collections happened in the window.
-    /// A climb there is the frame-time wobble. allocKB/s is the change in
-    /// GC.GetTotalMemory over the same window, so a collection can make it
-    /// negative.
+    /// allocKB/s sums only the rises in GC.GetTotalMemory, so a collection
+    /// cannot print a negative rate. units is recorders still live / retired.
     /// </summary>
     internal static class RecordPerf
     {
@@ -24,6 +23,7 @@ namespace NOReplay
         static bool _on;
         static int _gc0;
         static long _mem;
+        static long _alloc;
 
         public static long Stamp()
         {
@@ -52,7 +52,7 @@ namespace NOReplay
             if (_on) _sampled++;
         }
 
-        public static void Frame(int units)
+        public static void Frame(int alive, int retired)
         {
             bool active = Record.Active;
             if (!active)
@@ -68,6 +68,10 @@ namespace NOReplay
                 _logAt = Time.unscaledTime + 5f;
             }
             _frames++;
+            long nowMem = GC.GetTotalMemory(false);
+            long grew = nowMem - _mem;
+            if (grew > 0) _alloc += grew;
+            _mem = nowMem;
             if (Time.unscaledTime < _logAt) return;
             int n = _used;
             for (int i = 0; i < n; i++) _order[i] = i;
@@ -87,7 +91,7 @@ namespace NOReplay
             int show = n < 4 ? n : 4;
             var line = "Rec perf n=" + _frames
                 + " ms=" + ms.ToString("0.00")
-                + " units=" + units
+                + " units=" + alive + "/" + retired
                 + " sampled=" + _sampled;
             for (int i = 0; i < show; i++)
             {
@@ -96,16 +100,17 @@ namespace NOReplay
                 line += " " + _names[slot] + "=" + part.ToString("0.00");
             }
             int gc = GC.CollectionCount(0) - _gc0;
-            long mem = GC.GetTotalMemory(false);
-            double kb = (mem - _mem) / 1024.0 / 5.0;
+            double kb = _alloc / 1024.0 / 5.0;
             line += " gc0=" + gc.ToString()
-                + " allocKB/s=" + kb.ToString("0");
+                + " allocKB/s=" + kb.ToString("0")
+                + " doors=" + RecordBay.Watched;
             Plugin.Log?.LogInfo(line);
             for (int i = 0; i < n; i++) _ticks[i] = 0;
             _frames = 0;
             _sampled = 0;
+            _alloc = 0;
             _gc0 = GC.CollectionCount(0);
-            _mem = mem;
+            _mem = GC.GetTotalMemory(false);
             _logAt = Time.unscaledTime + 5f;
         }
 

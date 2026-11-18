@@ -68,5 +68,58 @@ namespace NOReplay
             else if (delta < -step) delta = -step;
             current += delta;
         }
+
+        /// <summary>
+        /// Turbojet and Turbofan nozzle swivel. Pitch and roll feed the
+        /// pitch axis, yaw feeds the yaw axis, both slew at 70 deg/s.
+        /// Above the airspeed limit the nozzles snap shut. Below 3 m
+        /// radar altitude the yaw term is dropped.
+        /// </summary>
+        public static void Tvc(ref float pitch, ref float yaw,
+            float stickPitch, float stickRoll, float stickYaw,
+            float gainX, float gainZ, float vecX, float vecY, float vecZ,
+            float airspeed, float maxAirspeed, float radarAlt,
+            float dt, bool snap)
+        {
+            if (airspeed > maxAirspeed)
+            {
+                pitch = 0f;
+                yaw = 0f;
+                return;
+            }
+            float targetPitch = 0f - Clamp1(stickPitch * gainX) * vecX;
+            targetPitch -= Clamp1(stickRoll * gainZ) * vecZ;
+            float targetYaw = radarAlt < 3f ? 0f : Clamp1(0f - stickYaw) * vecY;
+            Slew(ref pitch, targetPitch, 70f, dt, snap);
+            Slew(ref yaw, targetYaw, 70f, dt, snap);
+        }
+
+        public static float TvcPitchEuler(float pitch)
+        {
+            if (pitch > 20f) return 20f;
+            if (pitch < -20f) return -20f;
+            return pitch;
+        }
+
+        static float Clamp1(float v)
+        {
+            if (v > 1f) return 1f;
+            if (v < -1f) return -1f;
+            return v;
+        }
+
+        static void Slew(ref float current, float target, float speed, float dt, bool snap)
+        {
+            if (snap || dt <= 0f)
+            {
+                current = target;
+                return;
+            }
+            float step = speed * dt;
+            float delta = target - current;
+            if (delta > step) delta = step;
+            else if (delta < -step) delta = -step;
+            current += delta;
+        }
     }
 }

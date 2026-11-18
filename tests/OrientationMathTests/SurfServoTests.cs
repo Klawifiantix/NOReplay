@@ -33,6 +33,22 @@ namespace NOReplay.OrientationTests
             Expect(Near(split, 40f), "a closed throttle opens the split");
             SurfServo.Split(ref split, 0f, false, 0f, 40f, 1f, 20f, 1f, true);
             Expect(Near(split, 0f), "a missing throttle does not open the split");
+
+            float nx = 0f, ny = 0f;
+            SurfServo.Tvc(ref nx, ref ny, 1f, 0f, 0f, 1f, 4f, 15f, 15f, 10f, 50f, 200f, 100f, 1f, true);
+            Expect(Near(nx, -15f), "full pitch stick points the nozzle down the pitch range");
+            Expect(Near(ny, 0f), "zero yaw leaves the yaw nozzle at rest");
+            nx = 0f;
+            ny = 0f;
+            SurfServo.Tvc(ref nx, ref ny, 0f, 0f, 1f, 1f, 4f, 15f, 15f, 10f, 50f, 200f, 1f, 1f, true);
+            Expect(Near(ny, 0f), "yaw vectoring is off below 3 m radar altitude");
+            nx = 4f;
+            ny = 4f;
+            SurfServo.Tvc(ref nx, ref ny, 0f, 0f, 1f, 1f, 4f, 15f, 15f, 10f, 250f, 200f, 100f, 1f, true);
+            Expect(Near(nx, 0f) && Near(ny, 0f), "above the airspeed limit the nozzles shut");
+            nx = 0f;
+            SurfServo.Tvc(ref nx, ref ny, 1f, 0f, 0f, 1f, 4f, 15f, 15f, 10f, 10f, 200f, 100f, 0.1f, false);
+            Expect(Near(nx, -7f), "the nozzle slews at 70 deg/s");
             if (Failed == 0) Console.WriteLine("surf servo ok");
         }
 

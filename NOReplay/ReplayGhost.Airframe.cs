@@ -910,12 +910,16 @@ namespace NOReplay
             bool onDeck = GearClock.OnDeck(deck);
             if (!GearClock.SpawnReady(_spawnGearTries, dist, onDeck))
                 return false;
+            float spawnOff = SpawnOffsetY();
+            if (spawnOff < 0f) spawnOff = 0f;
+            float radarAlt = dist < 0f ? -1f : dist - spawnOff;
             _surfaceSpawn = GearClock.OnGround(dist, SpawnOffsetY(), deck);
             _spawnGearKnown = true;
             Plugin.Log?.LogInfo("Gear spawn " + gameObject.name
                 + " surface=" + (_surfaceSpawn ? "1" : "0")
                 + " gap=" + deck.ToString("0.0")
-                + " ray=" + (dist < 0f ? "none" : dist.ToString("0.0")));
+                + " ray=" + (dist < 0f ? "none" : dist.ToString("0.0"))
+                + " radar=" + (radarAlt < 0f ? "none" : radarAlt.ToString("0.0")));
             return true;
         }
 
@@ -1335,7 +1339,8 @@ namespace NOReplay
                 ApplyNacelleTilt(s);
             }
             DriveWingVapor(s, false);
-            DriveSurfaces(gearDown);
+            float radar = s.HasAgl ? s.Agl : (gearDown ? 0f : 100f);
+            DriveSurfaces(gearDown, spd, radar);
         }
 
         static Type? _surfType;

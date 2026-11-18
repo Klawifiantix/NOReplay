@@ -182,14 +182,17 @@ namespace NOReplay
             bool baseline = _structPrev < 0f;
             bool jumped = !baseline && now > _structPrev + PartJump;
             bool rewound = !baseline && now + 0.02f < _structPrev;
+            // Every reverse frame is a rewind. Rebuilding part visibility on
+            // each of them walks every broken part. Only a real jump does that.
+            bool bigRewind = rewound && _structPrev - now > PartJump;
             bool crossing = allowSpawn && !baseline && !jumped && !rewound && now > _structPrev;
-            if (jumped || rewound)
+            if (jumped || bigRewind)
                 ClearDebris();
             else
                 ClearDebrisAfter(now);
             if (crossing)
                 SpawnCrossed(events, _structPrev, now);
-            if (baseline || jumped || rewound || count != _partVisCount)
+            if (baseline || jumped || bigRewind || count != _partVisCount)
             {
                 ApplyPartVisibility(events, count);
                 _partVisCount = count;

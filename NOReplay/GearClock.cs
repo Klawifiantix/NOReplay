@@ -69,14 +69,34 @@ namespace NOReplay
 
         public static int ActiveKey(float time, float[] times)
         {
-            int found = -1;
             int n = times == null ? 0 : times.Length;
-            for (int i = 0; i < n; i++)
+            if (n == 0) return -1;
+            if (times[0] > time + 0.0001f) return -1;
+            int lo = 0;
+            int hi = n - 1;
+            while (lo < hi)
             {
-                if (times[i] > time + 0.0001f) break;
-                found = i;
+                int mid = (lo + hi + 1) / 2;
+                if (times[mid] <= time + 0.0001f) lo = mid;
+                else hi = mid - 1;
             }
-            return found;
+            return lo;
+        }
+
+        public static int ActiveKey(float time, System.Collections.Generic.List<float> times)
+        {
+            int n = times == null ? 0 : times.Count;
+            if (n == 0) return -1;
+            if (times[0] > time + 0.0001f) return -1;
+            int lo = 0;
+            int hi = n - 1;
+            while (lo < hi)
+            {
+                int mid = (lo + hi + 1) / 2;
+                if (times[mid] <= time + 0.0001f) lo = mid;
+                else hi = mid - 1;
+            }
+            return lo;
         }
     }
 }

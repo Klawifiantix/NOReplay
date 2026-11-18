@@ -211,6 +211,10 @@ namespace NOReplay
             if (CurrentDoc != null)
             {
                 long perfStamp = ReplayPerf.Stamp();
+                ReplayPerf.EndJump();
+                StepParticleReset();
+                float jumpFrom = Clock.Time;
+                int jumpSerial = Clock.SeekSerial;
                 if (HotkeyDown(RecordConfig.PlayPauseKey, KeyCode.Space))
                 {
                     _holdClock = false;
@@ -235,11 +239,16 @@ namespace NOReplay
                     if (Clock.Time > 0.001f) Clock.Seek(0f);
                 }
                 Clock.Tick(Time.unscaledDeltaTime);
+                bool wentBack = Clock.WentBack;
                 if (Clock.WentBack)
                 {
                     Clock.WentBack = false;
                     ResetParticles();
                 }
+                if (Clock.SeekSerial != jumpSerial)
+                    ReplayPerf.BeginJump("seek", jumpFrom, Clock.Time);
+                else if (wentBack)
+                    ReplayPerf.BeginJump("reverse", jumpFrom, Clock.Time);
                 if (Clock.SeekSerial != _lockSerial)
                 {
                     _lockSerial = Clock.SeekSerial;
@@ -368,9 +377,12 @@ namespace NOReplay
         static void FlushOrdnanceRespawn()
         {
             if (_ordRespawn.Count == 0) return;
-            for (int i = 0; i < _ordRespawn.Count; i++)
+            int budget = 2;
+            for (int i = 0; i < _ordRespawn.Count && budget > 0;)
             {
                 var rg = _ordRespawn[i];
+                _ordRespawn.RemoveAt(i);
+                budget--;
                 if (rg == null) continue;
                 var track = rg.Track;
                 var go = rg.gameObject;
@@ -382,19 +394,20 @@ namespace NOReplay
                 if (go != null)
                     UnityEngine.Object.Destroy(go);
             }
-            _ordRespawn.Clear();
         }
 
         void ApplyOrdnanceSeeks()
         {
-            if (Clock.SeekSerial == _ordSeekSerial) return;
-            _ordSeekSerial = Clock.SeekSerial;
-            float t = Clock.Time;
-            for (int i = 0; i < _ghostComps.Count; i++)
+            if (Clock.SeekSerial != _ordSeekSerial)
             {
-                var rg = _ghostComps[i];
-                if (rg == null || !rg.IsOrdnancePublic) continue;
-                rg.OnReplaySeek(t);
+                _ordSeekSerial = Clock.SeekSerial;
+                float t = Clock.Time;
+                for (int i = 0; i < _ghostComps.Count; i++)
+                {
+                    var rg = _ghostComps[i];
+                    if (rg == null || !rg.IsOrdnancePublic) continue;
+                    rg.OnReplaySeek(t);
+                }
             }
             FlushOrdnanceRespawn();
         }
@@ -455,26 +468,26 @@ namespace NOReplay
             }
         }
 
+        static int _particleSweep = -1;
+
         static void ResetParticles()
         {
-            var pt = Type.GetType("UnityEngine.ParticleSystem, UnityEngine.ParticleSystemModule")
-                     ?? FindGameType("ParticleSystem");
-            var clear = pt?.GetMethod("Clear", new[] { typeof(bool) });
-            var stop = pt?.GetMethod("Stop", Type.EmptyTypes);
-            for (int i = 0; i < _ghostComps.Count; i++)
+            _particleSweep = 0;
+            StepParticleReset();
+        }
+
+        static void StepParticleReset()
+        {
+            if (_particleSweep < 0) return;
+            int budget = 24;
+            while (budget > 0 && _particleSweep < _ghostComps.Count)
             {
-                var rg = _ghostComps[i];
-                if (rg == null || pt == null) continue;
-                var go = rg.gameObject;
-                if (go == null) continue;
-                foreach (var ps in go.GetComponentsInChildren(pt, true))
-                {
-                    if (ps == null) continue;
-                    try { stop?.Invoke(ps, null); } catch { }
-                    try { clear?.Invoke(ps, new object[] { true }); } catch { }
-                }
-                rg?.ResetFx();
+                var rg = _ghostComps[_particleSweep];
+                _particleSweep++;
+                budget--;
+                rg?.ClearRewindParticles();
             }
+            if (_particleSweep >= _ghostComps.Count) _particleSweep = -1;
         }
 
         static void TickGhostSleep()

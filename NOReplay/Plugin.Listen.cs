@@ -50,7 +50,63 @@ namespace NOReplay
             GateAudioPlay();
             BlockSonicMute();
             BlockStateLabel();
+            PatchScorchDecals();
             Log.LogInfo("Listen-Patches gesetzt (ohne SOM.Spawn-Spam).");
+        }
+
+        static void PatchScorchDecals()
+        {
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var decal = FindGameType("DecalSpawner");
+            var start = decal?.GetMethod("Start", flags);
+            if (start == null)
+                Log.LogWarning("Scorch-Patch DecalSpawner.Start missing");
+            else
+            {
+                try
+                {
+                    Harmony.Patch(start,
+                        prefix: new HarmonyMethod(typeof(Plugin), nameof(PrefixDecalSpawnerStart)),
+                        postfix: new HarmonyMethod(typeof(Plugin), nameof(PostfixDecalSpawnerStart)));
+                    Log.LogInfo("Scorch-Patch DecalSpawner.Start");
+                }
+                catch (Exception ex)
+                {
+                    Log.LogWarning("Scorch-Patch DecalSpawner.Start " + ex.Message);
+                }
+            }
+            var shock = FindGameType("Shockwave");
+            var shockStart = shock?.GetMethod("Start", flags);
+            if (shockStart == null) return;
+            try
+            {
+                Harmony.Patch(shockStart, postfix: new HarmonyMethod(typeof(Plugin), nameof(PostfixShockwaveStart)));
+                Log.LogInfo("Scorch-Patch Shockwave.Start");
+            }
+            catch (Exception ex)
+            {
+                Log.LogWarning("Scorch-Patch Shockwave.Start " + ex.Message);
+            }
+        }
+
+        static bool PrefixDecalSpawnerStart(object __instance)
+        {
+            if (CurrentDoc == null || __instance is not Component spawner) return true;
+            // Only skip the game's Start when our copy is on the ground.
+            // A miss must still let the game place the decal.
+            return !ReplayGhost.CaptureDecalSpawner(spawner);
+        }
+
+        static void PostfixDecalSpawnerStart(object __instance)
+        {
+            if (CurrentDoc == null || __instance is not Component spawner) return;
+            ReplayGhost.ClaimGameScorch(spawner);
+        }
+
+        static void PostfixShockwaveStart(object __instance)
+        {
+            if (CurrentDoc == null || __instance is not Component wave) return;
+            ReplayGhost.ClaimShockDecal(wave);
         }
 
         static FieldInfo? _mfdMissionTimeField;

@@ -659,6 +659,7 @@ namespace NOReplay
 
         void OnDestroy()
         {
+            ReleaseScorches("end");
             ClearStructural();
             ReleaseWheelMaterials();
             DestroyDownwashTransforms();
@@ -1324,7 +1325,11 @@ namespace NOReplay
                         PlayWarheadBoom(transform.position);
                     }
                     else if (!_ordnance && !_ship)
+                    {
+                        ArmScorch(end >= 0f ? end : nowDead);
                         PlayUnitWreckFx(transform.position, transform.rotation);
+                        _scorchStamps.Clear();
+                    }
                 }
                 if (_ship)
                 {
@@ -1697,7 +1702,9 @@ namespace NOReplay
                 if (play)
                 {
                     // The explosion only. The husk waits for Visible=0.
+                    ArmScorchRange(_blastsPlayed, due);
                     PlayUnitWreckFx(transform.position, transform.rotation, spawnModel: false, destroyedFallback: false);
+                    _scorchStamps.Clear();
                     LogUnitBoom(_blastTimes[due - 1], due);
                 }
             }
@@ -1845,6 +1852,7 @@ namespace NOReplay
             _fireSimSpeed = -999f;
             var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
             _cookFx ??= typeof(UnitPart).GetField("damageEffects", flags);
+            ArmScorch(Plugin.Clock != null ? Plugin.Clock.Time : 0f);
             int n = 0;
             foreach (var part in GetComponentsInChildren<UnitPart>(true))
             {
@@ -1862,11 +1870,13 @@ namespace NOReplay
                     go.transform.localPosition = flame.LocalPos;
                     go.transform.localRotation = flame.LocalRot;
                     UnityEngine.Object.Destroy(quiet);
+                    TakeScorches(go);
                     go.SetActive(true);
                     _cookFire.Add(flame);
                     n++;
                 }
             }
+            _scorchStamps.Clear();
             if (n == 0)
                 Plugin.Log?.LogInfo("Fire " + (Track?.Name ?? name) + " no prefab");
         }

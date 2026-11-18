@@ -45,6 +45,28 @@ namespace NOReplay
         GameObject? _husk;
         bool _huskOn;
         readonly List<GameObject> _spawnedDamageFx = new();
+        readonly List<ScorchMark> _scorches = new List<ScorchMark>();
+        readonly List<float> _scorchStamps = new List<float>();
+
+        struct ScorchMark
+        {
+            public GameObject Go;
+            public float Time;
+            public string Name;
+        }
+
+        static readonly List<ScorchMark> _ownedScorches = new List<ScorchMark>();
+
+        static Type _decalSpawnerType;
+        static FieldInfo _fDecalSize;
+        static FieldInfo _fDecalMat;
+        static FieldInfo _fDecalVertical;
+        static bool _decalFieldsBound;
+        static GameObject _scorchPrefab;
+        static bool _scorchPrefabTried;
+        static bool _scorchMissLogged;
+        static Transform _datumOrigin;
+        static bool _datumTried;
 
         internal void ResetFx()
         {
@@ -83,6 +105,356 @@ namespace NOReplay
                     UnityEngine.Object.Destroy(_spawnedDamageFx[i]);
             }
             _spawnedDamageFx.Clear();
+            // Decals are not children of the effect. Drop only the ones whose
+            // blast is still in the future so an earlier hit keeps its mark.
+            DropScorches(Plugin.Clock != null ? Plugin.Clock.Time : 0f, ScorchReason());
+        }
+
+        internal void ReleaseScorches(string reason)
+        {
+            DropScorches(float.NegativeInfinity, reason);
+        }
+
+        string ScorchUnit()
+        {
+            if (Track != null && !string.IsNullOrEmpty(Track.Name)) return Track.Name;
+            return name;
+        }
+
+        static string ScorchReason()
+        {
+            if (Plugin.Clock != null && Plugin.Clock.Speed < -0.01f) return "reverse";
+            return "seek";
+        }
+
+        void DropScorches(float now, string reason)
+        {
+            for (int i = _scorches.Count - 1; i >= 0; i--)
+            {
+                if (_scorches[i].Time <= now + 0.001f) continue;
+                var go = _scorches[i].Go;
+                float t = _scorches[i].Time;
+                string who = string.IsNullOrEmpty(_scorches[i].Name) ? ScorchUnit() : _scorches[i].Name;
+                _scorches.RemoveAt(i);
+                if (go == null) continue;
+                ForgetOwned(go);
+                UnityEngine.Object.Destroy(go);
+                Plugin.Log?.LogInfo("Scorch remove " + who + " t=" + t.ToString("0.00") + " reason=" + reason);
+            }
+        }
+
+        void RememberScorch(GameObject go, float time, string who)
+        {
+            if (go == null) return;
+            var mark = new ScorchMark { Go = go, Time = time, Name = who };
+            _scorches.Add(mark);
+            _ownedScorches.Add(mark);
+        }
+
+        static void RememberOwned(GameObject go, float time, string who)
+        {
+            if (go == null || IsOwned(go)) return;
+            _ownedScorches.Add(new ScorchMark { Go = go, Time = time, Name = who });
+        }
+
+        static void ForgetOwned(GameObject go)
+        {
+            for (int i = _ownedScorches.Count - 1; i >= 0; i--)
+                if (_ownedScorches[i].Go == go) _ownedScorches.RemoveAt(i);
+        }
+
+        static bool IsOwned(GameObject go)
+        {
+            for (int i = 0; i < _ownedScorches.Count; i++)
+                if (_ownedScorches[i].Go == go) return true;
+            return false;
+        }
+
+        internal static void SyncOwnedScorches(float now, string reason)
+        {
+            var ghosts = Plugin.GhostComps;
+            for (int g = 0; g < ghosts.Count; g++)
+                ghosts[g]?.DropScorches(now, reason);
+            for (int i = _ownedScorches.Count - 1; i >= 0; i--)
+            {
+                if (_ownedScorches[i].Time <= now + 0.001f) continue;
+                var go = _ownedScorches[i].Go;
+                float t = _ownedScorches[i].Time;
+                string who = _ownedScorches[i].Name ?? "";
+                _ownedScorches.RemoveAt(i);
+                if (go == null) continue;
+                UnityEngine.Object.Destroy(go);
+                Plugin.Log?.LogInfo("Scorch remove " + who + " t=" + t.ToString("0.00") + " reason=" + reason);
+            }
+        }
+
+        internal static void ReleaseOwnedScorches(string reason)
+        {
+            SyncOwnedScorches(float.NegativeInfinity, reason);
+        }
+
+        static void BindDecalFields()
+        {
+            if (_decalFieldsBound) return;
+            _decalFieldsBound = true;
+            _decalSpawnerType = Plugin.FindGameType("DecalSpawner");
+            if (_decalSpawnerType == null) return;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            _fDecalSize = _decalSpawnerType.GetField("decalSize", flags);
+            _fDecalMat = _decalSpawnerType.GetField("decalMaterial", flags);
+            _fDecalVertical = _decalSpawnerType.GetField("verticalProjection", flags);
+        }
+
+        void ArmScorch(float time)
+        {
+            _scorchStamps.Clear();
+            if (time >= 0f) _scorchStamps.Add(time);
+        }
+
+        void ArmScorchRange(int from, int to)
+        {
+            _scorchStamps.Clear();
+            if (_blastTimes == null) return;
+            for (int i = from; i < to && i < _blastTimes.Length; i++)
+                _scorchStamps.Add(_blastTimes[i]);
+        }
+
+        void TakeScorches(GameObject fx, bool consume = true)
+        {
+            if (fx == null) return;
+            BindDecalFields();
+            if (_decalSpawnerType == null)
+            {
+                NoteUnownedProjectors(fx);
+                return;
+            }
+            if (_scorchStamps.Count == 0)
+                _scorchStamps.Add(Plugin.Clock != null ? Plugin.Clock.Time : 0f);
+            var comps = fx.GetComponentsInChildren(_decalSpawnerType, true);
+            for (int i = 0; i < comps.Length; i++)
+            {
+                if (comps[i] is not Behaviour mb || mb == null) continue;
+                // Start parents a DecalProjector to Datum.origin and then forgets it.
+                mb.enabled = false;
+                float size = 4f;
+                try
+                {
+                    if (_fDecalSize != null) size = Convert.ToSingle(_fDecalSize.GetValue(mb));
+                }
+                catch { }
+                Material mat = null;
+                try { mat = _fDecalMat?.GetValue(mb) as Material; } catch { }
+                bool vertical = true;
+                try
+                {
+                    if (_fDecalVertical != null) vertical = Convert.ToBoolean(_fDecalVertical.GetValue(mb));
+                }
+                catch { }
+                Vector3 at = mb.transform.position;
+                bool owned = false;
+                for (int s = 0; s < _scorchStamps.Count; s++)
+                {
+                    float stamp = _scorchStamps[s];
+                    Vector3 place = at;
+                    if (Track != null && Track.TrySample(stamp, out var sample))
+                        place = Plugin.GlobalToLocal(sample.X, sample.Y, sample.Z);
+                    var go = MakeScorch(place, size, mat, vertical);
+                    if (go == null) continue;
+                    RememberScorch(go, stamp, ScorchUnit());
+                    owned = true;
+                    Plugin.Log?.LogInfo("Scorch add " + ScorchUnit() + " t=" + stamp.ToString("0.00") + " kind=decal");
+                }
+                // A failed linecast must leave the spawner alive so its Start can
+                // still place the game's decal. Start is what the player was seeing.
+                if (owned && consume)
+                    UnityEngine.Object.Destroy(mb);
+                else
+                    mb.enabled = true;
+            }
+            NoteUnownedProjectors(fx);
+        }
+
+        internal static bool CaptureDecalSpawner(Component spawner)
+        {
+            if (spawner == null) return false;
+            BindDecalFields();
+            var ghost = spawner.GetComponentInParent<ReplayGhost>();
+            string who = ghost != null ? ghost.ScorchUnit() : spawner.gameObject.name;
+            float stamp = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+            float size = 4f;
+            try
+            {
+                if (_fDecalSize != null) size = Convert.ToSingle(_fDecalSize.GetValue(spawner));
+            }
+            catch { }
+            Material mat = null;
+            try { mat = _fDecalMat?.GetValue(spawner) as Material; } catch { }
+            bool vertical = true;
+            try
+            {
+                if (_fDecalVertical != null) vertical = Convert.ToBoolean(_fDecalVertical.GetValue(spawner));
+            }
+            catch { }
+            var go = MakeScorch(spawner.transform.position, size, mat, vertical);
+            if (go == null) return false;
+            if (ghost != null) ghost.RememberScorch(go, stamp, who);
+            else RememberOwned(go, stamp, who);
+            Plugin.Log?.LogInfo("Scorch add " + who + " t=" + stamp.ToString("0.00") + " kind=decal");
+            return true;
+        }
+
+        internal static void ClaimGameScorch(Component spawner)
+        {
+            if (spawner == null) return;
+            var ghost = spawner.GetComponentInParent<ReplayGhost>();
+            string who = ghost != null ? ghost.ScorchUnit() : spawner.gameObject.name;
+            float stamp = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+            var datum = _datumOrigin != null ? _datumOrigin : Plugin.Datum;
+            bool nearOwned = false;
+            if (datum != null)
+            {
+                int n = datum.childCount;
+                for (int i = 0; i < n; i++)
+                {
+                    var child = datum.GetChild(i);
+                    if (child == null) continue;
+                    if ((child.position - spawner.transform.position).sqrMagnitude > 2500f) continue;
+                    bool projector = false;
+                    var bits = child.GetComponents<Component>();
+                    for (int c = 0; c < bits.Length; c++)
+                    {
+                        if (bits[c] != null && bits[c].GetType().Name == "DecalProjector")
+                        {
+                            projector = true;
+                            break;
+                        }
+                    }
+                    if (!projector) continue;
+                    string cn = child.name ?? "";
+                    if (cn.IndexOf("scorch", StringComparison.OrdinalIgnoreCase) < 0
+                        && cn.IndexOf("NOReplay_Scorch", StringComparison.Ordinal) < 0)
+                        continue;
+                    if (IsOwned(child.gameObject))
+                    {
+                        nearOwned = true;
+                        continue;
+                    }
+                    if (ghost != null) ghost.RememberScorch(child.gameObject, stamp, who);
+                    else RememberOwned(child.gameObject, stamp, who);
+                    nearOwned = true;
+                    Plugin.Log?.LogInfo("Scorch add " + who + " t=" + stamp.ToString("0.00") + " kind=decal");
+                }
+            }
+            if (!nearOwned)
+                Plugin.Log?.LogInfo("Scorch unowned " + who + " t=" + stamp.ToString("0.00") + " kind=decal");
+        }
+
+        internal static void ClaimShockDecal(Component wave)
+        {
+            if (wave == null) return;
+            GameObject go = null;
+            try
+            {
+                go = wave.GetType().GetField("groundDecal",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(wave) as GameObject;
+            }
+            catch { }
+            if (go == null || IsOwned(go)) return;
+            if (go.transform.IsChildOf(wave.transform)) return;
+            var ghost = wave.GetComponentInParent<ReplayGhost>();
+            string who = ghost != null ? ghost.ScorchUnit() : wave.gameObject.name;
+            float stamp = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+            if (ghost != null) ghost.RememberScorch(go, stamp, who);
+            else RememberOwned(go, stamp, who);
+            Plugin.Log?.LogInfo("Scorch add " + who + " t=" + stamp.ToString("0.00") + " kind=shockwave");
+        }
+
+        void NoteUnownedProjectors(GameObject host)
+        {
+            if (host == null) return;
+            float stamp = _scorchStamps.Count > 0 ? _scorchStamps[0]
+                : (Plugin.Clock != null ? Plugin.Clock.Time : 0f);
+            var datum = Plugin.Datum;
+            var parts = host.GetComponentsInChildren<Component>(true);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var c = parts[i];
+                if (c == null || c.GetType().Name != "DecalProjector") continue;
+                if (IsOwned(c.gameObject)) continue;
+                var parent = c.transform.parent;
+                bool leaked = parent == null || (datum != null && parent == datum && c.gameObject != host);
+                if (!leaked) continue;
+                Plugin.Log?.LogInfo("Scorch unowned " + ScorchUnit() + " t=" + stamp.ToString("0.00") + " kind=projector");
+            }
+        }
+
+        static GameObject MakeScorch(Vector3 pos, float size, Material mat, bool vertical)
+        {
+            if (!_scorchPrefabTried)
+            {
+                _scorchPrefabTried = true;
+                try
+                {
+                    var gaT = Plugin.FindGameType("GameAssets");
+                    var ga = gaT?.GetProperty("i", BindingFlags.Public | BindingFlags.Static)?.GetValue(null)
+                             ?? gaT?.GetField("i", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+                    if (ga != null)
+                        _scorchPrefab = gaT?.GetField("scorchMarkDecal", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(ga) as GameObject;
+                }
+                catch { }
+            }
+            if (!_datumTried)
+            {
+                _datumTried = true;
+                try
+                {
+                    var dT = Plugin.FindGameType("Datum");
+                    _datumOrigin = dT?.GetProperty("origin", BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as Transform;
+                }
+                catch { }
+            }
+            if (_scorchPrefab == null || size <= 0.01f)
+            {
+                if (!_scorchMissLogged && _scorchPrefabTried && _scorchPrefab == null)
+                {
+                    _scorchMissLogged = true;
+                    Plugin.Log?.LogWarning("Scorch prefab missing");
+                }
+                return null;
+            }
+            const int statics = 1 << 6;
+            float half = Mathf.Max(0.05f, size * 0.5f);
+            if (!Physics.Linecast(pos + Vector3.up * half, pos - Vector3.up * half, out var hit, statics))
+                return null;
+            var go = _datumOrigin != null
+                ? UnityEngine.Object.Instantiate(_scorchPrefab, _datumOrigin)
+                : UnityEngine.Object.Instantiate(_scorchPrefab);
+            go.name = "NOReplay_Scorch";
+            // LookRotation(Vector3.up) is what the game asks for; the axes are
+            // parallel, so Unity keeps the identity rotation.
+            go.transform.rotation = vertical ? Quaternion.identity : Quaternion.LookRotation(-hit.normal);
+            go.transform.position = hit.point;
+            Component proj = null;
+            var parts = go.GetComponents<Component>();
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (parts[i] != null && parts[i].GetType().Name == "DecalProjector")
+                {
+                    proj = parts[i];
+                    break;
+                }
+            }
+            if (proj != null)
+            {
+                var pt = proj.GetType();
+                try { pt.GetProperty("size")?.SetValue(proj, new Vector3(size, size, size * 0.2f)); } catch { }
+                if (mat != null)
+                {
+                    try { pt.GetProperty("material")?.SetValue(proj, mat); } catch { }
+                }
+                try { pt.GetProperty("fadeFactor")?.SetValue(proj, 1f); } catch { }
+            }
+            return go;
         }
 
         void IgniteMissileFx()
@@ -373,6 +745,11 @@ namespace NOReplay
                     if (mushroom) NukeTime.KeepPieces(go);
                 }
                 float detonation = Track != null && Track.RemovedAt >= 0f ? Track.RemovedAt : born;
+                // terrainEffect (explosion_10kg and the rest) carries the scorch.
+                // Start orphans it onto Datum after this object is activated.
+                ArmScorch(detonation);
+                TakeScorches(go);
+                _scorchStamps.Clear();
                 BoomAudio.PreferBorn = detonation;
                 try { go.SetActive(true); }
                 finally { BoomAudio.PreferBorn = -1f; }
@@ -508,6 +885,7 @@ namespace NOReplay
                     if (mb == null) continue;
                     if (mb.GetType().Name == "Shockwave") mb.enabled = false;
                 }
+                TakeScorches(fxGo);
                 foreach (var c in fxGo.GetComponentsInChildren<Collider>(true))
                     if (c != null) c.enabled = false;
 
@@ -604,6 +982,8 @@ namespace NOReplay
             if (!due)
             {
                 ClearHusk();
+                if (Plugin.Clock != null)
+                    DropScorches(now, ScorchReason());
                 return;
             }
             if (_huskOn) return;
@@ -612,7 +992,9 @@ namespace NOReplay
             var rot = transform.rotation;
             string at = Track != null ? Track.RemovedAt.ToString("0.00") : now.ToString("0.00");
             string who = Track?.Name ?? name;
+            ArmScorch(Track != null && Track.RemovedAt >= 0f ? Track.RemovedAt : now);
             var model = CreateWreckModel(pos, rot);
+            _scorchStamps.Clear();
             if (model != null)
             {
                 _husk = model;
@@ -625,7 +1007,9 @@ namespace NOReplay
                 return;
             // Same stand-in the previous build logged. No part effects, so it is not a blast.
             Plugin.Log?.LogInfo("Wreck " + who + " at=" + at + " prefab=VehicleWreckDestroyed");
+            ArmScorch(Track != null && Track.RemovedAt >= 0f ? Track.RemovedAt : now);
             PlayDestroyedWreck(pos, rot);
+            _scorchStamps.Clear();
         }
 
         void ClearHusk()
@@ -688,6 +1072,7 @@ namespace NOReplay
                 foreach (var c in wreckGo.GetComponentsInChildren<Collider>(true))
                     if (c != null) c.enabled = false;
                 PlayParticles(wreckGo);
+                TakeScorches(wreckGo);
                 return wreckGo;
             }
             catch (Exception ex)
@@ -744,6 +1129,9 @@ namespace NOReplay
                     {
                         if (_mPlayPrefab == null)
                             _mPlayPrefab = fx.GetType().GetMethod("Play", new[] { typeof(Vector3), typeof(Quaternion) });
+                        var pooled = fx.GetType().GetField("gameObject")?.GetValue(fx) as GameObject;
+                        if (pooled != null)
+                            TakeScorches(pooled, consume: false);
                         _mPlayPrefab?.Invoke(fx, new object[] { pos, rot });
                         return;
                     }
@@ -757,6 +1145,7 @@ namespace NOReplay
                 foreach (var c in go.GetComponentsInChildren<Collider>(true))
                     if (c != null) c.enabled = false;
                 PlayParticles(go);
+                TakeScorches(go);
                 UnityEngine.Object.Destroy(go, 10f);
             }
             catch { }

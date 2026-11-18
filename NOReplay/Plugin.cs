@@ -194,6 +194,9 @@ namespace NOReplay
             ReplayRounds.Clear();
             BoomAudio.Clear();
             CurrentDoc = null;
+            for (int i = 0; i < _ghostComps.Count; i++)
+                _ghostComps[i]?.ReleaseScorches("end");
+            ReplayGhost.ReleaseOwnedScorches("end");
             FeedPlayback.Reset();
             _staticHandlerStarted = false;
             ResetMissionCatchup();
@@ -239,6 +242,7 @@ namespace NOReplay
                     if (Clock.Time > 0.001f) Clock.Seek(0f);
                 }
                 Clock.Tick(Time.unscaledDeltaTime);
+                ReplayGhost.SyncOwnedScorches(Clock.Time, Clock.Speed < -0.01f ? "reverse" : "seek");
                 bool wentBack = Clock.WentBack;
                 if (Clock.WentBack)
                 {

@@ -13,6 +13,8 @@ namespace NOReplay
 
         private Ship ship;
         bool _sinking;
+        bool _sinkQuiet;
+        float _sinkStill;
         bool _sinkEnded;
         float _sinkFor;
         float _despawnLimit;
@@ -76,11 +78,7 @@ namespace NOReplay
 
             UpdatePose();
             if (unit != null) NoteLock(unit);
-            if (props.Count > 0)
-            {
-                Engine.invokeWriterUpdate(this);
-                props.Clear();
-            }
+            CommitMotion();
             timer = 0;
         }
 
@@ -93,15 +91,32 @@ namespace NOReplay
                 EndSink();
                 return;
             }
+            if (_sinkQuiet)
+            {
+                var rb = unit != null ? unit.rb : null;
+                if (rb != null && rb.velocity.sqrMagnitude > PoseHold.RestSpeedSqr)
+                    _sinkQuiet = false;
+                else
+                    return;
+            }
             timer += Time.deltaTime;
             if (timer < DyingSampleSeconds) return;
             timer = 0f;
             UpdatePose();
-            if (props.Count > 0)
+            if (MotionDue)
             {
-                Engine.invokeWriterUpdate(this);
-                props.Clear();
+                _sinkStill = 0f;
+                CommitMotion();
+                return;
             }
+            _sinkStill += DyingSampleSeconds;
+            var body = unit != null ? unit.rb : null;
+            float speed = body != null ? body.velocity.sqrMagnitude : 0f;
+            if (!PoseHold.Rested(_sinkStill, speed)) return;
+            if (unit != null) UpdatePose(true);
+            CommitMotion();
+            _sinkQuiet = true;
+            Record.Log?.LogInfo("Pose rest ship " + tacviewId.ToString("X"));
         }
 
         private void OnFactionChanged(Unit u)
@@ -146,6 +161,8 @@ namespace NOReplay
             props["Sinking"] = "1";
             Engine.invokeWriterUpdate(this);
             props.Clear();
+            var turrets = GetComponent<RecordTurrets>();
+            if (turrets != null) turrets.enabled = false;
             if (base.destroyedEvent)
                 Engine.invokeWriterDestroy(this);
             Record.Log?.LogInfo("Schiff sinkt " + tacviewId.ToString("X")
@@ -180,9 +197,14 @@ namespace NOReplay
             if (_sinkEnded) return;
             _sinkEnded = true;
             WriteRemoval();
-            if (unit != null) RecordWreck.Forget(unit.persistentID.Id);
+            if (unit != null)
+            {
+                RecordWreck.Forget(unit.persistentID.Id);
+                RecordBay.Forget(unit);
+            }
             Unsubscribe();
             enabled = false;
+            Engine.Retire(unitId, gameObject);
             UnityEngine.Object.Destroy(gameObject);
         }
 

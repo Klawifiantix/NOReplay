@@ -139,6 +139,8 @@ namespace NOReplay
 
         bool _dying;
         bool _wrecked;
+        bool _settled;
+        float _stillFor;
         const float DyingSampleSeconds = 0.2f;
 
         public override void Update()
@@ -152,15 +154,35 @@ namespace NOReplay
             if (_dying || unit.disabled)
             {
                 if (!_dying) BeginDying();
+                if (_settled)
+                {
+                    var rb = unit.rb;
+                    if (rb != null && rb.velocity.sqrMagnitude > PoseHold.RestSpeedSqr)
+                    {
+                        _settled = false;
+                        _stillFor = 0f;
+                    }
+                    else
+                        return;
+                }
                 timer += Time.deltaTime;
                 if (timer < DyingSampleSeconds) return;
                 timer = 0f;
                 UpdatePose();
-                if (props.Count > 0)
+                if (MotionDue)
                 {
-                    Engine.invokeWriterUpdate(this);
-                    props.Clear();
+                    _stillFor = 0f;
+                    CommitMotion();
+                    return;
                 }
+                _stillFor += DyingSampleSeconds;
+                var body = unit.rb;
+                float speed = body != null ? body.velocity.sqrMagnitude : 0f;
+                if (!PoseHold.Rested(_stillFor, speed)) return;
+                UpdatePose(true);
+                CommitMotion();
+                _settled = true;
+                Record.Log?.LogInfo("Pose rest " + _unitName);
                 return;
             }
             timer += Time.deltaTime;
@@ -198,6 +220,8 @@ namespace NOReplay
             props.Clear();
             if (destroyedEvent)
                 Engine.invokeWriterDestroy(this);
+            var turrets = GetComponent<RecordTurrets>();
+            if (turrets != null) turrets.enabled = false;
         }
 
         internal override void NoteBlast(string src)
@@ -225,8 +249,13 @@ namespace NOReplay
             {
                 Record.Log?.LogDebug("Vehicle wreck: " + ex.Message);
             }
-            if (unit != null) RecordWreck.Forget(unit.persistentID.Id);
+            if (unit != null)
+            {
+                RecordWreck.Forget(unit.persistentID.Id);
+                RecordBay.Forget(unit);
+            }
             enabled = false;
+            Engine.Retire(unitId, gameObject);
             UnityEngine.Object.Destroy(gameObject);
         }
 

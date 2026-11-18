@@ -49,6 +49,10 @@ namespace NOReplay
             catch (Exception ex) { Plugin.Log.LogError("RecordChutes.Install: " + ex); }
             try { RecordBay.Install(); }
             catch (Exception ex) { Plugin.Log.LogError("RecordBay.Install: " + ex); }
+            try { RecordBuilding.Install(); }
+            catch (Exception ex) { Plugin.Log.LogError("RecordBuilding.Install: " + ex); }
+            try { RecordShock.Install(); }
+            catch (Exception ex) { Plugin.Log.LogError("RecordShock.Install: " + ex); }
             try { RecordFeed.Install(); }
             catch (Exception ex) { Plugin.Log.LogError("RecordFeed.Install: " + ex); }
             try { NukeTime.Install(); }

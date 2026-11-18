@@ -40,6 +40,19 @@ namespace NOReplay.OrientationTests
             Check(!GearClock.Extended(true, 80f, times, gear), "a retract key overrides a ground spawn");
             Check(GearClock.ActiveKey(223.7f, times) == 0, "just before the second key the first key is active");
             Check(GearClock.ActiveKey(223.784f, times) == 1, "the second key is active on its timestamp");
+            Check(GearClock.OnDeck(3f) && GearClock.OnDeck(2.1f) && GearClock.OnDeck(0f)
+                && !GearClock.OnDeck(-1f) && !GearClock.OnDeck(80f) && !GearClock.OnDeck(-5f),
+                "only a real deck counts; a missing deck is not ground");
+            Check(GearClock.OnGround(2f, 0f, -1f), "a cricket 2 m up is on the ground");
+            Check(!GearClock.OnGround(309.8f, 0f, -1f), "a compass 310 m up is airborne");
+            Check(!GearClock.OnGround(512.7f, 1f, -1f), "a far ray with no deck is air");
+            Check(GearClock.OnGround(43.6f, 0f, 2.1f), "a chicane 2 m above the deck is down even if the ray is long");
+            Check(!GearClock.OnGround(27.4f, 0f, -1f), "27 m of radar altitude is retracted");
+            Check(GearClock.SpawnReady(1, 4f, false), "a short ray can decide");
+            Check(!GearClock.SpawnReady(1, 400f, false) && !GearClock.SpawnReady(1, -1f, false),
+                "a far terrain hit or a miss waits for the ship");
+            Check(GearClock.SpawnReady(1, 400f, true), "a deck under the aircraft decides immediately");
+            Check(GearClock.SpawnReady(GearClock.SpawnTries, 400f, false), "with no deck the far ray is air");
         }
 
         static void Check(bool ok, string message)

@@ -34,5 +34,27 @@ namespace NOReplay
         {
             return dustEntries > 0;
         }
+
+        /// <summary>
+        /// A hit at the piece's own height is the piece, or the floor it
+        /// spawned in. The ground that can catch it is below that.
+        /// </summary>
+        public static bool GroundBelow(float pieceY, float hitY)
+        {
+            return hitY < pieceY - 0.35f;
+        }
+
+        /// <summary>
+        /// A collapse leans over and stays there. An uncapped speed keeps
+        /// spinning the shell after it should be lying down.
+        /// </summary>
+        public static float ToppleDegrees(float speed, float age)
+        {
+            if (age < 0f) age = 0f;
+            float angle = speed * age;
+            if (angle > 90f) return 90f;
+            if (angle < -90f) return -90f;
+            return angle;
+        }
     }
 }

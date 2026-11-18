@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -12,9 +13,11 @@ namespace NOReplay
         private readonly object _stateLock = new object();
         private volatile bool _shouldFlush;
         private volatile bool _shouldClose;
-        private readonly ConcurrentQueue<string> _lineQueue = new ConcurrentQueue<string>();
+        private readonly ConcurrentQueue<object> _lineQueue = new ConcurrentQueue<object>();
         private readonly ManualResetEventSlim _signal = new ManualResetEventSlim(false);
         private readonly Task _writeTask;
+        private readonly StringBuilder _format = new StringBuilder(256);
+        private double _lastTime = double.NaN;
         private int _closed;
 
         public RecordFileWriter(StreamWriter writer)
@@ -23,14 +26,27 @@ namespace NOReplay
             _writeTask = Task.Run((Action)_writeLoop);
         }
 
+        void Drain()
+        {
+            while (_lineQueue.TryDequeue(out var item))
+            {
+                if (item is string line)
+                    _writer.WriteLine(line);
+                else if (item is RecordJob job)
+                {
+                    job.Write(_writer, _format, ref _lastTime);
+                    RecordJob.Return(job);
+                }
+            }
+        }
+
         private void _writeLoop()
         {
             Record.Log?.LogDebug("Starting ACMI StreamWriter Thread.");
             while (true)
             {
                 _signal.Wait();
-                while (_lineQueue.TryDequeue(out var line))
-                    _writer.WriteLine(line);
+                Drain();
 
                 bool flush;
                 bool close;
@@ -44,8 +60,7 @@ namespace NOReplay
 
                 if (close)
                 {
-                    while (_lineQueue.TryDequeue(out var line))
-                        _writer.WriteLine(line);
+                    Drain();
                     _writer.Flush();
                     _writer.Close();
                     Record.Log?.LogDebug("Exiting ACMI StreamWriter Thread.");
@@ -98,6 +113,12 @@ namespace NOReplay
         public void WriteLine(string line)
         {
             _lineQueue.Enqueue(line);
+            _signal.Set();
+        }
+
+        public void Enqueue(RecordJob job)
+        {
+            _lineQueue.Enqueue(job);
             _signal.Set();
         }
     }

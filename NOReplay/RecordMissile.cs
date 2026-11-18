@@ -126,7 +126,11 @@ namespace NOReplay
             }
             catch { }
             this.enabled = false;
+            if (Engine != null) Engine.Retire(unitId, gameObject);
+            Destroy(gameObject);
         }
+
+        public override void LateUpdate() { }
 
         void OnDisable()
         {

@@ -18,6 +18,8 @@ namespace NOReplay
         public event Action<string, long[], string>? OnEvent;
 
         public Dictionary<string, string> props = [];
+        internal bool poseSnap;
+        internal float poseX, poseY, poseZ, poseQx, poseQy, poseQz, poseQw;
         internal RecordEngine? engine;
 
         internal RecordEngine Engine

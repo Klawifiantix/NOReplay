@@ -9,6 +9,10 @@ namespace NOReplay
     internal class RecordUnit : RecordObject
     {
         private Vector3 lastPos = new(float.NaN, float.NaN, float.NaN);
+        float _poseAt = -1f;
+        bool _holdArm;
+        float _holdQx, _holdQy, _holdQz, _holdQw;
+        static int _holdLogs;
         private Vector3 lastRot = new(float.NaN, float.NaN, float.NaN);
         internal Unit unit;
         internal Unit.UnitState lastState;
@@ -101,6 +105,9 @@ namespace NOReplay
                     {
                         props.Clear();
                         UpdatePose(true);
+                        var turrets = GetComponent<RecordTurrets>();
+                        if (turrets != null) turrets.enabled = false;
+                        RecordBay.Forget(unit);
                     }
                     if (!props.ContainsKey("Visible"))
                         props.Add("Visible", "0.0");
@@ -119,7 +126,8 @@ namespace NOReplay
                         Engine.invokeWriterRemove(this);
                         this.enabled = false;
                         Record.Log?.LogDebug($"DISABLING UNIT {unitId.ToString(CultureInfo.InvariantCulture)}");
-                        GameObject.Destroy(this);
+                        Engine.Retire(unitId, gameObject);
+                        GameObject.Destroy(gameObject);
                     }
                     //this is to stagger the Destroyed Event and the Remove call to 2 different time steps, as having them both on the same time step will confuse Tacview
                     purge = true;
@@ -131,14 +139,31 @@ namespace NOReplay
             }
         }
 
-        private string UpdatePosition(Vector3 newPos)
+        void SnapPose(float x, float y, float z, Quaternion q)
         {
-            // Raw Unity global position – no geo conversion
-            return $"{newPos.x.ToString(CultureInfo.InvariantCulture)}|{newPos.y.ToString(CultureInfo.InvariantCulture)}|{newPos.z.ToString(CultureInfo.InvariantCulture)}";
+            // Numbers only. The file thread formats T and Q.
+            poseSnap = true;
+            poseX = x;
+            poseY = y;
+            poseZ = z;
+            poseQx = q.x;
+            poseQy = q.y;
+            poseQz = q.z;
+            poseQw = q.w;
+        }
+
+        internal bool MotionDue => poseSnap || props.Count > 0;
+
+        internal void CommitMotion()
+        {
+            if (!MotionDue || Engine == null) return;
+            Engine.invokeWriterUpdate(this);
+            props.Clear();
         }
 
         internal void UpdatePose(bool force = false)
         {
+            if (unit == null) return;
             float fx = MathF.Round(unit.transform.position.GlobalX(), 2);
             float fy = MathF.Round(unit.transform.position.GlobalY(), 2);
             float fz = MathF.Round(unit.transform.position.GlobalZ(), 2);
@@ -149,35 +174,44 @@ namespace NOReplay
 
             Vector3 newPos = new(fx, fy, fz);
             Vector3 newRot = new(fax, fay, faz);
+            bool moved = newPos != lastPos || newRot != lastRot;
+            if (!force && !moved) return;
 
-            if (force || newPos != lastPos || newRot != lastRot)
+            float now = Time.time;
+            // Repeat the pose we already stored, at this timestamp, before
+            // the first sample of a move. The replay then holds until here.
+            if (!force && !_holdArm && _poseAt >= 0f && PoseHold.Pause(now - _poseAt))
             {
-                if (!props.ContainsKey("T"))
-                    props.Add("T", UpdatePosition(newPos));
-
-                // Raw transform quaternion
-                if (!props.ContainsKey("Q"))
+                _holdArm = true;
+                SnapPose(lastPos.x, lastPos.y, lastPos.z, new Quaternion(_holdQx, _holdQy, _holdQz, _holdQw));
+                if (_holdLogs < 8)
                 {
-                    var q = unit.transform.rotation;
-                    props.Add("Q", $"{q.x.ToString(CultureInfo.InvariantCulture)}|{q.y.ToString(CultureInfo.InvariantCulture)}|{q.z.ToString(CultureInfo.InvariantCulture)}|{q.w.ToString(CultureInfo.InvariantCulture)}");
+                    _holdLogs++;
+                    string name = unit.definition != null ? unit.definition.unitName : unit.name;
+                    Record.Log?.LogInfo("Pose hold " + name
+                        + " gap=" + (now - _poseAt).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
                 }
-                lastPos = newPos;
-                lastRot = newRot;
+                return;
             }
+            _holdArm = false;
+            var q = unit.transform.rotation;
+            SnapPose(fx, fy, fz, q);
+            lastPos = newPos;
+            lastRot = newRot;
+            _holdQx = q.x;
+            _holdQy = q.y;
+            _holdQz = q.z;
+            _holdQw = q.w;
+            _poseAt = now;
         }
 
         internal void RepeatPoseIfStill()
         {
-            if (props.ContainsKey("T") || float.IsNaN(lastPos.x)) return;
+            if (poseSnap || float.IsNaN(lastPos.x)) return;
             if (!props.ContainsKey("RpmRatio") && !props.ContainsKey("JetRpm")
                 && !props.ContainsKey("TurbineRpm") && !props.ContainsKey("Throttle"))
                 return;
-            props.Add("T", UpdatePosition(lastPos));
-            var q = unit.transform.rotation;
-            props.Add("Q", q.x.ToString(CultureInfo.InvariantCulture) + "|"
-                + q.y.ToString(CultureInfo.InvariantCulture) + "|"
-                + q.z.ToString(CultureInfo.InvariantCulture) + "|"
-                + q.w.ToString(CultureInfo.InvariantCulture));
+            SnapPose(lastPos.x, lastPos.y, lastPos.z, unit.transform.rotation);
         }
 
         internal void UpdateState()

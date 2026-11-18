@@ -45,11 +45,7 @@ namespace NOReplay
             if (timer < RecordConfig.vehicleUpdateDelta.Value) return;
             UpdatePose();
             UpdateState();
-            if (props.Count > 0)
-            {
-                Engine.invokeWriterUpdate(this);
-                props.Clear();
-            }
+            CommitMotion();
             timer = 0;
         }
     }

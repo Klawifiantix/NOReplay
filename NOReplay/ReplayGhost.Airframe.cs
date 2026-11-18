@@ -895,7 +895,6 @@ namespace NOReplay
         ReplayObject? _gearTrack;
         float[] _gearTimes = Array.Empty<float>();
         float[] _gearVals = Array.Empty<float>();
-        int _gearLog;
 
         // Aircraft.CheckRadarAlt uses Statics (6) and Ships (11). A carrier deck is a ship.
         const int SurfaceMask = (1 << 6) | (1 << 11);
@@ -907,11 +906,45 @@ namespace NOReplay
             float dist = GearClock.NoSurface;
             if (Physics.Raycast(transform.position, Vector3.down, out var hit, 5000f, SurfaceMask, QueryTriggerInteraction.Ignore))
                 dist = hit.distance;
-            else if (_spawnGearTries < 30)
+            float deck = DeckGap();
+            bool onDeck = GearClock.OnDeck(deck);
+            if (!GearClock.SpawnReady(_spawnGearTries, dist, onDeck))
                 return false;
-            _surfaceSpawn = GearClock.OnSurface(dist, SpawnOffsetY());
+            _surfaceSpawn = GearClock.OnGround(dist, SpawnOffsetY(), deck);
             _spawnGearKnown = true;
+            Plugin.Log?.LogInfo("Gear spawn " + gameObject.name
+                + " surface=" + (_surfaceSpawn ? "1" : "0")
+                + " gap=" + deck.ToString("0.0")
+                + " ray=" + (dist < 0f ? "none" : dist.ToString("0.0")));
             return true;
+        }
+
+        float DeckGap()
+        {
+            var found = UnityEngine.Object.FindObjectsOfType<ReplayGhost>();
+            float best = -1f;
+            Vector3 p = transform.position;
+            for (int i = 0; i < found.Length; i++)
+            {
+                var ship = found[i];
+                if (ship == null || ship == this || !ship.HasDeck) continue;
+                var cols = ship.DeckColliders();
+                for (int c = 0; c < cols.Length; c++)
+                {
+                    var col = cols[c];
+                    if (col == null) continue;
+                    // A disabled collider reports an empty box, so the deck
+                    // check would miss the ship until something else enables it.
+                    if (!col.enabled) col.enabled = true;
+                    var b = col.bounds;
+                    if (p.x < b.min.x - 12f || p.x > b.max.x + 12f) continue;
+                    if (p.z < b.min.z - 12f || p.z > b.max.z + 12f) continue;
+                    float gap = p.y - b.max.y;
+                    if (gap < -2f) continue;
+                    if (best < 0f || gap < best) best = gap;
+                }
+            }
+            return best;
         }
 
         void EnsureGearKeys()
@@ -1290,26 +1323,7 @@ namespace NOReplay
             DriveJetExhaust(alive && !Plugin.Clock.Paused, thr);
             DriveDownwashThrust(_visible && !_neutral, thr);
             if (_gears.Length > 0)
-            {
-                // Gear animation driven by game's MoveGear via Extending/Retracting states
-                // Gear animation handled by game's MoveGear
-                if (_gearLog < 8 && _gears.Length > 0)
-                {
-                    var c = _gears[0];
-                    if (c != null)
-                    {
-                        var hinge = _fGearHinge?.GetValue(c) as Transform;
-                        var strut = _fStrut?.GetValue(c) as Transform;
-                        float fold = _fFold?.GetValue(c) is float f ? f : -1f;
-                        float strutRot = _fStrutRot?.GetValue(c) is float sr ? sr : -999f;
-                        string h = hinge != null ? hinge.localEulerAngles.ToString("F1") : "?";
-                        string strutAng = strut != null ? strut.localEulerAngles.ToString("F1") : "?";
-                        Plugin.Log.LogInfo("Gear " + gameObject.name + " fold=" + fold.ToString("F2") + " strutRot=" + strutRot.ToString("F1") + " hinge=" + h + " strut=" + strutAng);
-                        _gearLog++;
-                    }
-                }
                 ApplyLandingLights(gearDown);
-            }
             else if (_air)
             {
                 ApplyLandingLights(gearDown);
@@ -1423,20 +1437,39 @@ namespace NOReplay
         static Type? _gearStateEnum;
         static object? _gsLockedUp;
         static object? _gsLockedDown;
+        static object? _gsRetracting;
+        static object? _gsExtending;
         static MethodInfo? _mSetGearState;
+        static MethodInfo? _mSetGearBoolPlay;
+        int _gearSerial = -1;
+        bool _gearWasPaused;
 
         void ApplyReplayGear(bool gearDown)
         {
-            if (_gearDownSent == gearDown) return;
+            var clock = Plugin.Clock;
+            int serial = clock != null ? clock.SeekSerial : 0;
+            bool seek = _gearSerial >= 0 && serial != _gearSerial;
+            bool paused = clock == null || clock.Paused || clock.Speed <= 0.01f;
+            bool first = !_gearDownSent.HasValue;
+            bool changed = first || _gearDownSent.Value != gearDown;
+            bool pauseEdge = paused && !_gearWasPaused;
+            _gearSerial = serial;
+            _gearWasPaused = paused;
+            if (!changed && !seek && !pauseEdge) return;
+            // Forward play uses the game's transition, which moves the strut
+            // and plays the gear sound. A seek, pause, or the first pose
+            // jumps to the locked end so the hinge is not left mid-fold.
+            bool animate = !first && changed && !seek && !paused;
+            SetGearState(gearDown, animate);
             _gearDownSent = gearDown;
+        }
+
+        void SetGearState(bool gearDown, bool animate)
+        {
             var act = Plugin.FindGameType("Aircraft");
             if (act == null) return;
             var ac = GetComponent(act) ?? GetComponentInChildren(act, true);
             if (ac == null) return;
-            // LockedRetracted / LockedExtended snap the hinge. Extending and
-            // Retracting start LandingGear.MoveGear, which runs on real time and
-            // pushes foldAmount past 1. SetGear(bool) is already blocked on ghosts;
-            // calling it here would also start that animation.
             try
             {
                 if (_gearStateEnum == null)
@@ -1447,11 +1480,34 @@ namespace NOReplay
                     {
                         _gsLockedUp = Enum.Parse(_gearStateEnum, "LockedRetracted");
                         _gsLockedDown = Enum.Parse(_gearStateEnum, "LockedExtended");
+                        _gsRetracting = Enum.Parse(_gearStateEnum, "Retracting");
+                        _gsExtending = Enum.Parse(_gearStateEnum, "Extending");
                         _mSetGearState = act.GetMethod("SetGear", new[] { _gearStateEnum });
                     }
+                    _mSetGearBoolPlay = act.GetMethod("SetGear", new[] { typeof(bool) });
                 }
-                if (_mSetGearState != null)
-                    _mSetGearState.Invoke(ac, new[] { gearDown ? _gsLockedDown : _gsLockedUp });
+                string state;
+                if (animate)
+                {
+                    // SetGear(bool) is the pilot toggle. It is blocked on ghosts
+                    // so the aircraft AI cannot fight the replay, and the allow
+                    // flag lets this one call through for the sound.
+                    Plugin.AllowReplayGear = true;
+                    try { _mSetGearBoolPlay?.Invoke(ac, new object[] { gearDown }); }
+                    finally { Plugin.AllowReplayGear = false; }
+                    state = gearDown ? "Extending" : "Retracting";
+                    _mSetGearState?.Invoke(ac, new[] { gearDown ? _gsExtending : _gsRetracting });
+                }
+                else
+                {
+                    state = gearDown ? "LockedExtended" : "LockedRetracted";
+                    _mSetGearState?.Invoke(ac, new[] { gearDown ? _gsLockedDown : _gsLockedUp });
+                }
+                float t = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+                Plugin.Log?.LogInfo("Gear " + (animate ? "anim" : "snap") + " " + gameObject.name
+                    + " " + state
+                    + " down=" + (gearDown ? "1" : "0")
+                    + " t=" + t.ToString("0.00"));
             }
             catch { }
         }

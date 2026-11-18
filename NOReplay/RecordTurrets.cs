@@ -30,6 +30,7 @@ namespace NOReplay
         static FieldInfo? _traverse;
         static FieldInfo? _elevation;
         static FieldInfo? _elevTransform;
+        static readonly StringBuilder _text = new StringBuilder(64);
 
         internal static void Attach(RecordUnit host, Unit unit)
         {
@@ -70,6 +71,13 @@ namespace NOReplay
         }
 
         void LateUpdate()
+        {
+            long t0 = RecordPerf.Stamp();
+            Tick();
+            RecordPerf.Add("turrets", RecordPerf.Stamp() - t0);
+        }
+
+        void Tick()
         {
             if (_host == null || _unit == null)
             {
@@ -163,7 +171,8 @@ namespace NOReplay
         void Capture(bool forceAll)
         {
             if (_host == null || _slots.Length == 0) return;
-            var sb = new StringBuilder();
+            var sb = _text;
+            sb.Clear();
             bool any = false;
             for (int i = 0; i < _slots.Length; i++)
             {

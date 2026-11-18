@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
+using HarmonyLib;
 using UnityEngine;
 
 namespace NOReplay
@@ -62,18 +64,53 @@ namespace NOReplay
                 return;
             }
 
-            // Pose stays event-driven. Update only watches the turret lock.
-            this.enabled = true;
+            this.enabled = false;
         }
 
-        float _lockPoll;
+        static bool _lockHook;
 
-        public override void Update()
+        internal static void Install()
+        {
+            if (_lockHook) return;
+            _lockHook = true;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var methods = typeof(Turret).GetMethods(flags);
+            int n = 0;
+            var harmony = new Harmony("noreplay.building.lock");
+            for (int i = 0; i < methods.Length; i++)
+            {
+                if (methods[i].Name != "SetTarget") continue;
+                try
+                {
+                    harmony.Patch(methods[i], postfix: new HarmonyMethod(typeof(RecordBuilding), nameof(AfterTarget)));
+                    n++;
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log?.LogInfo("Building lock " + methods[i] + " " + ex.Message);
+                }
+            }
+            Plugin.Log?.LogInfo("Building lock hook SetTarget=" + n);
+        }
+
+        static void AfterTarget(Turret __instance)
+        {
+            try
+            {
+                if (!Record.Active || __instance == null || Plugin.CurrentDoc != null) return;
+                var unit = __instance.GetComponentInParent<Building>();
+                if (unit == null || Record.Host == null) return;
+                var engine = Record.Host.GetComponent<RecordEngine>();
+                if (engine == null || !engine.unitObjects.TryGetValue(unit.persistentID.Id, out var go) || go == null)
+                    return;
+                go.GetComponent<RecordBuilding>()?.CaptureLock();
+            }
+            catch { }
+        }
+
+        internal void CaptureLock()
         {
             if (!Record.Active || unit == null || base.disabled || unit.disabled) return;
-            _lockPoll += Time.deltaTime;
-            if (_lockPoll < 0.5f) return;
-            _lockPoll = 0f;
             NoteLock(unit);
             if (props.Count == 0) return;
             Engine.invokeWriterUpdate(this);
@@ -133,6 +170,7 @@ namespace NOReplay
             Unsubscribe();
             this.enabled = false;
             Record.Log?.LogDebug($"STATIC DESTROYED {unitId}");
+            Engine.Retire(unitId, gameObject);
             UnityEngine.Object.Destroy(this.gameObject);
         }
 

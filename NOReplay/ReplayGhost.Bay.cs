@@ -34,7 +34,15 @@ namespace NOReplay
             public AudioClip Clip;
             public AudioSource Audio;
             public bool Loosed;
+            public bool StayLogged;
         }
+
+        /// <summary>
+        /// The canopy sits a few metres from the aircraft origin. A recorded
+        /// Glass pose inside this radius is still on the airframe. Only a
+        /// pane that has left by more than this is a real eject.
+        /// </summary>
+        const float GlassClearMeters = 8f;
 
         BayHinge[] _hinges = System.Array.Empty<BayHinge>();
         BayLoad[] _loads = System.Array.Empty<BayLoad>();
@@ -107,16 +115,40 @@ namespace NOReplay
                 if (g.Leaf == null) continue;
                 float start = Track.GlassStart(g.Key);
                 bool known = Track.TryGlass(g.Key, time, out var view);
-                if (start < 0f || time < start)
+                bool clear = known && view.On && view.HasPose && GlassLeftAirframe(view, time);
+                if (start < 0f || time < start || !clear)
                 {
-                    RestoreGlass(ref g);
+                    // A :0 that follows a pose still on the aircraft is the
+                    // spawn glitch. Put the pane back. Hide only after it
+                    // had actually left.
+                    if (g.Loosed && known && !view.On)
+                    {
+                        if (g.Leaf.gameObject.activeSelf) g.Leaf.gameObject.SetActive(false);
+                        if (!g.StayLogged)
+                        {
+                            g.StayLogged = true;
+                            Plugin.Log?.LogInfo("Glass hide " + name + " key=" + g.Key);
+                        }
+                    }
+                    else
+                    {
+                        if (!g.StayLogged && known && time >= start && start >= 0f)
+                        {
+                            g.StayLogged = true;
+                            Plugin.Log?.LogInfo("Glass stay " + name + " key=" + g.Key
+                                + " dist=" + GlassDistance(view, time).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
+                        }
+                        RestoreGlass(ref g);
+                    }
                 }
-                else if (known && view.On && view.HasPose)
+                else
                 {
                     if (g.Leaf.parent != null)
                     {
                         g.Leaf.SetParent(null, true);
                         g.Loosed = true;
+                        Plugin.Log?.LogInfo("Glass throw " + name + " key=" + g.Key
+                            + " dist=" + GlassDistance(view, time).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture));
                     }
                     var p = Plugin.GlobalToLocal(view.X, view.Y, view.Z);
                     g.Leaf.SetPositionAndRotation(p, new Quaternion(view.Qx, view.Qy, view.Qz, view.Qw));
@@ -130,10 +162,6 @@ namespace NOReplay
                         Plugin.Log?.LogInfo("Glass sound " + name + " key=" + g.Key
                             + " t=" + time.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture));
                     }
-                }
-                else if (g.Loosed)
-                {
-                    if (g.Leaf.gameObject.activeSelf) g.Leaf.gameObject.SetActive(false);
                 }
                 HoldGlassAudio(ref g, paused);
                 _glass[i] = g;
@@ -290,6 +318,20 @@ namespace NOReplay
                     if (rend != null) rend.enabled = false;
                 }
             }
+        }
+
+        bool GlassLeftAirframe(ChuteClock.View view, float time)
+        {
+            return GlassDistance(view, time) > GlassClearMeters;
+        }
+
+        float GlassDistance(ChuteClock.View view, float time)
+        {
+            if (!view.HasPose || Track == null || !Track.TrySample(time, out var body)) return 0f;
+            float dx = view.X - body.X;
+            float dy = view.Y - body.Y;
+            float dz = view.Z - body.Z;
+            return Mathf.Sqrt(dx * dx + dy * dy + dz * dz);
         }
 
         static void RestoreGlass(ref BayGlass g)

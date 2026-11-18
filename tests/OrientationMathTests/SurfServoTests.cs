@@ -49,6 +49,14 @@ namespace NOReplay.OrientationTests
             nx = 0f;
             SurfServo.Tvc(ref nx, ref ny, 1f, 0f, 0f, 1f, 4f, 15f, 15f, 10f, 10f, 200f, 100f, 0.1f, false);
             Expect(Near(nx, -7f), "the nozzle slews at 70 deg/s");
+
+            float open = 0f;
+            SurfServo.Airbrake(ref open, true, 2f, 0.1f, false);
+            Expect(Near(open, 0.2f), "a closed throttle opens the airbrake at openSpeed");
+            SurfServo.Airbrake(ref open, false, 2f, 1f, true);
+            Expect(Near(open, 0f), "a snap with throttle open closes the airbrake");
+            SurfServo.Airbrake(ref open, true, 2f, 1f, true);
+            Expect(Near(open, 1f), "a snap with throttle closed deploys the airbrake");
             if (Failed == 0) Console.WriteLine("surf servo ok");
         }
 

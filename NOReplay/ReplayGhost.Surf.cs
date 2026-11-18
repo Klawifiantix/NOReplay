@@ -26,6 +26,15 @@ namespace NOReplay
             public float Split;
         }
 
+        struct BrakeUnit
+        {
+            public Transform[] Meshes;
+            public Vector3[] Bases;
+            public float MaxAngle;
+            public float Speed;
+            public float Open;
+        }
+
         struct TvcUnit
         {
             public Transform[] Meshes;
@@ -41,7 +50,9 @@ namespace NOReplay
 
         SurfUnit[] _surfs = System.Array.Empty<SurfUnit>();
         TvcUnit[] _tvcs = System.Array.Empty<TvcUnit>();
+        BrakeUnit[] _brakes = System.Array.Empty<BrakeUnit>();
         int _tvcCount;
+        int _brakeCount;
         bool _surfsCached;
         bool _surfLogged;
         bool _surfPosed;
@@ -144,6 +155,7 @@ namespace NOReplay
                 _surfs = list.ToArray();
             }
             CacheTvc();
+            CacheAirbrakes();
             if (!_surfLogged)
             {
                 _surfLogged = true;
@@ -151,8 +163,58 @@ namespace NOReplay
                     + " n=" + _surfs.Length
                     + " flaps=" + flaps
                     + " split=" + splits
-                    + " tvc=" + _tvcCount);
+                    + " tvc=" + _tvcCount
+                    + " airbrake=" + _brakeCount);
             }
+        }
+
+        void CacheAirbrakes()
+        {
+            var t = Plugin.FindGameType("Airbrake");
+            if (t == null) return;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var fTr = t.GetField("transforms", flags);
+            var fMax = t.GetField("maxAngle", flags);
+            var fSpeed = t.GetField("openSpeed", flags);
+            var fCons = t.GetField("constraints", flags);
+            var fSnd = t.GetField("airbrakeSound", flags);
+            var list = new System.Collections.Generic.List<BrakeUnit>(2);
+            foreach (var raw in GetComponentsInChildren(t, true))
+            {
+                if (raw is not Component c) continue;
+                if (fTr?.GetValue(c) is not System.Array transforms || transforms.Length == 0) continue;
+                var meshes = new System.Collections.Generic.List<Transform>(transforms.Length);
+                var bases = new System.Collections.Generic.List<Vector3>(transforms.Length);
+                for (int i = 0; i < transforms.Length; i++)
+                {
+                    if (transforms.GetValue(i) is not Transform tr) continue;
+                    meshes.Add(tr);
+                    bases.Add(tr.localEulerAngles);
+                    SkipHold(tr);
+                }
+                if (meshes.Count == 0) continue;
+                if (fCons?.GetValue(c) is System.Array cons)
+                {
+                    foreach (var o in cons)
+                        if (o is Behaviour b) b.enabled = false;
+                }
+                try
+                {
+                    var snd = fSnd?.GetValue(c);
+                    snd?.GetType().GetMethod("Stop", System.Type.EmptyTypes)?.Invoke(snd, null);
+                }
+                catch { }
+                if (c is Behaviour beh) beh.enabled = false;
+                list.Add(new BrakeUnit
+                {
+                    Meshes = meshes.ToArray(),
+                    Bases = bases.ToArray(),
+                    MaxAngle = SurfFloat(fMax, c, 0f),
+                    Speed = SurfFloat(fSpeed, c, 0f)
+                });
+            }
+            _brakes = list.ToArray();
+            _brakeCount = _brakes.Length;
         }
 
         void CacheTvc()
@@ -299,7 +361,7 @@ namespace NOReplay
         {
             if (!_air) return;
             if (!_surfsCached) CacheSurfaces();
-            if (_surfs.Length == 0 && _tvcs.Length == 0) return;
+            if (_surfs.Length == 0 && _tvcs.Length == 0 && _brakes.Length == 0) return;
             EnsureStickKeys();
             float now = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
             StickAt(now, out float pitchIn, out float rollIn, out float yawIn, out float throttle, out bool hasThrottle);
@@ -357,6 +419,23 @@ namespace NOReplay
                 }
                 _tvcs[i] = v;
             }
+            bool deploy = hasThrottle && throttle == 0f;
+            float brakeOpen = 0f;
+            for (int i = 0; i < _brakes.Length; i++)
+            {
+                var b = _brakes[i];
+                SurfServo.Airbrake(ref b.Open, deploy, b.Speed, dt, snap);
+                var meshes = b.Meshes;
+                var bases = b.Bases;
+                float ang = b.Open * b.MaxAngle;
+                for (int m = 0; m < meshes.Length; m++)
+                {
+                    if (meshes[m] == null) continue;
+                    meshes[m].localRotation = Quaternion.Euler(bases[m]) * Quaternion.AngleAxis(ang, right);
+                }
+                if (i == 0) brakeOpen = b.Open;
+                _brakes[i] = b;
+            }
             float wall = Time.unscaledTime;
             if (wall - _surfStateAt >= 5f)
             {
@@ -373,7 +452,8 @@ namespace NOReplay
                     + " stick=(" + pitchIn.ToString("0.00", SurfInv) + "," + rollIn.ToString("0.00", SurfInv) + "," + yawIn.ToString("0.00", SurfInv) + ")"
                     + " defl0=" + defl0.ToString("0.0", SurfInv)
                     + " mesh=" + meshName
-                    + " localRot=" + rot);
+                    + " localRot=" + rot
+                    + " airbrake=" + brakeOpen.ToString("0.00", SurfInv));
             }
         }
     }

@@ -94,6 +94,26 @@ namespace NOReplay
             Slew(ref yaw, targetYaw, 70f, dt, snap);
         }
 
+        /// <summary>
+        /// Airbrake.Update. Throttle exactly zero opens the flap at openSpeed.
+        /// Any other throttle closes it at the same speed. Snap writes 0 or 1.
+        /// </summary>
+        public static void Airbrake(ref float open, bool deploy, float speed, float dt, bool snap)
+        {
+            float target = deploy ? 1f : 0f;
+            if (snap || dt <= 0f)
+            {
+                open = target;
+                return;
+            }
+            if (speed <= 0f) return;
+            float step = speed * dt;
+            if (deploy) open += step;
+            else open -= step;
+            if (open > 1f) open = 1f;
+            else if (open < 0f) open = 0f;
+        }
+
         public static float TvcPitchEuler(float pitch)
         {
             if (pitch > 20f) return 20f;

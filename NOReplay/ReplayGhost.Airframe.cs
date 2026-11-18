@@ -1528,13 +1528,6 @@ namespace NOReplay
             }
         }
 
-        void RememberBrake(Transform? t, Quaternion rest)
-        {
-            if (t == null) return;
-            _brakeTr.Add(t);
-            _brakeRest.Add(rest);
-        }
-
         void CloseAirbrakes()
         {
             if (!_air) return;
@@ -1563,44 +1556,6 @@ namespace NOReplay
                     catch { }
                 }
             }
-            var abt = Plugin.FindGameType("Airbrake");
-            if (abt != null)
-                foreach (var c in GetComponentsInChildren(abt, true))
-                {
-                    if (c == null) continue;
-                    try
-                    {
-                        var transforms = abt.GetField("transforms", flags)?.GetValue(c) as Array;
-                        var bases = abt.GetField("baseAngles", flags)?.GetValue(c) as System.Collections.IList;
-                        if (transforms != null)
-                        {
-                            for (int i = 0; i < transforms.Length; i++)
-                            {
-                                var tr = transforms.GetValue(i) as Transform;
-                                if (tr == null) continue;
-                                if (bases != null && i < bases.Count && bases[i] is Vector3 ang)
-                                    tr.localEulerAngles = ang;
-                                else
-                                    continue;
-                                RememberBrake(tr, tr.localRotation);
-                            }
-                        }
-                        var cons = abt.GetField("constraints", flags)?.GetValue(c) as Array;
-                        if (cons != null)
-                        {
-                            foreach (var o in cons)
-                            {
-                                if (o is Behaviour b) b.enabled = false;
-                            }
-                        }
-                        abt.GetField("openAmount", flags)?.SetValue(c, 0f);
-                        abt.GetField("active", flags)?.SetValue(c, false);
-                        var snd = abt.GetField("airbrakeSound", flags)?.GetValue(c);
-                        snd?.GetType().GetMethod("Stop", Type.EmptyTypes)?.Invoke(snd, null);
-                    }
-                    catch { }
-                    try { UnityEngine.Object.Destroy(c); } catch { }
-                }
         }
 
         void SnapSurfacesNow()

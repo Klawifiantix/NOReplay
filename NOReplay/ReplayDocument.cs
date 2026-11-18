@@ -353,6 +353,45 @@ namespace NOReplay
         /// </summary>
         public bool HasMovingTurrets { get; private set; }
 
+        public System.Collections.Generic.List<float> BendTimes = new System.Collections.Generic.List<float>();
+        public System.Collections.Generic.List<RotorBend.Frame> BendFrames = new System.Collections.Generic.List<RotorBend.Frame>();
+
+        public void AddRotorBend(float time, RotorBend.Frame frame)
+        {
+            int n = BendTimes.Count;
+            if (n > 0 && Mathf.Abs(BendTimes[n - 1] - time) < 0.0001f)
+            {
+                BendFrames[n - 1] = frame;
+                return;
+            }
+            BendTimes.Add(time);
+            BendFrames.Add(frame);
+        }
+
+        public bool BendAt(float time, out RotorBend.Frame frame)
+        {
+            frame = default;
+            int n = BendTimes.Count;
+            if (n == 0) return false;
+            int i = 0;
+            while (i < n && BendTimes[i] <= time + 0.0001f) i++;
+            i--;
+            if (i < 0)
+            {
+                frame = BendFrames[0];
+                return true;
+            }
+            if (i >= n - 1)
+            {
+                frame = BendFrames[n - 1];
+                return true;
+            }
+            float span = BendTimes[i + 1] - BendTimes[i];
+            float u = span > 0.0001f ? (time - BendTimes[i]) / span : 0f;
+            frame = RotorBend.Lerp(BendFrames[i], BendFrames[i + 1], u);
+            return true;
+        }
+
         const float TurretStillDegrees = 0.05f;
 
         /// <summary>

@@ -50,6 +50,13 @@ namespace NOReplay
         float _lastTailhook = float.NaN;
 
         private Vector3 lastHead = Vector3.zero;
+        RotorShaft[] _bendShafts = Array.Empty<RotorShaft>();
+        bool _bendBound;
+        float _bendAt = -1f;
+        RotorBend.Frame _bendPrev;
+        static FieldInfo? _fBendRatio;
+        static FieldInfo? _fBendRotors;
+        static FieldInfo? _fBendFlap;
 
         Aircraft aircraft;
         Aircraft localAircraft = null;
@@ -113,6 +120,7 @@ namespace NOReplay
             if (!this.enabled || unit.disabled)
                 return;
 
+            EmitRotorBend();
             PublishLoadout();
 
             timer += Time.deltaTime;
@@ -157,6 +165,89 @@ namespace NOReplay
             if (avgThrust != 0f)
                 avgThrust /= count;
             return avgThrust;
+        }
+
+        void BindRotorBend()
+        {
+            if (_bendBound) return;
+            _bendBound = true;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            _fBendRatio = typeof(RotorShaft).GetField("angularSpeedRatio", flags);
+            _fBendRotors = typeof(RotorShaft).GetField("rotors", flags);
+            _fBendFlap = typeof(SwashRotor).GetField("flapAngle", flags);
+            try { _bendShafts = aircraft.GetComponentsInChildren<RotorShaft>(true); }
+            catch { _bendShafts = Array.Empty<RotorShaft>(); }
+        }
+
+        /// <summary>
+        /// Per shaft, the ratio BendSegments receives, then each blade's flap
+        /// in radians. Twenty hertz at most, and only after a 0.02 change.
+        /// </summary>
+        void EmitRotorBend()
+        {
+            if (aircraft == null) return;
+            BindRotorBend();
+            if (_bendShafts.Length == 0 || _fBendRatio == null || _fBendRotors == null || _fBendFlap == null)
+                return;
+            float now = Time.time;
+            if (_bendAt >= 0f && now - _bendAt < RotorBend.MinInterval) return;
+            var frame = new RotorBend.Frame
+            {
+                Ratio = new float[_bendShafts.Length],
+                Flap = new float[_bendShafts.Length][]
+            };
+            int used = 0;
+            for (int s = 0; s < _bendShafts.Length; s++)
+            {
+                var shaft = _bendShafts[s];
+                if (shaft == null) continue;
+                float ratio = 0f;
+                try { if (_fBendRatio.GetValue(shaft) is float r) ratio = r; } catch { }
+                SwashRotor[] blades = Array.Empty<SwashRotor>();
+                try { if (_fBendRotors.GetValue(shaft) is SwashRotor[] found && found != null) blades = found; } catch { }
+                var flaps = new float[blades.Length];
+                int n = 0;
+                for (int i = 0; i < blades.Length; i++)
+                {
+                    if (blades[i] == null) continue;
+                    float flap = 0f;
+                    try { if (_fBendFlap.GetValue(blades[i]) is float f) flap = f; } catch { }
+                    flaps[n++] = flap;
+                }
+                if (n != flaps.Length)
+                {
+                    var cut = new float[n];
+                    for (int i = 0; i < n; i++) cut[i] = flaps[i];
+                    flaps = cut;
+                }
+                frame.Ratio[used] = ratio;
+                frame.Flap[used] = flaps;
+                used++;
+            }
+            if (used == 0) return;
+            if (used != frame.Ratio.Length)
+            {
+                var ratio = new float[used];
+                var flap = new float[used][];
+                for (int i = 0; i < used; i++)
+                {
+                    ratio[i] = frame.Ratio[i];
+                    flap[i] = frame.Flap[i];
+                }
+                frame.Ratio = ratio;
+                frame.Flap = flap;
+            }
+            if (_bendAt >= 0f && !RotorBend.Changed(_bendPrev, frame))
+            {
+                _bendAt = now;
+                return;
+            }
+            if (props.Count > 0) return;
+            props["RotorBend"] = RotorBend.Write(frame);
+            Engine.invokeWriterUpdate(this);
+            props.Remove("RotorBend");
+            _bendPrev = frame;
+            _bendAt = now;
         }
 
         void EmitPowerRpm()

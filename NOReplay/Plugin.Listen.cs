@@ -45,6 +45,7 @@ namespace NOReplay
             BlockAiGear();
             PatchGunFire();
             BlockAirbrakeJobs();
+            BlockRotorPhysics();
             BlockFarBoom();
             GateAudioPlay();
             BlockSonicMute();
@@ -769,6 +770,19 @@ namespace NOReplay
             }
             catch (Exception ex) { Log.LogWarning("Gear-Phys-Block: " + ex.Message); }
             PatchGhostDetach();
+        }
+
+        static void BlockRotorPhysics()
+        {
+            var t = FindGameType("RotorShaft");
+            var m = t?.GetMethod("FixedUpdate", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (m == null) return;
+            try
+            {
+                Harmony.Patch(m, prefix: new HarmonyMethod(typeof(Plugin), nameof(SkipIfGhost)));
+                Log.LogInfo("Rotor-Phys-Block RotorShaft.FixedUpdate");
+            }
+            catch (Exception ex) { Log.LogWarning("Rotor-Phys-Block: " + ex.Message); }
         }
 
         static void PatchGhostDetach()

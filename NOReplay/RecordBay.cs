@@ -364,9 +364,20 @@ namespace NOReplay
                 bool firing = false;
                 try { firing = _readFiring != null && _readFiring(canopy); }
                 catch { firing = _firing?.GetValue(canopy) is bool f && f; }
-                bool loose = thrown.parent == null || firing;
-                _glass.TryGetValue(id, out var st);
+                // The old test was parent == null or firing. On a Chicane that
+                // is still true while the pane sits a few metres from the
+                // origin and climbs with the aircraft. Only a pane that has
+                // left the airframe is an eject, and only that one may get a :0
+                // when the component later disappears.
                 var unit = Owner(canopy);
+                bool separated = false;
+                if (unit != null)
+                {
+                    var gap = thrown.position - unit.transform.position;
+                    separated = gap.sqrMagnitude > 64f;
+                }
+                bool loose = separated && (thrown.parent == null || firing);
+                _glass.TryGetValue(id, out var st);
                 if (!loose)
                 {
                     if (string.IsNullOrEmpty(st.Key) && unit != null)

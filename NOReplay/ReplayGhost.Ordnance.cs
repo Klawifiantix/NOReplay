@@ -45,6 +45,25 @@ namespace NOReplay
         GameObject? _husk;
         bool _huskOn;
         readonly List<GameObject> _spawnedDamageFx = new();
+        readonly List<ScorchMark> _scorches = new List<ScorchMark>();
+        readonly List<float> _scorchStamps = new List<float>();
+
+        struct ScorchMark
+        {
+            public GameObject Go;
+            public float Time;
+        }
+
+        static Type _decalSpawnerType;
+        static FieldInfo _fDecalSize;
+        static FieldInfo _fDecalMat;
+        static FieldInfo _fDecalVertical;
+        static bool _decalFieldsBound;
+        static GameObject _scorchPrefab;
+        static bool _scorchPrefabTried;
+        static bool _scorchMissLogged;
+        static Transform _datumOrigin;
+        static bool _datumTried;
 
         internal void ResetFx()
         {
@@ -83,6 +102,178 @@ namespace NOReplay
                     UnityEngine.Object.Destroy(_spawnedDamageFx[i]);
             }
             _spawnedDamageFx.Clear();
+            // Decals are not children of the effect. Drop only the ones whose
+            // blast is still in the future so an earlier hit keeps its mark.
+            DropScorches(Plugin.Clock != null ? Plugin.Clock.Time : 0f, ScorchReason());
+        }
+
+        internal void ReleaseScorches(string reason)
+        {
+            DropScorches(float.NegativeInfinity, reason);
+        }
+
+        string ScorchUnit()
+        {
+            if (Track != null && !string.IsNullOrEmpty(Track.Name)) return Track.Name;
+            return name;
+        }
+
+        static string ScorchReason()
+        {
+            if (Plugin.Clock != null && Plugin.Clock.Speed < -0.01f) return "reverse";
+            return "seek";
+        }
+
+        void DropScorches(float now, string reason)
+        {
+            for (int i = _scorches.Count - 1; i >= 0; i--)
+            {
+                if (_scorches[i].Time <= now + 0.001f) continue;
+                var go = _scorches[i].Go;
+                float t = _scorches[i].Time;
+                if (go != null) UnityEngine.Object.Destroy(go);
+                _scorches.RemoveAt(i);
+                Plugin.Log?.LogInfo("Scorch remove " + ScorchUnit() + " t=" + t.ToString("0.00") + " reason=" + reason);
+            }
+        }
+
+        static void BindDecalFields()
+        {
+            if (_decalFieldsBound) return;
+            _decalFieldsBound = true;
+            _decalSpawnerType = Plugin.FindGameType("DecalSpawner");
+            if (_decalSpawnerType == null) return;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            _fDecalSize = _decalSpawnerType.GetField("decalSize", flags);
+            _fDecalMat = _decalSpawnerType.GetField("decalMaterial", flags);
+            _fDecalVertical = _decalSpawnerType.GetField("verticalProjection", flags);
+        }
+
+        void ArmScorch(float time)
+        {
+            _scorchStamps.Clear();
+            if (time >= 0f) _scorchStamps.Add(time);
+        }
+
+        void ArmScorchRange(int from, int to)
+        {
+            _scorchStamps.Clear();
+            if (_blastTimes == null) return;
+            for (int i = from; i < to && i < _blastTimes.Length; i++)
+                _scorchStamps.Add(_blastTimes[i]);
+        }
+
+        void TakeScorches(GameObject fx, bool consume = true)
+        {
+            if (fx == null) return;
+            BindDecalFields();
+            if (_decalSpawnerType == null) return;
+            if (_scorchStamps.Count == 0)
+                _scorchStamps.Add(Plugin.Clock != null ? Plugin.Clock.Time : 0f);
+            var comps = fx.GetComponentsInChildren(_decalSpawnerType, true);
+            for (int i = 0; i < comps.Length; i++)
+            {
+                if (comps[i] is not Behaviour mb || mb == null) continue;
+                // Start parents a DecalProjector to Datum.origin and then forgets it.
+                mb.enabled = false;
+                float size = 4f;
+                try
+                {
+                    if (_fDecalSize != null) size = Convert.ToSingle(_fDecalSize.GetValue(mb));
+                }
+                catch { }
+                Material mat = null;
+                try { mat = _fDecalMat?.GetValue(mb) as Material; } catch { }
+                bool vertical = true;
+                try
+                {
+                    if (_fDecalVertical != null) vertical = Convert.ToBoolean(_fDecalVertical.GetValue(mb));
+                }
+                catch { }
+                Vector3 at = mb.transform.position;
+                for (int s = 0; s < _scorchStamps.Count; s++)
+                {
+                    float stamp = _scorchStamps[s];
+                    Vector3 place = at;
+                    if (Track != null && Track.TrySample(stamp, out var sample))
+                        place = new Vector3(sample.X, sample.Y, sample.Z);
+                    var go = MakeScorch(place, size, mat, vertical);
+                    if (go == null) continue;
+                    _scorches.Add(new ScorchMark { Go = go, Time = stamp });
+                    Plugin.Log?.LogInfo("Scorch add " + ScorchUnit() + " t=" + stamp.ToString("0.00") + " kind=decal");
+                }
+                if (consume)
+                    UnityEngine.Object.Destroy(mb);
+            }
+        }
+
+        static GameObject MakeScorch(Vector3 pos, float size, Material mat, bool vertical)
+        {
+            if (!_scorchPrefabTried)
+            {
+                _scorchPrefabTried = true;
+                try
+                {
+                    var gaT = Plugin.FindGameType("GameAssets");
+                    var ga = gaT?.GetProperty("i", BindingFlags.Public | BindingFlags.Static)?.GetValue(null)
+                             ?? gaT?.GetField("i", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+                    if (ga != null)
+                        _scorchPrefab = gaT?.GetField("scorchMarkDecal", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(ga) as GameObject;
+                }
+                catch { }
+            }
+            if (!_datumTried)
+            {
+                _datumTried = true;
+                try
+                {
+                    var dT = Plugin.FindGameType("Datum");
+                    _datumOrigin = dT?.GetProperty("origin", BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as Transform;
+                }
+                catch { }
+            }
+            if (_scorchPrefab == null || size <= 0.01f)
+            {
+                if (!_scorchMissLogged && _scorchPrefabTried && _scorchPrefab == null)
+                {
+                    _scorchMissLogged = true;
+                    Plugin.Log?.LogWarning("Scorch prefab missing");
+                }
+                return null;
+            }
+            const int statics = 1 << 6;
+            float half = Mathf.Max(0.5f, size * 0.5f);
+            if (!Physics.Linecast(pos + Vector3.up * half, pos - Vector3.up * half, out var hit, statics))
+                return null;
+            var go = _datumOrigin != null
+                ? UnityEngine.Object.Instantiate(_scorchPrefab, _datumOrigin)
+                : UnityEngine.Object.Instantiate(_scorchPrefab);
+            go.name = "NOReplay_Scorch";
+            // LookRotation(Vector3.up) is what the game asks for; the axes are
+            // parallel, so Unity keeps the identity rotation.
+            go.transform.rotation = vertical ? Quaternion.identity : Quaternion.LookRotation(-hit.normal);
+            go.transform.position = hit.point;
+            Component proj = null;
+            var parts = go.GetComponents<Component>();
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (parts[i] != null && parts[i].GetType().Name == "DecalProjector")
+                {
+                    proj = parts[i];
+                    break;
+                }
+            }
+            if (proj != null)
+            {
+                var pt = proj.GetType();
+                try { pt.GetProperty("size")?.SetValue(proj, new Vector3(size, size, size * 0.2f)); } catch { }
+                if (mat != null)
+                {
+                    try { pt.GetProperty("material")?.SetValue(proj, mat); } catch { }
+                }
+                try { pt.GetProperty("fadeFactor")?.SetValue(proj, 1f); } catch { }
+            }
+            return go;
         }
 
         void IgniteMissileFx()
@@ -508,6 +699,7 @@ namespace NOReplay
                     if (mb == null) continue;
                     if (mb.GetType().Name == "Shockwave") mb.enabled = false;
                 }
+                TakeScorches(fxGo);
                 foreach (var c in fxGo.GetComponentsInChildren<Collider>(true))
                     if (c != null) c.enabled = false;
 
@@ -604,6 +796,8 @@ namespace NOReplay
             if (!due)
             {
                 ClearHusk();
+                if (Plugin.Clock != null)
+                    DropScorches(now, ScorchReason());
                 return;
             }
             if (_huskOn) return;
@@ -612,7 +806,9 @@ namespace NOReplay
             var rot = transform.rotation;
             string at = Track != null ? Track.RemovedAt.ToString("0.00") : now.ToString("0.00");
             string who = Track?.Name ?? name;
+            ArmScorch(Track != null && Track.RemovedAt >= 0f ? Track.RemovedAt : now);
             var model = CreateWreckModel(pos, rot);
+            _scorchStamps.Clear();
             if (model != null)
             {
                 _husk = model;
@@ -625,7 +821,9 @@ namespace NOReplay
                 return;
             // Same stand-in the previous build logged. No part effects, so it is not a blast.
             Plugin.Log?.LogInfo("Wreck " + who + " at=" + at + " prefab=VehicleWreckDestroyed");
+            ArmScorch(Track != null && Track.RemovedAt >= 0f ? Track.RemovedAt : now);
             PlayDestroyedWreck(pos, rot);
+            _scorchStamps.Clear();
         }
 
         void ClearHusk()
@@ -688,6 +886,7 @@ namespace NOReplay
                 foreach (var c in wreckGo.GetComponentsInChildren<Collider>(true))
                     if (c != null) c.enabled = false;
                 PlayParticles(wreckGo);
+                TakeScorches(wreckGo);
                 return wreckGo;
             }
             catch (Exception ex)
@@ -744,6 +943,9 @@ namespace NOReplay
                     {
                         if (_mPlayPrefab == null)
                             _mPlayPrefab = fx.GetType().GetMethod("Play", new[] { typeof(Vector3), typeof(Quaternion) });
+                        var pooled = fx.GetType().GetField("gameObject")?.GetValue(fx) as GameObject;
+                        if (pooled != null)
+                            TakeScorches(pooled, consume: false);
                         _mPlayPrefab?.Invoke(fx, new object[] { pos, rot });
                         return;
                     }
@@ -757,6 +959,7 @@ namespace NOReplay
                 foreach (var c in go.GetComponentsInChildren<Collider>(true))
                     if (c != null) c.enabled = false;
                 PlayParticles(go);
+                TakeScorches(go);
                 UnityEngine.Object.Destroy(go, 10f);
             }
             catch { }

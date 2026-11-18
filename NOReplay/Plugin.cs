@@ -194,6 +194,8 @@ namespace NOReplay
             ReplayRounds.Clear();
             BoomAudio.Clear();
             CurrentDoc = null;
+            for (int i = 0; i < _ghostComps.Count; i++)
+                _ghostComps[i]?.ReleaseScorches("end");
             FeedPlayback.Reset();
             _staticHandlerStarted = false;
             ResetMissionCatchup();

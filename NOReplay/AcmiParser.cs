@@ -366,6 +366,33 @@ namespace NOReplay
                             telemetry = true;
                         }
                     }
+                    else if (AcmiScan.KeyIs(key, "PitchControlInput"))
+                    {
+                        if (AcmiScan.TryFloat(val, out var stick))
+                        {
+                            sample.HasPitchIn = true;
+                            sample.PitchIn = stick;
+                            telemetry = true;
+                        }
+                    }
+                    else if (AcmiScan.KeyIs(key, "RollControlInput"))
+                    {
+                        if (AcmiScan.TryFloat(val, out var stick))
+                        {
+                            sample.HasRollIn = true;
+                            sample.RollIn = stick;
+                            telemetry = true;
+                        }
+                    }
+                    else if (AcmiScan.KeyIs(key, "YawControlInput"))
+                    {
+                        if (AcmiScan.TryFloat(val, out var stick))
+                        {
+                            sample.HasYawIn = true;
+                            sample.YawIn = stick;
+                            telemetry = true;
+                        }
+                    }
                     else if (AcmiScan.KeyIs(key, "RpmRatio")
                           || AcmiScan.KeyIs(key, "JetRpm")
                           || AcmiScan.KeyIs(key, "TurbineRpm"))

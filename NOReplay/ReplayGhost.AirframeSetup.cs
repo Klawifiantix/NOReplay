@@ -634,74 +634,10 @@ namespace NOReplay
 
         void CaptureSurfaceRest()
         {
+            // Split surfaces used to be pinned and destroyed here. The replay
+            // driver poses them. The aero job stays blocked.
             if (!_air || _surfBound) return;
-            BindSurfaceRefl();
-            if (_surfType == null) return;
-            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            var fJobs = _surfType.GetField("JobFields", flags);
-            var fUp = _surfType.GetField("splitUpper", flags);
-            var fLo = _surfType.GetField("splitLower", flags);
-            var fMax = _surfType.GetField("maxSplit", flags);
-            var fSplit = _surfType.GetField("splitAmount", flags);
-            var meshes = new System.Collections.Generic.List<Transform>();
-            var rests = new System.Collections.Generic.List<Quaternion>();
-            int pending = 0;
-            int splits = 0;
-            foreach (var c in GetComponentsInChildren(_surfType, true))
-            {
-                if (c == null) continue;
-                if (_fFlap?.GetValue(c) is bool flap && flap) continue;
-                object mv = fMax?.GetValue(c);
-                float max = mv is float f ? f : 0f;
-                if (max <= 0f) continue;
-                splits++;
-                Quaternion restSplit = Quaternion.identity;
-                bool have = false;
-                object alloc = fJobs?.GetValue(c);
-                if (alloc != null)
-                {
-                    var vt = alloc.GetType();
-                    object created = vt.GetProperty("IsCreated")?.GetValue(alloc);
-                    if (created is bool ok && ok)
-                    {
-                        object fields = vt.GetMethod("Value")?.Invoke(alloc, null);
-                        if (fields != null)
-                        {
-                            object rs = fields.GetType().GetField("restingSplitRotation")?.GetValue(fields);
-                            if (rs is Quaternion qs) { restSplit = qs; have = true; }
-                        }
-                    }
-                }
-                if (!have)
-                {
-                    pending++;
-                    continue;
-                }
-                fSplit?.SetValue(c, 0f);
-                var up = fUp?.GetValue(c) as Transform;
-                var lo = fLo?.GetValue(c) as Transform;
-                if (up != null)
-                {
-                    up.localRotation = restSplit;
-                    RememberBrake(up, restSplit);
-                    meshes.Add(up);
-                    rests.Add(restSplit);
-                }
-                if (lo != null)
-                {
-                    lo.localRotation = restSplit;
-                    RememberBrake(lo, restSplit);
-                    meshes.Add(lo);
-                    rests.Add(restSplit);
-                }
-                try { UnityEngine.Object.Destroy(c); } catch { }
-            }
-            if (splits == 0 || pending > 0)
-                return;
-            _surfMesh = meshes.ToArray();
-            _surfRest = rests.ToArray();
             _surfBound = true;
-            Plugin.Log.LogInfo("Surface-Rest " + name + " splits=" + splits);
         }
 
         void NeutralizeSurfaces()

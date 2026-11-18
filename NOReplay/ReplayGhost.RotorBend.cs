@@ -22,6 +22,7 @@ namespace NOReplay
         BendShaft[] _bendShafts = System.Array.Empty<BendShaft>();
         bool _bendCached;
         bool _bendLogged;
+        bool _bendKeysLogged;
         float _bendStateAt = -100f;
         int _bendBlades;
         int _bendSegs;
@@ -110,9 +111,19 @@ namespace NOReplay
             if (!_air) return;
             if (!_bendCached) CacheRotorBend();
             if (_bendShafts.Length == 0) return;
+            if (!_bendKeysLogged)
+            {
+                _bendKeysLogged = true;
+                int n = Track != null ? Track.BendTimes.Count : 0;
+                Plugin.Log?.LogInfo("RotorBend keys " + gameObject.name + " n=" + n);
+            }
+            // No recorded bend: the prefab rest pose is already drooped. Writing
+            // zeros here is what flattened the blades.
+            if (Track == null || Track.BendTimes.Count == 0) return;
             float now = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
             RotorBend.Frame frame = default;
-            bool have = Track != null && Track.BendAt(now, out frame);
+            bool have = Track.BendAt(now, out frame);
+            if (!have) return;
             float shownFlap = 0f;
             float shownRatio = 0f;
             bool shown = false;
@@ -131,7 +142,8 @@ namespace NOReplay
                 {
                     var blade = blades[i];
                     if (blade.Span == null) continue;
-                    float flap = i < flaps.Length ? flaps[i] : 0f;
+                    if (i >= flaps.Length) continue;
+                    float flap = flaps[i];
                     var euler = blade.Span.localEulerAngles;
                     euler.x = RotorBend.SpanXDeg(flap);
                     blade.Span.localEulerAngles = euler;

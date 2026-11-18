@@ -52,7 +52,11 @@ namespace NOReplay
         private Vector3 lastHead = Vector3.zero;
         RotorShaft[] _bendShafts = Array.Empty<RotorShaft>();
         bool _bendBound;
+        bool _bendLogged;
+        bool _bendAnnounced;
         float _bendAt = -1f;
+        float _bendLogAt = -10f;
+        int _bendKeys;
         RotorBend.Frame _bendPrev;
         static FieldInfo? _fBendRatio;
         static FieldInfo? _fBendRotors;
@@ -169,27 +173,71 @@ namespace NOReplay
 
         void BindRotorBend()
         {
-            if (_bendBound) return;
-            _bendBound = true;
+            if (_bendBound && _bendShafts.Length > 0 && _fBendRatio != null && _fBendFlap != null) return;
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            _fBendRatio = typeof(RotorShaft).GetField("angularSpeedRatio", flags);
-            _fBendRotors = typeof(RotorShaft).GetField("rotors", flags);
-            _fBendFlap = typeof(SwashRotor).GetField("flapAngle", flags);
-            try { _bendShafts = aircraft.GetComponentsInChildren<RotorShaft>(true); }
-            catch { _bendShafts = Array.Empty<RotorShaft>(); }
+            _fBendRatio ??= typeof(RotorShaft).GetField("angularSpeedRatio", flags);
+            _fBendRotors ??= typeof(RotorShaft).GetField("rotors", flags);
+            _fBendFlap ??= typeof(SwashRotor).GetField("flapAngle", flags);
+            var found = new List<RotorShaft>();
+            try
+            {
+                var engines = aircraft.engines;
+                for (int i = 0; i < engines.Count; i++)
+                    if (engines[i] is RotorShaft shaft && shaft != null) found.Add(shaft);
+            }
+            catch { }
+            try
+            {
+                var kids = aircraft.GetComponentsInChildren<RotorShaft>(true);
+                for (int i = 0; i < kids.Length; i++)
+                    if (kids[i] != null && !found.Contains(kids[i])) found.Add(kids[i]);
+            }
+            catch { }
+            if (found.Count == 0)
+            {
+                if (!_bendLogged)
+                {
+                    _bendLogged = true;
+                    string who = aircraft.definition != null ? aircraft.definition.unitName : aircraft.name;
+                    Record.Log?.LogInfo("RotorBend rec " + who + " blades=0"
+                        + (_fBendRatio == null || _fBendFlap == null ? " fields=missing" : ""));
+                }
+                return;
+            }
+            _bendShafts = found.ToArray();
+            _bendBound = true;
+            int blades = 0;
+            for (int s = 0; s < _bendShafts.Length; s++)
+            {
+                try
+                {
+                    if (_fBendRotors?.GetValue(_bendShafts[s]) is SwashRotor[] rotors)
+                        blades += rotors.Length;
+                }
+                catch { }
+            }
+            if (_bendAnnounced) return;
+            _bendAnnounced = true;
+            string unit = aircraft.definition != null ? aircraft.definition.unitName : aircraft.name;
+            Record.Log?.LogInfo("RotorBend rec " + unit + " blades=" + blades
+                + (_fBendRatio == null || _fBendFlap == null ? " fields=missing" : ""));
         }
 
         /// <summary>
         /// Per shaft, the ratio BendSegments receives, then each blade's flap
         /// in radians. Twenty hertz at most, and only after a 0.02 change.
+        /// The shaft is the same RotorShaft that already reports RpmRatio.
         /// </summary>
         void EmitRotorBend()
         {
-            if (aircraft == null) return;
+            if (aircraft == null || !Record.Active) return;
             BindRotorBend();
-            if (_bendShafts.Length == 0 || _fBendRatio == null || _fBendRotors == null || _fBendFlap == null)
-                return;
             float now = Time.time;
+            if (_bendShafts.Length == 0 || _fBendRatio == null || _fBendRotors == null || _fBendFlap == null)
+            {
+                NoteBendSample(now, 0f, 0f);
+                return;
+            }
             if (_bendAt >= 0f && now - _bendAt < RotorBend.MinInterval) return;
             var frame = new RotorBend.Frame
             {
@@ -197,6 +245,8 @@ namespace NOReplay
                 Flap = new float[_bendShafts.Length][]
             };
             int used = 0;
+            float showFlap = 0f;
+            float showRatio = 0f;
             for (int s = 0; s < _bendShafts.Length; s++)
             {
                 var shaft = _bendShafts[s];
@@ -204,7 +254,7 @@ namespace NOReplay
                 float ratio = 0f;
                 try { if (_fBendRatio.GetValue(shaft) is float r) ratio = r; } catch { }
                 SwashRotor[] blades = Array.Empty<SwashRotor>();
-                try { if (_fBendRotors.GetValue(shaft) is SwashRotor[] found && found != null) blades = found; } catch { }
+                try { if (_fBendRotors.GetValue(shaft) is SwashRotor[] rotors && rotors != null) blades = rotors; } catch { }
                 var flaps = new float[blades.Length];
                 int n = 0;
                 for (int i = 0; i < blades.Length; i++)
@@ -222,9 +272,18 @@ namespace NOReplay
                 }
                 frame.Ratio[used] = ratio;
                 frame.Flap[used] = flaps;
+                if (s == 0)
+                {
+                    showRatio = ratio;
+                    showFlap = flaps.Length > 0 ? RotorBend.SpanXDeg(flaps[0]) : 0f;
+                }
                 used++;
             }
-            if (used == 0) return;
+            if (used == 0)
+            {
+                NoteBendSample(now, showFlap, showRatio);
+                return;
+            }
             if (used != frame.Ratio.Length)
             {
                 var ratio = new float[used];
@@ -237,17 +296,57 @@ namespace NOReplay
                 frame.Ratio = ratio;
                 frame.Flap = flap;
             }
+            NoteBendSample(now, showFlap, showRatio);
             if (_bendAt >= 0f && !RotorBend.Changed(_bendPrev, frame))
             {
                 _bendAt = now;
                 return;
             }
-            if (props.Count > 0) return;
+            if (Engine == null || RecordEngine.writer == null) return;
+            if (_bendKeys == 0 && BendFrameIdle(frame))
+            {
+                _bendPrev = frame;
+                _bendAt = now;
+                return;
+            }
+            var saved = new Dictionary<string, string>(props);
+            bool pose = poseSnap;
+            poseSnap = false;
+            props.Clear();
             props["RotorBend"] = RotorBend.Write(frame);
             Engine.invokeWriterUpdate(this);
-            props.Remove("RotorBend");
+            props.Clear();
+            foreach (var kv in saved) props[kv.Key] = kv.Value;
+            poseSnap = pose;
             _bendPrev = frame;
             _bendAt = now;
+            _bendKeys++;
+        }
+
+        static bool BendFrameIdle(RotorBend.Frame frame)
+        {
+            if (frame.Ratio == null) return true;
+            for (int s = 0; s < frame.Ratio.Length; s++)
+            {
+                if (Math.Abs(frame.Ratio[s]) > 0.001f) return false;
+                var flaps = frame.Flap != null && s < frame.Flap.Length ? frame.Flap[s] : null;
+                if (flaps == null) continue;
+                for (int i = 0; i < flaps.Length; i++)
+                    if (Math.Abs(flaps[i]) > 0.001f) return false;
+            }
+            return true;
+        }
+
+        void NoteBendSample(float now, float flapDeg, float ratio, bool force = true)
+        {
+            if (!force && now - _bendLogAt < 5f) return;
+            if (now - _bendLogAt < 5f) return;
+            _bendLogAt = now;
+            string unit = aircraft.definition != null ? aircraft.definition.unitName : aircraft.name;
+            Record.Log?.LogInfo("RotorBend rec state " + unit
+                + " flap=" + flapDeg.ToString("0.0", CultureInfo.InvariantCulture)
+                + " ratio=" + ratio.ToString("0.00", CultureInfo.InvariantCulture)
+                + " keys=" + _bendKeys);
         }
 
         void EmitPowerRpm()

@@ -262,6 +262,12 @@ namespace NOReplay
                 Tas = a.HasTas ? a.Tas : b.Tas,
                 HasThrottle = a.HasThrottle || b.HasThrottle,
                 Throttle = a.HasThrottle ? a.Throttle : b.Throttle,
+                HasPitchIn = a.HasPitchIn || b.HasPitchIn,
+                PitchIn = a.HasPitchIn ? a.PitchIn : b.PitchIn,
+                HasRollIn = a.HasRollIn || b.HasRollIn,
+                RollIn = a.HasRollIn ? a.RollIn : b.RollIn,
+                HasYawIn = a.HasYawIn || b.HasYawIn,
+                YawIn = a.HasYawIn ? a.YawIn : b.YawIn,
                 HasRpm = a.HasRpm || b.HasRpm,
                 Rpm = a.HasRpm && b.HasRpm ? Mathf.Lerp(a.Rpm, b.Rpm, u) : (a.HasRpm ? a.Rpm : b.Rpm),
                 HasJetRpm = a.HasJetRpm || b.HasJetRpm,
@@ -700,6 +706,12 @@ namespace NOReplay
         public float Tas;
         public bool HasThrottle;
         public float Throttle;
+        public bool HasPitchIn;
+        public float PitchIn;
+        public bool HasRollIn;
+        public float RollIn;
+        public bool HasYawIn;
+        public float YawIn;
         public bool HasRpm;
         public float Rpm;
         public bool HasJetRpm;

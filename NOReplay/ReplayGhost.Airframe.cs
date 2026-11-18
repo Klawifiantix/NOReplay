@@ -1335,6 +1335,7 @@ namespace NOReplay
                 ApplyNacelleTilt(s);
             }
             DriveWingVapor(s, false);
+            DriveSurfaces(gearDown);
         }
 
         static Type? _surfType;
@@ -1595,68 +1596,6 @@ namespace NOReplay
                     catch { }
                     try { UnityEngine.Object.Destroy(c); } catch { }
                 }
-            var cst = Plugin.FindGameType("ControlSurface");
-            if (cst == null) return;
-            var fMax = cst.GetField("maxSplit", flags);
-            var fUp = cst.GetField("splitUpper", flags);
-            var fLo = cst.GetField("splitLower", flags);
-            var fMesh = cst.GetField("visibleMesh", flags);
-            var fJobs = cst.GetField("JobFields", flags);
-            foreach (var c in GetComponentsInChildren(cst, true))
-            {
-                if (c == null) continue;
-                try
-                {
-                    object mv = fMax?.GetValue(c);
-                    float max = mv is float f ? f : 0f;
-                    if (max <= 0f) continue;
-                    var up = fUp?.GetValue(c) as Transform;
-                    var lo = fLo?.GetValue(c) as Transform;
-                    Quaternion restSplit = Quaternion.identity;
-                    Quaternion restMain = Quaternion.identity;
-                    bool have = false;
-                    object alloc = fJobs?.GetValue(c);
-                    if (alloc != null)
-                    {
-                        var vt = alloc.GetType();
-                        object created = vt.GetProperty("IsCreated")?.GetValue(alloc);
-                        if (created is bool ok && ok)
-                        {
-                            object fields = vt.GetMethod("Value")?.Invoke(alloc, null);
-                            if (fields != null)
-                            {
-                                var ft = fields.GetType();
-                                object rs = ft.GetField("restingSplitRotation")?.GetValue(fields);
-                                object rm = ft.GetField("restingRotation")?.GetValue(fields);
-                                if (rs is Quaternion qs) { restSplit = qs; have = true; }
-                                if (rm is Quaternion qm) restMain = qm;
-                            }
-                        }
-                    }
-                    if (have)
-                    {
-                        if (up != null)
-                        {
-                            up.localRotation = restSplit;
-                            RememberBrake(up, restSplit);
-                        }
-                        if (lo != null)
-                        {
-                            lo.localRotation = restSplit;
-                            RememberBrake(lo, restSplit);
-                        }
-                        var mesh = fMesh?.GetValue(c) as GameObject;
-                        if (mesh != null)
-                        {
-                            mesh.transform.localRotation = restMain;
-                            RememberBrake(mesh.transform, restMain);
-                        }
-                    }
-                    cst.GetField("splitAmount", flags)?.SetValue(c, 0f);
-                    if (c is Behaviour cb) cb.enabled = false;
-                }
-                catch { }
-            }
         }
 
         void SnapSurfacesNow()

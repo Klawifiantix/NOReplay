@@ -290,28 +290,32 @@ namespace NOReplay
                 }
             }
 
+            // Surfaces read these. They are not part of the extra-telemetry switch,
+            // so turning that off does not freeze the sticks and the throttle.
+            var inputs = aircraft.GetInputs();
+            if (lastThrottle != inputs.throttle)
+            {
+                props.Add("Throttle", inputs.throttle.ToString("0.##", CultureInfo.InvariantCulture));
+                lastThrottle = inputs.throttle;
+            }
+            if (lastRoll != inputs.roll)
+            {
+                props.Add("RollControlInput", inputs.roll.ToString("0.##", CultureInfo.InvariantCulture));
+                lastRoll = inputs.roll;
+            }
+            if (lastPitch != inputs.pitch)
+            {
+                props.Add("PitchControlInput", inputs.pitch.ToString("0.##", CultureInfo.InvariantCulture));
+                lastPitch = inputs.pitch;
+            }
+            if (lastYaw != inputs.yaw)
+            {
+                props.Add("YawControlInput", inputs.yaw.ToString("0.##", CultureInfo.InvariantCulture));
+                lastYaw = inputs.yaw;
+            }
+
             if (RecordConfig.RecordExtraTelemetry.Value == true)
             {
-                if (lastThrottle != aircraft.GetInputs().throttle)
-                {
-                    props.Add("Throttle", aircraft.GetInputs().throttle.ToString("0.##", CultureInfo.InvariantCulture));
-                    lastThrottle = aircraft.GetInputs().throttle;
-                }
-                if (lastRoll != aircraft.GetInputs().roll)
-                {
-                    props.Add("RollControlInput", aircraft.GetInputs().roll.ToString("0.##", CultureInfo.InvariantCulture));
-                    lastRoll = aircraft.GetInputs().roll;
-                }
-                if (lastPitch != aircraft.GetInputs().pitch)
-                {
-                    props.Add("PitchControlInput", aircraft.GetInputs().pitch.ToString("0.##", CultureInfo.InvariantCulture));
-                    lastPitch = aircraft.GetInputs().pitch;
-                }
-                if (lastYaw != aircraft.GetInputs().yaw)
-                {
-                    props.Add("YawControlInput", aircraft.GetInputs().yaw.ToString("0.##", CultureInfo.InvariantCulture));
-                    lastYaw = aircraft.GetInputs().yaw;
-                }
                 if (lastThrust != getAvgThrust())
                 {
                     avgThrust = getAvgThrust();

@@ -659,6 +659,7 @@ namespace NOReplay
 
         void OnDestroy()
         {
+            ReleaseScorches("end");
             ClearStructural();
             ReleaseWheelMaterials();
             DestroyDownwashTransforms();
@@ -1324,7 +1325,11 @@ namespace NOReplay
                         PlayWarheadBoom(transform.position);
                     }
                     else if (!_ordnance && !_ship)
+                    {
+                        ArmScorch(end >= 0f ? end : nowDead);
                         PlayUnitWreckFx(transform.position, transform.rotation);
+                        _scorchStamps.Clear();
+                    }
                 }
                 if (_ship)
                 {
@@ -1697,7 +1702,9 @@ namespace NOReplay
                 if (play)
                 {
                     // The explosion only. The husk waits for Visible=0.
+                    ArmScorchRange(_blastsPlayed, due);
                     PlayUnitWreckFx(transform.position, transform.rotation, spawnModel: false, destroyedFallback: false);
+                    _scorchStamps.Clear();
                     LogUnitBoom(_blastTimes[due - 1], due);
                 }
             }

@@ -612,6 +612,44 @@ namespace NOReplay
             WriteUnitMotion(_spdMs, _velMs);
         }
 
+        Component[] _rewindPs = Array.Empty<Component>();
+        bool _rewindPsReady;
+        static Type? _rewindPsType;
+        static System.Reflection.MethodInfo? _rewindStop;
+        static System.Reflection.MethodInfo? _rewindClear;
+
+        internal void ClearRewindParticles()
+        {
+            if (!_rewindPsReady)
+            {
+                _rewindPsReady = true;
+                if (_rewindPsType == null)
+                {
+                    _rewindPsType = Type.GetType("UnityEngine.ParticleSystem, UnityEngine.ParticleSystemModule")
+                        ?? Plugin.FindGameType("ParticleSystem");
+                    if (_rewindPsType != null)
+                    {
+                        _rewindStop = _rewindPsType.GetMethod("Stop", Type.EmptyTypes);
+                        _rewindClear = _rewindPsType.GetMethod("Clear", new[] { typeof(bool) });
+                    }
+                }
+                if (_rewindPsType == null) return;
+                var raw = GetComponentsInChildren(_rewindPsType, true);
+                var list = new System.Collections.Generic.List<Component>(raw.Length);
+                for (int i = 0; i < raw.Length; i++)
+                    if (raw[i] is Component c && c != null) list.Add(c);
+                _rewindPs = list.ToArray();
+            }
+            for (int i = 0; i < _rewindPs.Length; i++)
+            {
+                var ps = _rewindPs[i];
+                if (ps == null) continue;
+                try { _rewindStop?.Invoke(ps, null); } catch { }
+                try { _rewindClear?.Invoke(ps, new object[] { true }); } catch { }
+            }
+            ResetFx();
+        }
+
         void OnDisable()
         {
             StopSurfaceFx(false);
@@ -1252,6 +1290,8 @@ namespace NOReplay
                 // Ships do not latch _boomed, so a compartment fire cannot skip the sink.
                 AdvanceBlasts(nowFx, forward, latchWreck: false);
             }
+            ReplayPerf.Add("late-fire", ReplayPerf.Stamp() - mark);
+            mark = ReplayPerf.Stamp();
             bool blastNow = false;
             if (!IsTrackAlive() || blastNow)
             {
@@ -1308,8 +1348,11 @@ namespace NOReplay
                 if (!_ordnance) TickStructural(false);
                 if (_ordnance && !IsFlareTrack() && !DetonatedAt(Plugin.Clock.Time) && OrdnanceAudioDirty())
                     ArmOrdnanceAudio();
+                ReplayPerf.Add("late-dead", ReplayPerf.Stamp() - mark);
                 return;
             }
+            ReplayPerf.Add("late-dead", ReplayPerf.Stamp() - mark);
+            mark = ReplayPerf.Stamp();
             _boomed = false;
             ClearBoom();
             if (!_ordnance && Plugin.Clock != null)
@@ -1353,6 +1396,8 @@ namespace NOReplay
                 Plugin.SetMapIcon(gameObject, false);
             if (_asleep && (_air || _ship))
                 ExitSleep();
+            ReplayPerf.Add("late-show", ReplayPerf.Stamp() - mark);
+            mark = ReplayPerf.Stamp();
             if (!Track.TrySample(Plugin.Clock.Time, out var s)) return;
             if (!_colsOff)
             {
@@ -1391,6 +1436,8 @@ namespace NOReplay
                 _nextGunScan = 0f;
                 _nextRadarScan = 0f;
             }
+            ReplayPerf.Add("late-sample", ReplayPerf.Stamp() - mark);
+            mark = ReplayPerf.Stamp();
             drive.SetPositionAndRotation(p, q);
             ReplayPerf.Add("late-pose", ReplayPerf.Stamp() - mark);
             mark = ReplayPerf.Stamp();
@@ -1754,7 +1801,9 @@ namespace NOReplay
             float speed = Plugin.Clock != null ? Mathf.Abs(Plugin.Clock.Speed) : 1f;
             float step = Time.unscaledDeltaTime * Mathf.Max(speed, 0.01f);
             float d = now - _fireSimClock;
-            if (d < -0.001f) return true;
+            // A steady reverse step is a fraction of a second. Rebuilding the
+            // whole particle history for that step freezes the frame.
+            if (d < -0.001f) return d < -0.35f;
             return d > Mathf.Max(0.35f, step * 4f);
         }
 

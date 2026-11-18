@@ -373,9 +373,7 @@ namespace NOReplay
             frame = default;
             int n = BendTimes.Count;
             if (n == 0) return false;
-            int i = 0;
-            while (i < n && BendTimes[i] <= time + 0.0001f) i++;
-            i--;
+            int i = GearClock.ActiveKey(time, BendTimes);
             if (i < 0)
             {
                 frame = BendFrames[0];

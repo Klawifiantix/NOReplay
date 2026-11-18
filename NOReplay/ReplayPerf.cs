@@ -9,13 +9,19 @@ namespace NOReplay
     /// </summary>
     internal static class ReplayPerf
     {
-        const int Max = 24;
+        const int Max = 48;
         static readonly string[] _names = new string[Max];
         static readonly long[] _ticks = new long[Max];
         static readonly int[] _order = new int[Max];
         static int _used;
         static int _frames;
         static float _logAt;
+        static readonly long[] _jump = new long[Max];
+        static bool _jumping;
+        static long _jumpWall;
+        static string _jumpKind = "";
+        static float _jumpFrom;
+        static float _jumpTo;
 
         public static long Stamp()
         {
@@ -37,6 +43,45 @@ namespace NOReplay
                 _names[i] = name;
             }
             _ticks[i] += dt;
+            if (_jumping) _jump[i] += dt;
+        }
+
+        /// <summary>
+        /// One timeline jump. The line is written on the next update, after
+        /// the ghosts have run their LateUpdate for this jump.
+        /// </summary>
+        public static void BeginJump(string kind, float from, float to)
+        {
+            EndJump();
+            _jumping = true;
+            _jumpKind = kind;
+            _jumpFrom = from;
+            _jumpTo = to;
+            _jumpWall = Stamp();
+            for (int i = 0; i < Max; i++) _jump[i] = 0;
+        }
+
+        public static void EndJump()
+        {
+            if (!_jumping) return;
+            _jumping = false;
+            double freq = Stopwatch.Frequency;
+            double ms = (Stamp() - _jumpWall) * 1000.0 / freq;
+            var line = _jumpKind == "seek"
+                ? "Seek " + _jumpFrom.ToString("0.0") + "->" + _jumpTo.ToString("0.0")
+                : "Reverse start";
+            line += " ms=" + ms.ToString("0");
+            line += " parts=";
+            bool any = false;
+            for (int i = 0; i < _used; i++)
+            {
+                if (_jump[i] <= 0 || _names[i] == null) continue;
+                if (any) line += " ";
+                any = true;
+                line += _names[i] + "=" + (_jump[i] * 1000.0 / freq).ToString("0");
+            }
+            if (!any) line += "none";
+            Plugin.Log?.LogInfo(line);
         }
 
         public static void Frame()

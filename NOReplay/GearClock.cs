@@ -33,25 +33,22 @@ namespace NOReplay
         }
 
         /// <summary>
-        /// Fold amount at a replay time. 0 is extended, 1 is fully retracted.
-        /// The live hinge used to step 0.6 per second. The amount here is only
-        /// a function of the clock, so a seek lands in the middle of the fold.
+        /// A carrier deck is a few metres under the aircraft. A ray that only
+        /// finds the terrain far below that deck is not an air spawn yet.
         /// </summary>
-        public const float FoldPerSecond = 0.6f;
+        public const float CloseRayMeters = 40f;
+        public const int SpawnTries = 45;
 
-        public static float Fold(bool surfaceSpawn, float time, float[] times, float[] gear)
+        public static bool OnDeck(float gap)
         {
-            float spawn = surfaceSpawn ? 0f : 1f;
-            int key = ActiveKey(time, times);
-            if (key < 0 || gear == null || key >= gear.Length) return spawn;
-            bool down = gear[key] > 0.5f;
-            float target = down ? 0f : 1f;
-            float from = key == 0 ? spawn : (gear[key - 1] > 0.5f ? 0f : 1f);
-            float span = time - times[key];
-            if (span < 0f) span = 0f;
-            float u = span * FoldPerSecond;
-            if (u > 1f) u = 1f;
-            return from + (target - from) * u;
+            return gap >= -2f && gap <= 20f;
+        }
+
+        public static bool SpawnReady(int tries, float rayDistance, bool deckNear)
+        {
+            if (deckNear) return true;
+            if (rayDistance >= 0f && rayDistance <= CloseRayMeters) return true;
+            return tries >= SpawnTries;
         }
 
         public static int ActiveKey(float time, float[] times)

@@ -65,7 +65,9 @@ namespace NOReplay
             {
                 try
                 {
-                    Harmony.Patch(start, prefix: new HarmonyMethod(typeof(Plugin), nameof(PrefixDecalSpawnerStart)));
+                    Harmony.Patch(start,
+                        prefix: new HarmonyMethod(typeof(Plugin), nameof(PrefixDecalSpawnerStart)),
+                        postfix: new HarmonyMethod(typeof(Plugin), nameof(PostfixDecalSpawnerStart)));
                     Log.LogInfo("Scorch-Patch DecalSpawner.Start");
                 }
                 catch (Exception ex)
@@ -90,8 +92,15 @@ namespace NOReplay
         static bool PrefixDecalSpawnerStart(object __instance)
         {
             if (CurrentDoc == null || __instance is not Component spawner) return true;
-            ReplayGhost.CaptureDecalSpawner(spawner);
-            return false;
+            // Only skip the game's Start when our copy is on the ground.
+            // A miss must still let the game place the decal.
+            return !ReplayGhost.CaptureDecalSpawner(spawner);
+        }
+
+        static void PostfixDecalSpawnerStart(object __instance)
+        {
+            if (CurrentDoc == null || __instance is not Component spawner) return;
+            ReplayGhost.ClaimGameScorch(spawner);
         }
 
         static void PostfixShockwaveStart(object __instance)

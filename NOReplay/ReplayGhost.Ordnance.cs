@@ -251,30 +251,32 @@ namespace NOReplay
                 }
                 catch { }
                 Vector3 at = mb.transform.position;
+                bool owned = false;
                 for (int s = 0; s < _scorchStamps.Count; s++)
                 {
                     float stamp = _scorchStamps[s];
                     Vector3 place = at;
                     if (Track != null && Track.TrySample(stamp, out var sample))
-                        place = new Vector3(sample.X, sample.Y, sample.Z);
+                        place = Plugin.GlobalToLocal(sample.X, sample.Y, sample.Z);
                     var go = MakeScorch(place, size, mat, vertical);
-                    if (go == null)
-                    {
-                        Plugin.Log?.LogInfo("Scorch unowned " + ScorchUnit() + " t=" + stamp.ToString("0.00") + " kind=decal");
-                        continue;
-                    }
+                    if (go == null) continue;
                     RememberScorch(go, stamp, ScorchUnit());
+                    owned = true;
                     Plugin.Log?.LogInfo("Scorch add " + ScorchUnit() + " t=" + stamp.ToString("0.00") + " kind=decal");
                 }
-                if (consume)
+                // A failed linecast must leave the spawner alive so its Start can
+                // still place the game's decal. Start is what the player was seeing.
+                if (owned && consume)
                     UnityEngine.Object.Destroy(mb);
+                else
+                    mb.enabled = true;
             }
             NoteUnownedProjectors(fx);
         }
 
-        internal static void CaptureDecalSpawner(Component spawner)
+        internal static bool CaptureDecalSpawner(Component spawner)
         {
-            if (spawner == null) return;
+            if (spawner == null) return false;
             BindDecalFields();
             var ghost = spawner.GetComponentInParent<ReplayGhost>();
             string who = ghost != null ? ghost.ScorchUnit() : spawner.gameObject.name;
@@ -294,14 +296,57 @@ namespace NOReplay
             }
             catch { }
             var go = MakeScorch(spawner.transform.position, size, mat, vertical);
-            if (go == null)
-            {
-                Plugin.Log?.LogInfo("Scorch unowned " + who + " t=" + stamp.ToString("0.00") + " kind=decal");
-                return;
-            }
+            if (go == null) return false;
             if (ghost != null) ghost.RememberScorch(go, stamp, who);
             else RememberOwned(go, stamp, who);
             Plugin.Log?.LogInfo("Scorch add " + who + " t=" + stamp.ToString("0.00") + " kind=decal");
+            return true;
+        }
+
+        internal static void ClaimGameScorch(Component spawner)
+        {
+            if (spawner == null) return;
+            var ghost = spawner.GetComponentInParent<ReplayGhost>();
+            string who = ghost != null ? ghost.ScorchUnit() : spawner.gameObject.name;
+            float stamp = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+            var datum = _datumOrigin != null ? _datumOrigin : Plugin.Datum;
+            bool nearOwned = false;
+            if (datum != null)
+            {
+                int n = datum.childCount;
+                for (int i = 0; i < n; i++)
+                {
+                    var child = datum.GetChild(i);
+                    if (child == null) continue;
+                    if ((child.position - spawner.transform.position).sqrMagnitude > 2500f) continue;
+                    bool projector = false;
+                    var bits = child.GetComponents<Component>();
+                    for (int c = 0; c < bits.Length; c++)
+                    {
+                        if (bits[c] != null && bits[c].GetType().Name == "DecalProjector")
+                        {
+                            projector = true;
+                            break;
+                        }
+                    }
+                    if (!projector) continue;
+                    string cn = child.name ?? "";
+                    if (cn.IndexOf("scorch", StringComparison.OrdinalIgnoreCase) < 0
+                        && cn.IndexOf("NOReplay_Scorch", StringComparison.Ordinal) < 0)
+                        continue;
+                    if (IsOwned(child.gameObject))
+                    {
+                        nearOwned = true;
+                        continue;
+                    }
+                    if (ghost != null) ghost.RememberScorch(child.gameObject, stamp, who);
+                    else RememberOwned(child.gameObject, stamp, who);
+                    nearOwned = true;
+                    Plugin.Log?.LogInfo("Scorch add " + who + " t=" + stamp.ToString("0.00") + " kind=decal");
+                }
+            }
+            if (!nearOwned)
+                Plugin.Log?.LogInfo("Scorch unowned " + who + " t=" + stamp.ToString("0.00") + " kind=decal");
         }
 
         internal static void ClaimShockDecal(Component wave)
@@ -378,7 +423,7 @@ namespace NOReplay
                 return null;
             }
             const int statics = 1 << 6;
-            float half = Mathf.Max(0.5f, size * 0.5f);
+            float half = Mathf.Max(0.05f, size * 0.5f);
             if (!Physics.Linecast(pos + Vector3.up * half, pos - Vector3.up * half, out var hit, statics))
                 return null;
             var go = _datumOrigin != null

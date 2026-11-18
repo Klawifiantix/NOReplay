@@ -41,6 +41,7 @@
     <Compile Include="..\..\NOReplay\LockClock.cs" Link="LockClock.cs" />
     <Compile Include="..\..\NOReplay\RecordingPath.cs" Link="RecordingPath.cs" />
     <Compile Include="..\..\NOReplay\SurfServo.cs" Link="SurfServo.cs" />
+    <Compile Include="..\..\NOReplay\RotorBend.cs" Link="RotorBend.cs" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="Fixtures\synthetic-feed.acmi">

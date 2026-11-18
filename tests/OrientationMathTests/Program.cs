@@ -57,6 +57,8 @@ namespace NOReplay.OrientationTests
             _failed += GearClockTests.Failed;
             SurfServoTests.Run();
             _failed += SurfServoTests.Failed;
+            RotorBendTests.Run();
+            _failed += RotorBendTests.Failed;
             BlastScheduleTests.Run();
             _failed += BlastScheduleTests.Failed;
             LockClockTests.Run();

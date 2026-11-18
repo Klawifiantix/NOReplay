@@ -1341,6 +1341,7 @@ namespace NOReplay
             DriveWingVapor(s, false);
             float radar = s.HasAgl ? s.Agl : (gearDown ? 0f : 100f);
             DriveSurfaces(gearDown, spd, radar);
+            DriveRotorBend();
         }
 
         static Type? _surfType;

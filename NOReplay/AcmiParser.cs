@@ -393,6 +393,11 @@ namespace NOReplay
                             telemetry = true;
                         }
                     }
+                    else if (AcmiScan.KeyIs(key, "RotorBend"))
+                    {
+                        if (RotorBend.Read(val, out var bend))
+                            obj.AddRotorBend(time, bend);
+                    }
                     else if (AcmiScan.KeyIs(key, "RpmRatio")
                           || AcmiScan.KeyIs(key, "JetRpm")
                           || AcmiScan.KeyIs(key, "TurbineRpm"))

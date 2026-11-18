@@ -38,10 +38,26 @@ namespace NOReplay
         /// </summary>
         public const float CloseRayMeters = 40f;
         public const int SpawnTries = 45;
+        /// <summary>Radar altitude above this is an air spawn. The gear starts retracted.</summary>
+        public const float AirRadarMeters = 2f;
 
+        /// <summary>No deck found is a negative gap. Only a real deck, from touching it up to 20 m above, counts.</summary>
         public static bool OnDeck(float gap)
         {
-            return gap >= -2f && gap <= 20f;
+            return gap >= 0f && gap <= 20f;
+        }
+
+        /// <summary>
+        /// Gear down at spawn: sitting within 2 m radar altitude, or above a ship deck.
+        /// A far terrain hit with no deck is airborne.
+        /// </summary>
+        public static bool OnGround(float rayDistance, float spawnOffsetY, float deckGap)
+        {
+            if (OnDeck(deckGap)) return true;
+            if (rayDistance < 0f) return false;
+            if (spawnOffsetY < 0f) spawnOffsetY = 0f;
+            float radarAlt = rayDistance - spawnOffsetY;
+            return radarAlt <= AirRadarMeters;
         }
 
         public static bool SpawnReady(int tries, float rayDistance, bool deckNear)

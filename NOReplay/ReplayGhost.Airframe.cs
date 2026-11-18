@@ -910,12 +910,12 @@ namespace NOReplay
             bool onDeck = GearClock.OnDeck(deck);
             if (!GearClock.SpawnReady(_spawnGearTries, dist, onDeck))
                 return false;
-            _surfaceSpawn = onDeck || GearClock.OnSurface(dist >= 0f && dist <= GearClock.CloseRayMeters ? dist : GearClock.NoSurface, SpawnOffsetY());
+            _surfaceSpawn = GearClock.OnGround(dist, SpawnOffsetY(), deck);
             _spawnGearKnown = true;
-            if (_surfaceSpawn)
-                Plugin.Log?.LogInfo("Gear deck " + gameObject.name
-                    + " gap=" + deck.ToString("0.0")
-                    + " ray=" + (dist < 0f ? "none" : dist.ToString("0.0")));
+            Plugin.Log?.LogInfo("Gear spawn " + gameObject.name
+                + " surface=" + (_surfaceSpawn ? "1" : "0")
+                + " gap=" + deck.ToString("0.0")
+                + " ray=" + (dist < 0f ? "none" : dist.ToString("0.0")));
             return true;
         }
 

@@ -1269,15 +1269,16 @@ namespace NOReplay
                     }
                     float rad = nom * 0.1047f * govern;
                     WriteFit(_fAngSpeed, c, rad);
-                    if (!Plugin.Clock.Paused && govern > 0.01f)
-                    {
-                        var hub = ReadFit(_fRotorHub, c) as Transform;
-                        float dir = 1f;
-                        object? dv = ReadFit(_fRotorDir, c);
-                        if (dv != null) dir = Convert.ToSingle(dv);
-                        if (hub != null)
-                            hub.Rotate(0f, nom * 6f * dir * govern * dt, 0f, Space.Self);
-                    }
+                    var hub = ReadFit(_fRotorHub, c) as Transform;
+                    float dir = 1f;
+                    object? dv = ReadFit(_fRotorDir, c);
+                    if (dv != null) dir = Convert.ToSingle(dv);
+                    float deg = nom * 6f * dir * govern * dt;
+                    bool spin = !Plugin.Clock.Paused && govern > 0.01f && hub != null;
+                    NoteRotorBefore(i, hub, spin, deg);
+                    if (spin && hub != null)
+                        hub.Rotate(0f, deg, 0f, Space.Self);
+                    NoteRotorAfter(i, c, hub, true, spin, govern, s.HasRpm ? s.Rpm : -1f, dt, deg);
                 }
             }
             if (_props.Length > 0)
@@ -2155,5 +2156,218 @@ namespace NOReplay
 
         static int _fxDumpLeft = 4;
         int _ibisDump;
+
+        struct RotorSpinWatch
+        {
+            public bool Seen;
+            public bool Rotated;
+            public float Before;
+            public float After;
+            public float Deg;
+            public int Frozen;
+            public bool WasFrozen;
+            public float LogAt;
+            public bool Close;
+            public bool Paused;
+            public bool Enabled;
+            public bool Same;
+            public bool GovernStop;
+        }
+
+        RotorSpinWatch[] _rotorWatch = Array.Empty<RotorSpinWatch>();
+        static bool _rotorOrderLogged;
+        static int _orbitPivotFrame = -1;
+        static Transform? _orbitPivot;
+        Rigidbody? _spinRb;
+        bool _spinRbReady;
+
+        void NoteRotorSpinIdle(ReplaySample s, bool close)
+        {
+            if (_shafts.Length == 0) return;
+            float dt = Time.unscaledDeltaTime * Mathf.Max(Plugin.Clock.Speed, 0.01f);
+            float rpm = s.HasRpm ? s.Rpm : -1f;
+            float govern = _governRpm;
+            for (int i = 0; i < _shafts.Length; i++)
+            {
+                var c = _shafts[i];
+                if (c == null) continue;
+                var hub = ReadFit(_fRotorHub, c) as Transform;
+                float nom = 300f;
+                if (TryReadFloat(_fNomRpm, c, out float f)) nom = f;
+                float dir = 1f;
+                object? dv = ReadFit(_fRotorDir, c);
+                if (dv != null) dir = Convert.ToSingle(dv);
+                float deg = nom * 6f * dir * govern * dt;
+                NoteRotorBefore(i, hub, false, deg);
+                NoteRotorAfter(i, c, hub, close, false, govern, rpm, dt, deg);
+            }
+        }
+
+        void NoteRotorBefore(int index, Transform? hub, bool willRotate, float deg)
+        {
+            if (index >= _rotorWatch.Length)
+            {
+                var grown = new RotorSpinWatch[index + 1];
+                for (int i = 0; i < _rotorWatch.Length; i++) grown[i] = _rotorWatch[i];
+                _rotorWatch = grown;
+            }
+            ref var w = ref _rotorWatch[index];
+            if (!w.Seen || !w.Rotated || hub == null) return;
+            float now = hub.localEulerAngles.y;
+            float moved = Mathf.Abs(Mathf.DeltaAngle(w.After, now));
+            bool frozen = w.Deg > 0.5f && moved < 0.05f;
+            if (frozen)
+            {
+                w.Frozen++;
+                bool due = !w.WasFrozen || Time.unscaledTime - w.LogAt >= 1f;
+                if (due)
+                {
+                    w.LogAt = Time.unscaledTime;
+                    string who = Track != null && !string.IsNullOrEmpty(Track.Name) ? Track.Name : name;
+                    Plugin.Log?.LogInfo("Rotor frozen " + who
+                        + " frames=" + w.Frozen
+                        + " writer-suspect=" + RotorFreezeSuspect(w, now)
+                        + " hubYaw=" + now.ToString("0.0")
+                        + " degFrame=" + w.Deg.ToString("0.00"));
+                }
+                w.WasFrozen = true;
+            }
+            else if (w.WasFrozen)
+            {
+                string who = Track != null && !string.IsNullOrEmpty(Track.Name) ? Track.Name : name;
+                Plugin.Log?.LogInfo("Rotor spin resume " + who + " frames=" + w.Frozen);
+                w.WasFrozen = false;
+                w.Frozen = 0;
+            }
+            if (!willRotate) w.Rotated = false;
+        }
+
+        void NoteRotorAfter(int index, Component shaft, Transform? hub, bool close, bool rotated, float govern, float rpm, float dt, float deg)
+        {
+            if (index >= _rotorWatch.Length) return;
+            LogRotorOrderOnce();
+            ref var w = ref _rotorWatch[index];
+            bool paused = Plugin.Clock != null && Plugin.Clock.Paused;
+            bool enabled = shaft is Behaviour b && b.enabled;
+            bool same = RotorSameTransform();
+            bool stop = govern <= 0.01f;
+            bool changed = !w.Seen || w.Close != close || w.Paused != paused || w.Enabled != enabled
+                || w.Same != same || w.GovernStop != stop;
+            bool due = changed || Time.unscaledTime - w.LogAt >= 1f;
+            float yaw = hub != null ? hub.localEulerAngles.y : 0f;
+            if (due)
+            {
+                w.LogAt = Time.unscaledTime;
+                string who = Track != null && !string.IsNullOrEmpty(Track.Name) ? Track.Name : name;
+                float dist = RotorListenDist();
+                Plugin.Log?.LogInfo("Rotor spin " + who
+                    + " close=" + (close ? "true" : "false")
+                    + " ghost0=" + (gameObject == Plugin._ghost ? "true" : "false")
+                    + " dist=" + (dist < 0f ? "-1" : dist.ToString("0"))
+                    + " paused=" + (paused ? "true" : "false")
+                    + " govern=" + govern.ToString("0.00")
+                    + " rpm=" + rpm.ToString("0.00")
+                    + " dt=" + dt.ToString("0.000")
+                    + " degFrame=" + deg.ToString("0.00")
+                    + " hubYaw=" + yaw.ToString("0.0")
+                    + " hubPath=" + (hub != null ? TransformPath(hub) : "none")
+                    + " shaftEnabled=" + (enabled ? "true" : "false")
+                    + " drive=" + Drive.name
+                    + " rbPivot=" + RotorPivotName()
+                    + " sameTransform=" + (same ? "true" : "false"));
+            }
+            w.Seen = true;
+            w.Rotated = rotated;
+            w.Before = yaw;
+            w.After = yaw;
+            w.Deg = rotated ? deg : 0f;
+            w.Close = close;
+            w.Paused = paused;
+            w.Enabled = enabled;
+            w.Same = same;
+            w.GovernStop = stop;
+        }
+
+        string RotorFreezeSuspect(RotorSpinWatch w, float nowYaw)
+        {
+            string suspect = "";
+            if (w.Enabled) suspect = "RotorShaft.Update";
+            if (!w.Same) suspect = suspect.Length == 0 ? "FindVisualBuddy" : suspect + "+FindVisualBuddy";
+            if (Mathf.Abs(Mathf.DeltaAngle(w.Before, nowYaw)) < 0.05f)
+                suspect = suspect.Length == 0 ? "localEuler" : suspect + "+localEuler";
+            return suspect.Length == 0 ? "none" : suspect;
+        }
+
+        bool RotorSameTransform()
+        {
+            if (!_spinRbReady)
+            {
+                _spinRbReady = true;
+                _spinRb = GetComponent<Rigidbody>();
+            }
+            return _spinRb != null && Drive == _spinRb.transform;
+        }
+
+        string RotorPivotName()
+        {
+            if (!_spinRbReady)
+            {
+                _spinRbReady = true;
+                _spinRb = GetComponent<Rigidbody>();
+            }
+            CacheOrbitPivot();
+            if (_orbitPivot != null) return _orbitPivot.name;
+            return _spinRb != null ? _spinRb.name : "none";
+        }
+
+        static void CacheOrbitPivot()
+        {
+            if (_orbitPivotFrame == Time.frameCount) return;
+            _orbitPivotFrame = Time.frameCount;
+            _orbitPivot = null;
+            var camType = Plugin.FindGameType("CameraStateManager");
+            if (camType == null) return;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            foreach (var cam in Resources.FindObjectsOfTypeAll(camType))
+            {
+                if (cam is not Component view || !view.gameObject.scene.IsValid()) continue;
+                var rb = camType.GetField("followingRB", flags)?.GetValue(cam) as Component;
+                if (rb != null) _orbitPivot = rb.transform;
+                break;
+            }
+        }
+
+        float RotorListenDist()
+        {
+            if (!Plugin.ListenPoint(out var listen)) return -1f;
+            return Vector3.Distance(transform.position, listen);
+        }
+
+        static string TransformPath(Transform t)
+        {
+            string path = t.name;
+            int guard = 0;
+            while (t.parent != null && guard < 8)
+            {
+                t = t.parent;
+                path = t.name + "/" + path;
+                guard++;
+            }
+            return path;
+        }
+
+        static void LogRotorOrderOnce()
+        {
+            if (_rotorOrderLogged) return;
+            _rotorOrderLogged = true;
+            int camOrder = 0;
+            var camType = Plugin.FindGameType("CameraStateManager");
+            if (camType != null)
+            {
+                var attr = camType.GetCustomAttribute<DefaultExecutionOrder>();
+                if (attr != null) camOrder = attr.order;
+            }
+            Plugin.Log?.LogInfo("Rotor spin order ReplayGhost=-200 CameraStateManager=" + camOrder);
+        }
     }
 }

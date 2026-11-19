@@ -36,7 +36,8 @@ namespace NOReplay
         bool _replayLive;
         bool _seenWorld;
         bool _pendingOfficialStart;
-        bool _timelineHidden;
+        bool _tlShow;
+        bool _tlMap;
         internal static bool TrailsOn;
         internal static bool ShowKillFeed = true;
         internal static bool ShowChat = true;
@@ -184,7 +185,14 @@ namespace NOReplay
             RestoreReplayKeys();
             _replayLive = false;
             _seenWorld = false;
-            _timelineHidden = false;
+            if (_tlShow || _tlMap)
+            {
+                bool map = false;
+                try { map = DynamicMap.mapMaximized; } catch { }
+                _tlShow = false;
+                _tlMap = false;
+                Log.LogInfo("Timeline visible=false map=" + (map ? "true" : "false"));
+            }
             _ordnanceWarmed = false;
             _warmLeft.Clear();
             _warmSeen.Clear();
@@ -228,7 +236,6 @@ namespace NOReplay
                 if (HotkeyDown(RecordConfig.Speed4Key, KeyCode.Alpha4)) Clock.Speed = 4f;
                 if (HotkeyDown(RecordConfig.SeekBackKey, KeyCode.LeftArrow)) Clock.Seek(Clock.Time - 5f);
                 if (HotkeyDown(RecordConfig.SeekForwardKey, KeyCode.RightArrow)) Clock.Seek(Clock.Time + 5f);
-                if (HotkeyDown(RecordConfig.ToggleTimelineKey, KeyCode.F10)) _timelineHidden = !_timelineHidden;
                 EnsureReplayKeysMuted();
                 if (!ReplayTextFocused())
                 {
@@ -653,6 +660,22 @@ namespace NOReplay
 
         GUIStyle? _recStyle;
 
+        // DynamicMap.Maximize sets mapMaximized and raises onMapMaximized.
+        // Minimize clears it and raises onMapMinimized. The flag is static,
+        // so the timeline can follow the map without searching for the object.
+        bool ReplayTimelineOpen()
+        {
+            if (!_replayLive || CurrentDoc == null || !InGameWorld()) return false;
+            bool map = DynamicMap.mapMaximized;
+            if (map != _tlShow)
+            {
+                _tlShow = map;
+                _tlMap = map;
+                Log.LogInfo("Timeline visible=" + (map ? "true" : "false") + " map=" + (map ? "true" : "false"));
+            }
+            return map;
+        }
+
         private void OnGUI()
         {
             if (Record.Active)
@@ -665,7 +688,7 @@ namespace NOReplay
                 GUI.Label(new Rect(Screen.width - 78f, Screen.height - 42f, 60f, 28f), "Rec", _recStyle);
             }
             if (_pickerOpen) DrawReplayPicker();
-            else if (InGameWorld() && _replayLive && CurrentDoc != null && !_timelineHidden) DrawTimeline();
+            else if (ReplayTimelineOpen()) DrawTimeline();
         }
     }
 

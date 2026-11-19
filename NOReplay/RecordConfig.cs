@@ -69,7 +69,6 @@ namespace NOReplay
         internal const bool DefaultEnableUnitLogging = false;
 
         internal const KeyCode DefaultStartStopRecordingKey = KeyCode.F8;
-        internal const KeyCode DefaultToggleTimelineKey = KeyCode.F10;
         internal const KeyCode DefaultLookAtLockKey = KeyCode.F;
         internal const KeyCode DefaultToggleTrailsKey = KeyCode.T;
         internal const KeyCode DefaultPlayPauseKey = KeyCode.Space;
@@ -123,7 +122,6 @@ namespace NOReplay
         internal static ConfigEntry<bool> EnableLogging;
 
         internal static ConfigEntry<KeyboardShortcut> StartStopRecordingKey;
-        internal static ConfigEntry<KeyboardShortcut> ToggleTimelineKey;
         internal static ConfigEntry<KeyboardShortcut> LookAtLockKey;
         internal static ConfigEntry<KeyboardShortcut> ToggleTrailsKey;
         internal static ConfigEntry<KeyboardShortcut> PlayPauseKey;
@@ -376,8 +374,6 @@ namespace NOReplay
                 DefaultStartStopRecordingKey,
                 "Start or stop recording in a live match. Default: F8. During playback the key is ignored.");
 
-            ToggleTimelineKey = BindHotkey(config, ReplayHotkeys, "Toggle Timeline", DefaultToggleTimelineKey,
-                "Hide or show the replay timeline. Default: F10.");
             LookAtLockKey = BindHotkey(config, ReplayHotkeys, "Look-at Lock", DefaultLookAtLockKey,
                 "Toggle look-at lock on the selected unit. Default: F. Ignored while a text field is focused. The game binding for this key is muted during replay.");
             ToggleTrailsKey = BindHotkey(config, ReplayHotkeys, "Toggle Trails", DefaultToggleTrailsKey,
@@ -424,7 +420,6 @@ namespace NOReplay
             var keys = new[]
             {
                 new HotkeySlot("Start/stop recording", StartStopRecordingKey),
-                new HotkeySlot("Toggle timeline", ToggleTimelineKey),
                 new HotkeySlot("Look-at lock", LookAtLockKey),
                 new HotkeySlot("Toggle trails", ToggleTrailsKey),
                 new HotkeySlot("Play/pause", PlayPauseKey),

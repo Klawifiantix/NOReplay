@@ -864,7 +864,8 @@ namespace NOReplay
             {
                 var fxGo = UnityEngine.Object.Instantiate(fxPrefab, pos, rot);
                 fxGo.name = "NOReplay_VehicleDamageFx";
-                fxGo.transform.SetParent(null, true);
+                var datum = Plugin.Datum;
+                fxGo.transform.SetParent(datum != null ? datum : null, true);
                 fxGo.SetActive(true);
 
                 _tDamageParticles ??= Plugin.FindGameType("DamageParticles");
@@ -890,6 +891,7 @@ namespace NOReplay
                     if (c != null) c.enabled = false;
 
                 PlayParticles(fxGo);
+                PinSmokeToDatum(fxGo);
                 _spawnedDamageFx.Add(fxGo);
                 UnityEngine.Object.Destroy(fxGo, 25f);
             }

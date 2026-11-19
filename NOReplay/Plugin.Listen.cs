@@ -51,7 +51,52 @@ namespace NOReplay
             BlockSonicMute();
             BlockStateLabel();
             PatchScorchDecals();
+            PatchOriginShift();
             Log.LogInfo("Listen-Patches gesetzt (ohne SOM.Spawn-Spam).");
+        }
+
+        static void PatchOriginShift()
+        {
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var shift = FindGameType("FloatingOrigin")?.GetMethod("OriginShift", flags);
+            if (shift == null)
+            {
+                Log.LogWarning("Smoke origin FloatingOrigin.OriginShift missing");
+                return;
+            }
+            try
+            {
+                Harmony.Patch(shift, postfix: new HarmonyMethod(typeof(Plugin), nameof(PostfixOriginShift)));
+                Log.LogInfo("Smoke origin FloatingOrigin.OriginShift");
+            }
+            catch (Exception ex)
+            {
+                Log.LogWarning("Smoke origin FloatingOrigin.OriginShift " + ex.Message);
+            }
+        }
+
+        static Vector3 _smokeDatum;
+        static bool _smokeDatumSet;
+
+        static void PostfixOriginShift()
+        {
+            if (CurrentDoc == null) return;
+            // OriginShift is called every frame and returns before moving
+            // anything. Only a real datum move is worth a scan.
+            var datum = Datum;
+            if (datum == null) return;
+            var pos = datum.position;
+            if (_smokeDatumSet && (pos - _smokeDatum).sqrMagnitude < 0.25f) return;
+            _smokeDatum = pos;
+            _smokeDatumSet = true;
+            int n = 0;
+            for (int i = 0; i < _ghostComps.Count; i++)
+            {
+                var g = _ghostComps[i];
+                if (g != null) n += g.ReportLooseSmoke();
+            }
+            if (n == 0) return;
+            Log.LogInfo("Smoke origin shift n=" + n);
         }
 
         static void PatchScorchDecals()

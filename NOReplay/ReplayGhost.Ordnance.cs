@@ -170,8 +170,13 @@ namespace NOReplay
             return false;
         }
 
+        static float _scorchSeen = -1f;
+
         internal static void SyncOwnedScorches(float now, string reason)
         {
+            bool back = _scorchSeen >= 0f && now + 0.001f < _scorchSeen;
+            _scorchSeen = now;
+            if (!back) return;
             var ghosts = Plugin.GhostComps;
             for (int g = 0; g < ghosts.Count; g++)
                 ghosts[g]?.DropScorches(now, reason);
@@ -190,7 +195,9 @@ namespace NOReplay
 
         internal static void ReleaseOwnedScorches(string reason)
         {
+            _scorchSeen = float.MaxValue;
             SyncOwnedScorches(float.NegativeInfinity, reason);
+            _scorchSeen = -1f;
         }
 
         static void BindDecalFields()
@@ -864,7 +871,8 @@ namespace NOReplay
             {
                 var fxGo = UnityEngine.Object.Instantiate(fxPrefab, pos, rot);
                 fxGo.name = "NOReplay_VehicleDamageFx";
-                fxGo.transform.SetParent(null, true);
+                var datum = Plugin.Datum;
+                fxGo.transform.SetParent(datum != null ? datum : null, true);
                 fxGo.SetActive(true);
 
                 _tDamageParticles ??= Plugin.FindGameType("DamageParticles");
@@ -890,6 +898,7 @@ namespace NOReplay
                     if (c != null) c.enabled = false;
 
                 PlayParticles(fxGo);
+                PinSmokeToDatum(fxGo);
                 _spawnedDamageFx.Add(fxGo);
                 UnityEngine.Object.Destroy(fxGo, 25f);
             }

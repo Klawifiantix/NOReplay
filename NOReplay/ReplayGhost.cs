@@ -1267,8 +1267,10 @@ namespace NOReplay
 
         void LateUpdateMotion()
         {
-            ApplyLock();
             long mark = ReplayPerf.Stamp();
+            ApplyLock();
+            ReplayPerf.Add("late-lock", ReplayPerf.Stamp() - mark);
+            mark = ReplayPerf.Stamp();
             if (_lasersBound && _lasers.Length > 0 && !_asleep)
                 ShowLaserMounts();
             DriveGlass();
@@ -1298,7 +1300,10 @@ namespace NOReplay
             {
                 float nowDead = Plugin.Clock.Time;
                 if (_ship && InScriptedSink(nowDead) && DriveScriptedShip(nowDead))
+                {
+                    ReplayPerf.Add("late-dead", ReplayPerf.Stamp() - mark);
                     return;
+                }
                 if (Plugin.CurrentDoc == null)
                     DestroyCasePattern();
                 else
@@ -1365,8 +1370,9 @@ namespace NOReplay
                 EnsureBlastTimes();
                 if (BlastSchedule.Due(Plugin.Clock.Time, _blastTimes) == 0)
                 {
+                    if (_blastsPlayed != 0 || _spawnedWreck != null || _spawnedDamageFx.Count > 0)
+                        ClearSpawnedWreck();
                     _blastsPlayed = 0;
-                    ClearSpawnedWreck();
                 }
             }
             else if (!_ordnance)
@@ -1403,7 +1409,11 @@ namespace NOReplay
                 ExitSleep();
             ReplayPerf.Add("late-show", ReplayPerf.Stamp() - mark);
             mark = ReplayPerf.Stamp();
-            if (!Track.TrySample(Plugin.Clock.Time, out var s)) return;
+            if (!Track.TrySample(Plugin.Clock.Time, out var s))
+            {
+                ReplayPerf.Add("late-sample", ReplayPerf.Stamp() - mark);
+                return;
+            }
             if (!_colsOff)
             {
                 for (int i = 0; i < _cols.Length; i++)
@@ -1446,7 +1456,7 @@ namespace NOReplay
             drive.SetPositionAndRotation(p, q);
             ReplayPerf.Add("late-pose", ReplayPerf.Stamp() - mark);
             mark = ReplayPerf.Stamp();
-            bool close = gameObject == Plugin._ghost || NearMe(4500f);
+            bool close = gameObject == Plugin._ghost || Plugin.AudioNearWorld(transform.position, 4500f);
             if (!_ordnance && _asleep)
             {
                 QuietLasers();
@@ -1470,6 +1480,7 @@ namespace NOReplay
                 _prevZ = gz;
                 _prevLocalPos = p;
                 _prevT = Plugin.Clock.Time;
+                ReplayPerf.Add("late-asleep", ReplayPerf.Stamp() - mark);
                 return;
             }
             if (!_ordnance && close)
@@ -1872,6 +1883,7 @@ namespace NOReplay
                     UnityEngine.Object.Destroy(quiet);
                     TakeScorches(go);
                     go.SetActive(true);
+                    PinSmokeToDatum(go);
                     _cookFire.Add(flame);
                     n++;
                 }
@@ -2074,7 +2086,11 @@ namespace NOReplay
                 return;
             }
             if (f.Culled) return;
-            f.Go.transform.SetParent(null, true);
+            // A scene root in world simulation space stays on screen when the
+            // origin jumps. Datum carries the column with the terrain.
+            var datum = Plugin.Datum;
+            f.Go.transform.SetParent(datum != null ? datum : null, true);
+            PinSmokeToDatum(f.Go);
             var lights = f.Go.GetComponentsInChildren<Light>(true);
             for (int i = 0; i < lights.Length; i++)
                 if (lights[i] != null) UnityEngine.Object.Destroy(lights[i].gameObject);
@@ -2090,6 +2106,89 @@ namespace NOReplay
                 }
             }
             f.Culled = true;
+        }
+
+        static void PinSmokeToDatum(GameObject go)
+        {
+            var datum = Plugin.Datum;
+            if (go == null || datum == null) return;
+            var pt = ParticleType();
+            if (pt == null) return;
+            BindFireParticles();
+            foreach (var c in go.GetComponentsInChildren(pt, true))
+            {
+                if (c == null) continue;
+                try
+                {
+                    var main = _psMain?.GetValue(c);
+                    if (main == null) continue;
+                    var space = main.GetType().GetProperty("simulationSpace");
+                    var custom = main.GetType().GetProperty("customSimulationSpace");
+                    if (space != null)
+                        space.SetValue(main, Enum.Parse(space.PropertyType, "Custom"));
+                    custom?.SetValue(main, datum);
+                    _psMain?.SetValue(c, main);
+                }
+                catch { }
+            }
+        }
+
+        internal int ReportLooseSmoke()
+        {
+            var datum = Plugin.Datum;
+            int n = 0;
+            n += ReportLooseSmokeOn(_cookFire, datum);
+            for (int i = 0; i < _spawnedDamageFx.Count; i++)
+            {
+                var go = _spawnedDamageFx[i];
+                if (go == null) continue;
+                n += ReportLooseSmokeObject(go, datum);
+            }
+            return n;
+        }
+
+        int ReportLooseSmokeOn(System.Collections.Generic.List<CookFlame> flames, Transform datum)
+        {
+            int n = 0;
+            for (int i = 0; i < flames.Count; i++)
+            {
+                var go = flames[i].Go;
+                if (go == null) continue;
+                n += ReportLooseSmokeObject(go, datum);
+            }
+            return n;
+        }
+
+        int ReportLooseSmokeObject(GameObject go, Transform datum)
+        {
+            var pt = ParticleType();
+            if (pt == null || go == null) return 0;
+            BindFireParticles();
+            int n = 0;
+            string who = Track != null && !string.IsNullOrEmpty(Track.Name) ? Track.Name : name;
+            foreach (var c in go.GetComponentsInChildren(pt, true))
+            {
+                if (c is not Component ps) continue;
+                string space = "?";
+                try
+                {
+                    var main = _psMain?.GetValue(ps);
+                    space = main?.GetType().GetProperty("simulationSpace")?.GetValue(main)?.ToString() ?? "?";
+                }
+                catch { }
+                var parent = ps.transform.parent;
+                bool underDatum = datum != null && (ps.transform == datum || ps.transform.IsChildOf(datum));
+                bool world = string.Equals(space, "World", StringComparison.Ordinal);
+                bool loose = parent == null || (!underDatum && ps.GetComponentInParent<ReplayGhost>() == null);
+                if (!world && !loose) continue;
+                string parentName = parent == null ? "null" : parent.name;
+                Plugin.Log?.LogInfo("Smoke origin " + ps.gameObject.name
+                    + " parent=" + parentName
+                    + " simSpace=" + space
+                    + " owner=" + who);
+                n++;
+            }
+            return n;
         }
 
         void LogFireCull()
@@ -2274,8 +2373,12 @@ namespace NOReplay
             return true;
         }
 
+        bool _rbHeld;
+
         void HoldAsleepBodies()
         {
+            if (_rbHeld) return;
+            _rbHeld = true;
             for (int i = 0; i < _rbs.Length; i++)
             {
                 var rb = _rbs[i];
@@ -2313,6 +2416,7 @@ namespace NOReplay
         void ExitSleep()
         {
             _asleep = false;
+            _rbHeld = false;
             var tr = transform;
             for (int i = 0; i < tr.childCount; i++)
             {

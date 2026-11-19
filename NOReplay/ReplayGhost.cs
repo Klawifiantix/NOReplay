@@ -1267,8 +1267,10 @@ namespace NOReplay
 
         void LateUpdateMotion()
         {
-            ApplyLock();
             long mark = ReplayPerf.Stamp();
+            ApplyLock();
+            ReplayPerf.Add("late-lock", ReplayPerf.Stamp() - mark);
+            mark = ReplayPerf.Stamp();
             if (_lasersBound && _lasers.Length > 0 && !_asleep)
                 ShowLaserMounts();
             DriveGlass();
@@ -1298,7 +1300,10 @@ namespace NOReplay
             {
                 float nowDead = Plugin.Clock.Time;
                 if (_ship && InScriptedSink(nowDead) && DriveScriptedShip(nowDead))
+                {
+                    ReplayPerf.Add("late-dead", ReplayPerf.Stamp() - mark);
                     return;
+                }
                 if (Plugin.CurrentDoc == null)
                     DestroyCasePattern();
                 else
@@ -1365,8 +1370,9 @@ namespace NOReplay
                 EnsureBlastTimes();
                 if (BlastSchedule.Due(Plugin.Clock.Time, _blastTimes) == 0)
                 {
+                    if (_blastsPlayed != 0 || _spawnedWreck != null || _spawnedDamageFx.Count > 0)
+                        ClearSpawnedWreck();
                     _blastsPlayed = 0;
-                    ClearSpawnedWreck();
                 }
             }
             else if (!_ordnance)
@@ -1403,7 +1409,11 @@ namespace NOReplay
                 ExitSleep();
             ReplayPerf.Add("late-show", ReplayPerf.Stamp() - mark);
             mark = ReplayPerf.Stamp();
-            if (!Track.TrySample(Plugin.Clock.Time, out var s)) return;
+            if (!Track.TrySample(Plugin.Clock.Time, out var s))
+            {
+                ReplayPerf.Add("late-sample", ReplayPerf.Stamp() - mark);
+                return;
+            }
             if (!_colsOff)
             {
                 for (int i = 0; i < _cols.Length; i++)
@@ -1446,7 +1456,7 @@ namespace NOReplay
             drive.SetPositionAndRotation(p, q);
             ReplayPerf.Add("late-pose", ReplayPerf.Stamp() - mark);
             mark = ReplayPerf.Stamp();
-            bool close = gameObject == Plugin._ghost || NearMe(4500f);
+            bool close = gameObject == Plugin._ghost || Plugin.AudioNearWorld(transform.position, 4500f);
             if (!_ordnance && _asleep)
             {
                 QuietLasers();
@@ -1470,6 +1480,7 @@ namespace NOReplay
                 _prevZ = gz;
                 _prevLocalPos = p;
                 _prevT = Plugin.Clock.Time;
+                ReplayPerf.Add("late-asleep", ReplayPerf.Stamp() - mark);
                 return;
             }
             if (!_ordnance && close)
@@ -2362,8 +2373,12 @@ namespace NOReplay
             return true;
         }
 
+        bool _rbHeld;
+
         void HoldAsleepBodies()
         {
+            if (_rbHeld) return;
+            _rbHeld = true;
             for (int i = 0; i < _rbs.Length; i++)
             {
                 var rb = _rbs[i];
@@ -2401,6 +2416,7 @@ namespace NOReplay
         void ExitSleep()
         {
             _asleep = false;
+            _rbHeld = false;
             var tr = transform;
             for (int i = 0; i < tr.childCount; i++)
             {

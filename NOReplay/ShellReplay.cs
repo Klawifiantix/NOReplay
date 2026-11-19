@@ -60,14 +60,14 @@ namespace NOReplay
                 var a = o.Samples[0];
                 int i1 = _shellHead[i];
                 var p1 = o.Samples[i1];
+                float span = Mathf.Max(0.2f, p1.Time - a.Time);
+                float age = time - a.Time;
+                if (age < 0f || age > span + 0.15f) continue;
                 var origin = Plugin.GlobalToLocal(a.X, a.Y, a.Z);
                 var hit = Plugin.GlobalToLocal(p1.X, p1.Y, p1.Z);
                 var dir = hit - origin;
                 if (dir.sqrMagnitude < 4f) continue;
-                float span = Mathf.Max(0.2f, p1.Time - a.Time);
                 float speed = Mathf.Clamp(dir.magnitude / span, 180f, 900f);
-                float age = time - a.Time;
-                if (age < 0f || age > span + 0.15f) continue;
                 int bucket = (int)(a.Time * 8f);
                 int key = ((int)a.X / 20) * 73856093 ^ ((int)a.Z / 20) * 19349663 ^ bucket;
                 if (_burst.TryGetValue(key, out var owner) && owner != o.Id) continue;

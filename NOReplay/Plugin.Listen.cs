@@ -75,15 +75,27 @@ namespace NOReplay
             }
         }
 
+        static Vector3 _smokeDatum;
+        static bool _smokeDatumSet;
+
         static void PostfixOriginShift()
         {
             if (CurrentDoc == null) return;
+            // OriginShift is called every frame and returns before moving
+            // anything. Only a real datum move is worth a scan.
+            var datum = Datum;
+            if (datum == null) return;
+            var pos = datum.position;
+            if (_smokeDatumSet && (pos - _smokeDatum).sqrMagnitude < 0.25f) return;
+            _smokeDatum = pos;
+            _smokeDatumSet = true;
             int n = 0;
             for (int i = 0; i < _ghostComps.Count; i++)
             {
                 var g = _ghostComps[i];
                 if (g != null) n += g.ReportLooseSmoke();
             }
+            if (n == 0) return;
             Log.LogInfo("Smoke origin shift n=" + n);
         }
 

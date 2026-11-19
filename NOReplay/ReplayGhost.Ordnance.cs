@@ -170,8 +170,13 @@ namespace NOReplay
             return false;
         }
 
+        static float _scorchSeen = -1f;
+
         internal static void SyncOwnedScorches(float now, string reason)
         {
+            bool back = _scorchSeen >= 0f && now + 0.001f < _scorchSeen;
+            _scorchSeen = now;
+            if (!back) return;
             var ghosts = Plugin.GhostComps;
             for (int g = 0; g < ghosts.Count; g++)
                 ghosts[g]?.DropScorches(now, reason);
@@ -190,7 +195,9 @@ namespace NOReplay
 
         internal static void ReleaseOwnedScorches(string reason)
         {
+            _scorchSeen = float.MaxValue;
             SyncOwnedScorches(float.NegativeInfinity, reason);
+            _scorchSeen = -1f;
         }
 
         static void BindDecalFields()

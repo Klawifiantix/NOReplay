@@ -1616,6 +1616,8 @@ namespace NOReplay
                 try { ApplyFx(s); }
                 catch (Exception ex) { LogSubsystemOnce("ApplyFx", ex); }
             }
+            else if (_air && !_neutral)
+                NoteRotorSpinIdle(s, close);
             else if (close)
             {
                 WriteUnitMotion(_spdMs, _velMs);

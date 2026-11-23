@@ -468,9 +468,14 @@ namespace NOReplay
             }
             float t = Clock.Time;
             MaybeLogMapIcons();
-            int budget = 2;
+            bool rush = _openingGate && CurrentDoc != null;
+            int budget = rush ? 16 : 2;
+            long rushStart = rush ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+            long rushSlice = rush ? (long)(System.Diagnostics.Stopwatch.Frequency * 0.008) : 0;
             for (int i = 0; i < _pendingAir.Count && budget > 0;)
             {
+                if (rush && budget < 16 && System.Diagnostics.Stopwatch.GetTimestamp() - rushStart >= rushSlice)
+                    break;
                 var obj = _pendingAir[i];
                 if (obj.Samples.Count == 0) { _pendingAir.RemoveAt(i); continue; }
                 if (t + 0.05f < TrackBorn(obj)) { i++; continue; }
@@ -520,6 +525,154 @@ namespace NOReplay
                 _pendingAir.RemoveAt(i);
                 budget--;
             }
+        }
+
+        static readonly List<string> _openingLeft = new List<string>();
+        static readonly HashSet<string> _openingSkipped = new HashSet<string>();
+        static float _hurryAt;
+
+        static void TickOpeningLoad()
+        {
+            if (!_openingGate || CurrentDoc == null) return;
+            bool canSpawn = InGameWorld() && FindLocalNetworkPlayer() != null;
+            if (canSpawn && _openingArm < 0f) _openingArm = Time.unscaledTime;
+            if (canSpawn && Time.unscaledTime >= _hurryAt)
+            {
+                _hurryAt = Time.unscaledTime + 0.25f;
+                ReplayStaticHandler.Hurry();
+            }
+            if (OpeningLoaded())
+            {
+                ReleaseOpening("ready");
+                return;
+            }
+            if (_openingArm >= 0f && Time.unscaledTime - _openingArm > 25f)
+            {
+                LogOpeningStuck();
+                ReleaseOpening("timeout");
+            }
+        }
+
+        static void ReleaseOpening(string why)
+        {
+            if (!_openingGate) return;
+            _openingGate = false;
+            Log.LogInfo("Opening load " + why);
+            if (_playAfterOpen)
+            {
+                _playAfterOpen = false;
+                _holdClock = false;
+                Clock.Paused = false;
+            }
+        }
+
+        static bool OpeningLoaded()
+        {
+            if (CurrentDoc == null || !InGameWorld()) return false;
+            if (FindLocalNetworkPlayer() == null) return false;
+            if (!_aircraftQueued) return false;
+            if (!_missionStartFinished && !_missionStartFailed) return false;
+            if (!ReplayStaticHandler.Started) return false;
+            LoadCounts(0f, out int due, out int ready);
+            return ready >= due;
+        }
+
+        internal static int LoadPercent(float t)
+        {
+            LoadCounts(t, out int due, out int ready);
+            if (due <= 0) return _openingGate ? 0 : 100;
+            int pct = ready * 100 / due;
+            if (pct >= 100 && _openingGate && !OpeningLoaded()) return 99;
+            return pct > 100 ? 100 : pct;
+        }
+
+        static void LoadCounts(float t, out int due, out int ready)
+        {
+            int pendingDue = 0;
+            for (int i = 0; i < _pendingAir.Count; i++)
+            {
+                var obj = _pendingAir[i];
+                if (obj == null || OpeningSkipped(obj)) continue;
+                if (t + 0.05f < TrackBorn(obj)) continue;
+                pendingDue++;
+            }
+            int spawnedDue = 0;
+            for (int i = 0; i < _ghostComps.Count; i++)
+            {
+                var obj = _ghostComps[i]?.Track;
+                if (obj == null) continue;
+                if (t + 0.05f < TrackBorn(obj)) continue;
+                spawnedDue++;
+            }
+            int bound = ReplayStaticHandler.Bound;
+            int waiting = 0;
+            if (ReplayStaticHandler.Started)
+            {
+                ReplayStaticHandler.CopyWaiting(_openingLeft);
+                for (int i = 0; i < _openingLeft.Count; i++)
+                {
+                    if (_openingSkipped.Contains("static:" + _openingLeft[i])) continue;
+                    waiting++;
+                }
+            }
+            int pendingStatics = ReplayStaticHandler.Started ? 0 : StaticExpect();
+            due = pendingDue + spawnedDue + bound + waiting + pendingStatics;
+            ready = spawnedDue + bound;
+        }
+
+        static bool OpeningSkipped(ReplayObject obj)
+        {
+            if (_openingSkipped.Count == 0) return false;
+            string id = obj.Id ?? obj.Name ?? "";
+            return id.Length > 0 && _openingSkipped.Contains(id);
+        }
+
+        static int StaticExpect()
+        {
+            if (_staticExpect >= 0) return _staticExpect;
+            int n = 0;
+            if (CurrentDoc != null)
+            {
+                foreach (var o in CurrentDoc.Objects)
+                {
+                    if (o == null) continue;
+                    if (!string.IsNullOrEmpty(o.Map)) { n++; continue; }
+                    string typ = o.Type ?? "";
+                    if (typ.IndexOf("Building", StringComparison.OrdinalIgnoreCase) >= 0
+                        || typ.IndexOf("Scenery", StringComparison.OrdinalIgnoreCase) >= 0)
+                        n++;
+                }
+            }
+            _staticExpect = n;
+            return n;
+        }
+
+        static void LogOpeningStuck()
+        {
+            _openingSkipped.Clear();
+            int shown = 0;
+            var sb = new System.Text.StringBuilder("Opening load timeout. Still due at t=0:");
+            for (int i = 0; i < _pendingAir.Count; i++)
+            {
+                var obj = _pendingAir[i];
+                if (obj == null) continue;
+                if (0.05f < TrackBorn(obj)) continue;
+                string id = obj.Id ?? obj.Name ?? "";
+                if (id.Length > 0) _openingSkipped.Add(id);
+                if (shown >= 16) continue;
+                sb.Append(" [").Append(obj.Name ?? "?").Append(" id=").Append(obj.Id ?? "").Append(']');
+                shown++;
+            }
+            ReplayStaticHandler.CopyWaiting(_openingLeft);
+            for (int i = 0; i < _openingLeft.Count; i++)
+            {
+                _openingSkipped.Add("static:" + _openingLeft[i]);
+                if (shown >= 24) continue;
+                sb.Append(" static ").Append(_openingLeft[i]);
+                shown++;
+            }
+            if (shown == 0) sb.Append(" (none listed)");
+            Log.LogWarning(sb.ToString());
         }
 
         static bool SkipInvalidDuplicate(ReplayObject obj)

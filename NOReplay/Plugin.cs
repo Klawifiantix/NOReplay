@@ -46,6 +46,10 @@ namespace NOReplay
         internal static bool PerfLog;
         internal static float TrailSeconds = 60f;
         static bool _holdClock;
+        static bool _openingGate;
+        static bool _playAfterOpen;
+        static float _openingArm = -1f;
+        static int _staticExpect = -1;
         Vector2 _pickerScroll;
         internal static ConfigEntry<string>? ReplayFolder;
         string _folderEdit = "";
@@ -123,7 +127,7 @@ namespace NOReplay
                     "Paths",
                     "ReplayFolder",
                     def,
-                    "Ordner mit .acmi Replay-Dateien");
+                    "Folder of .acmi replay files");
                 string saved = LoadFolderBesideDll(ReplayFolder.Value);
                 if (!string.IsNullOrWhiteSpace(saved) && saved != ReplayFolder.Value)
                     ReplayFolder.Value = saved;
@@ -134,7 +138,7 @@ namespace NOReplay
                         "Debug",
                         "PerfLog",
                         false,
-                        "Alle 5 Sekunden die mittlere Dauer des Replay-Updates in NOReplay.log schreiben.").Value;
+                        "Every 5 seconds, write the average replay update time to NOReplay.log.").Value;
                 }
                 catch { }
                 Harmony = new Harmony(PluginGuid);
@@ -198,6 +202,12 @@ namespace NOReplay
             _warmSeen.Clear();
             _aircraftQueued = false;
             _holdClock = false;
+            _openingGate = false;
+            _playAfterOpen = false;
+            _openingArm = -1f;
+            _staticExpect = -1;
+            _openingSkipped.Clear();
+            _hurryAt = 0f;
             _pickerOpen = false;
             ReplayRounds.Clear();
             BoomAudio.Clear();
@@ -228,14 +238,18 @@ namespace NOReplay
                 int jumpSerial = Clock.SeekSerial;
                 if (HotkeyDown(RecordConfig.PlayPauseKey, KeyCode.Space))
                 {
-                    _holdClock = false;
-                    Clock.Paused = !Clock.Paused;
+                    if (_openingGate) _playAfterOpen = true;
+                    else
+                    {
+                        _holdClock = false;
+                        Clock.Paused = !Clock.Paused;
+                    }
                 }
                 if (HotkeyDown(RecordConfig.Speed1Key, KeyCode.Alpha1)) Clock.Speed = 1f;
                 if (HotkeyDown(RecordConfig.Speed2Key, KeyCode.Alpha2)) Clock.Speed = 2f;
                 if (HotkeyDown(RecordConfig.Speed4Key, KeyCode.Alpha4)) Clock.Speed = 4f;
-                if (HotkeyDown(RecordConfig.SeekBackKey, KeyCode.LeftArrow)) Clock.Seek(Clock.Time - 5f);
-                if (HotkeyDown(RecordConfig.SeekForwardKey, KeyCode.RightArrow)) Clock.Seek(Clock.Time + 5f);
+                if (!_openingGate && HotkeyDown(RecordConfig.SeekBackKey, KeyCode.LeftArrow)) Clock.Seek(Clock.Time - 5f);
+                if (!_openingGate && HotkeyDown(RecordConfig.SeekForwardKey, KeyCode.RightArrow)) Clock.Seek(Clock.Time + 5f);
                 EnsureReplayKeysMuted();
                 if (!ReplayTextFocused())
                 {
@@ -300,6 +314,7 @@ namespace NOReplay
                 section = ReplayPerf.Stamp();
                 FeedPlayback.Tick(CurrentDoc, Clock.Time, Clock.Paused);
                 ReplayPerf.Add("feed", ReplayPerf.Stamp() - section);
+                TickOpeningLoad();
                 TickPanel();
                 ReplayPerf.Add("plugin", ReplayPerf.Stamp() - perfStamp);
             }
@@ -632,6 +647,12 @@ namespace NOReplay
                 Clock.Seek(0f);
                 Clock.Paused = true;
                 _holdClock = true;
+                _openingGate = true;
+                _playAfterOpen = false;
+                _openingArm = -1f;
+                _staticExpect = -1;
+                _openingSkipped.Clear();
+                _hurryAt = 0f;
                 Log.LogInfo($"Geladen [{index + 1}/{_replayFiles.Count}]: {Path.GetFileName(path)}");
                 int players = 0;
                 foreach (var o in doc.Objects)
@@ -659,6 +680,7 @@ namespace NOReplay
         }
 
         GUIStyle? _recStyle;
+        GUIStyle? _loadStyle;
 
         // DynamicMap.Maximize sets mapMaximized and raises onMapMaximized.
         // Minimize clears it and raises onMapMinimized. The flag is static,
@@ -689,6 +711,21 @@ namespace NOReplay
             }
             if (_pickerOpen) DrawReplayPicker();
             else if (ReplayTimelineOpen()) DrawTimeline();
+            DrawLoadProgress();
+        }
+
+        void DrawLoadProgress()
+        {
+            if (CurrentDoc == null || !InGameWorld()) return;
+            int percent = LoadPercent(Clock.Time);
+            if (percent >= 100) return;
+            if (_loadStyle == null)
+            {
+                _loadStyle = new GUIStyle(GUI.skin.label) { fontSize = 22 };
+                _loadStyle.normal.textColor = Color.green;
+            }
+            GUI.Label(new Rect(16f, Screen.height - 42f, 520f, 28f),
+                "Loading replay objects: " + percent + "%", _loadStyle);
         }
     }
 

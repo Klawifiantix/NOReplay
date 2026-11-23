@@ -88,6 +88,7 @@ namespace NOReplay
                 RecordParts.Reset();
                 Active = true;
                 engine.CaptureExistingUnits();
+                engine.ArmOpeningCapture();
                 Plugin.Log.LogInfo("Aufnahme gestartet (" + RecordKeyLabel() + ").");
             }
             catch (Exception ex)

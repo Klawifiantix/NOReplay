@@ -12,6 +12,10 @@ namespace NOReplay
         private DateTime curTime;
         public static RecordWriter writer;
         private float unitDiscoveryTimer = 0f;
+        readonly HashSet<long> _capturedIds = new HashSet<long>();
+        float _openUntil;
+        float _openNext;
+        bool _atStart;
 
         internal Dictionary<long, GameObject> unitObjects = [];
         internal Dictionary<long, long> tacviewIds = [];
@@ -22,7 +26,17 @@ namespace NOReplay
 
         public void invokeWriterUpdate(RecordObject obj)
         {
-            writer.UpdateObject(obj, curTime);
+            writer.UpdateObject(obj, _atStart ? startDate : curTime);
+        }
+
+        /// <summary>
+        /// For a few seconds after recording starts, look again for units the
+        /// first snapshot missed and write them at the recording start.
+        /// </summary>
+        internal void ArmOpeningCapture()
+        {
+            _openUntil = Time.unscaledTime + 5f;
+            _openNext = 0f;
         }
 
         internal void WriteGlobalEvent(string body)
@@ -34,7 +48,8 @@ namespace NOReplay
         public void RegisterUnitFromListener(Unit unit)
         {
             if (unit == null || !unit.persistentID.IsValid) return;
-            if (unitObjects.ContainsKey(unit.persistentID.Id)) return;
+            long id = unit.persistentID.Id;
+            if (unitObjects.ContainsKey(id) || !_capturedIds.Add(id)) return;
             GameObject? acmi = null;
             switch (unit)
             {
@@ -53,6 +68,10 @@ namespace NOReplay
                 case Building building:
                     acmi = new GameObject();
                     acmi.AddComponent<RecordBuilding>().Init(building);
+                    break;
+                case Scenery scenery:
+                    acmi = new GameObject();
+                    acmi.AddComponent<RecordScenery>().Init(scenery);
                     break;
                 case Missile missile:
                     acmi = new GameObject();
@@ -74,56 +93,119 @@ namespace NOReplay
 
         public void CaptureExistingUnits()
         {
-            var all = UnityEngine.Object.FindObjectsOfType<Unit>();
-            int captured = 0;
-            foreach (var unit in all)
-            {
-                if (unit == null || !unit.persistentID.IsValid) continue;
-                if (unitObjects.ContainsKey(unit.persistentID.Id)) continue;
-                GameObject? acmi = null;
-                switch (unit)
-                {
-                    case Aircraft aircraft:
-                        acmi = new GameObject();
-                        acmi.AddComponent<RecordAircraft>().Init(aircraft);
-                        break;
-                    case GroundVehicle vehicle:
-                        acmi = new GameObject();
-                        acmi.AddComponent<RecordVehicle>().Init(vehicle);
-                        break;
-                    case Ship ship:
-                        acmi = new GameObject();
-                        acmi.AddComponent<RecordShip>().Init(ship);
-                        break;
-                    case Building building:
-                        acmi = new GameObject();
-                        acmi.AddComponent<RecordBuilding>().Init(building);
-                        break;
-                    case Scenery scenery:
-                        acmi = new GameObject();
-                        acmi.AddComponent<RecordScenery>().Init(scenery);
-                        break;
-                    case Missile missile:
-                        acmi = new GameObject();
-                        acmi.AddComponent<RecordMissile>().Init(missile);
-                        break;
-                    case PilotDismounted pilot:
-                        acmi = new GameObject();
-                        acmi.AddComponent<RecordPilot>().Init(pilot);
-                        break;
-                    case Container cargo:
-                        acmi = new GameObject();
-                        acmi.AddComponent<RecordContainer>().Init(cargo);
-                        break;
-                }
-                if (acmi != null)
-                {
-                    Track(unit, acmi);
-                    captured++;
-                }
-            }
+            int captured = CaptureUnits(false);
             Plugin.Log.LogInfo("Start-Capture: " + captured + " vorhandene Einheiten");
             SeedShocks();
+        }
+
+        void TickOpeningCapture()
+        {
+            if (!Record.Active || _openUntil <= 0f) return;
+            if (Time.unscaledTime > _openUntil)
+            {
+                _openUntil = 0f;
+                return;
+            }
+            if (Time.unscaledTime < _openNext) return;
+            _openNext = Time.unscaledTime + 0.5f;
+            _atStart = true;
+            int captured = 0;
+            try { captured = CaptureUnits(true); }
+            finally { _atStart = false; }
+            if (captured > 0)
+                Plugin.Log.LogInfo("Opening capture +" + captured + " at t=0");
+        }
+
+        int CaptureUnits(bool includeInactive)
+        {
+            var all = includeInactive
+                ? Resources.FindObjectsOfTypeAll(typeof(Unit))
+                : UnityEngine.Object.FindObjectsOfType(typeof(Unit));
+            int captured = 0;
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i] is not Unit unit) continue;
+                try
+                {
+                    if (TryCapture(unit, includeInactive)) captured++;
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.LogWarning("Capture " + ex.GetType().Name + ": " + ex.Message);
+                }
+            }
+            return captured;
+        }
+
+        bool TryCapture(Unit unit, bool includeInactive)
+        {
+            if (unit == null || !unit.persistentID.IsValid) return false;
+            var go = unit.gameObject;
+            if (go == null || !go.scene.IsValid()) return false;
+            if (!includeInactive && !go.activeInHierarchy) return false;
+            long id = unit.persistentID.Id;
+            if (unitObjects.ContainsKey(id) || !_capturedIds.Add(id)) return false;
+            GameObject? acmi = MakeRecorder(unit);
+            if (acmi == null) return false;
+            Track(unit, acmi);
+            return true;
+        }
+
+        static GameObject? MakeRecorder(Unit unit)
+        {
+            switch (unit)
+            {
+                case Aircraft aircraft:
+                {
+                    var acmi = new GameObject();
+                    acmi.AddComponent<RecordAircraft>().Init(aircraft);
+                    return acmi;
+                }
+                case GroundVehicle vehicle:
+                {
+                    var acmi = new GameObject();
+                    acmi.AddComponent<RecordVehicle>().Init(vehicle);
+                    return acmi;
+                }
+                case Ship ship:
+                {
+                    var acmi = new GameObject();
+                    acmi.AddComponent<RecordShip>().Init(ship);
+                    return acmi;
+                }
+                case Building building:
+                {
+                    var acmi = new GameObject();
+                    acmi.AddComponent<RecordBuilding>().Init(building);
+                    return acmi;
+                }
+                case Scenery scenery:
+                {
+                    var acmi = new GameObject();
+                    acmi.AddComponent<RecordScenery>().Init(scenery);
+                    return acmi;
+                }
+                case Missile missile:
+                {
+                    var acmi = new GameObject();
+                    acmi.AddComponent<RecordMissile>().Init(missile);
+                    return acmi;
+                }
+                case PilotDismounted pilot:
+                {
+                    var acmi = new GameObject();
+                    acmi.AddComponent<RecordPilot>().Init(pilot);
+                    return acmi;
+                }
+                case Container cargo:
+                {
+                    var acmi = new GameObject();
+                    acmi.AddComponent<RecordContainer>().Init(cargo);
+                    return acmi;
+                }
+                default:
+                    return null;
+            }
         }
 
         void Track(Unit unit, GameObject acmi)
@@ -171,17 +253,17 @@ namespace NOReplay
 
         public void invokeWriterRemove(RecordObject obj)
         {
-            writer.RemoveObject(obj, curTime);
+            writer.RemoveObject(obj, _atStart ? startDate : curTime);
         }
 
         public void invokeWriterDestroy(RecordObject obj)
         {
-            writer.WriteDestroyedEvent(obj, curTime);
+            writer.WriteDestroyedEvent(obj, _atStart ? startDate : curTime);
         }
 
         public void invokeWriterRepair(RecordObject obj)
         {
-            writer.WriteRepairedEvent(obj, curTime);
+            writer.WriteRepairedEvent(obj, _atStart ? startDate : curTime);
         }
 
         void Awake()
@@ -331,6 +413,8 @@ namespace NOReplay
                 long bay = RecordPerf.Stamp();
                 try { RecordBay.Sample(); }
                 catch { }
+                try { TickOpeningCapture(); }
+                catch (Exception ex) { Plugin.Log.LogWarning("Opening capture " + ex.Message); }
                 RecordPerf.Add("bay", RecordPerf.Stamp() - bay);
             }
             RecordPerf.Frame(unitObjects.Count, Retired);

@@ -203,7 +203,7 @@ namespace NOReplay
             if (_logs < 12)
             {
                 _logs++;
-                Record.Log?.LogInfo("Teil " + kind + " id=" + partId
+                Record.Log?.LogInfo("Part " + kind + " id=" + partId
                     + (seg >= 0 ? " seg=" + seg : "")
                     + " " + (unit.definition != null ? unit.definition.unitName : unit.name)
                     + " " + path);

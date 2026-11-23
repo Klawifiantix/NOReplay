@@ -94,7 +94,7 @@ namespace NOReplay
         public void CaptureExistingUnits()
         {
             int captured = CaptureUnits(false);
-            Plugin.Log.LogInfo("Start-Capture: " + captured + " vorhandene Einheiten");
+            Plugin.Log.LogInfo("Start-Capture: " + captured + " units already present");
             SeedShocks();
         }
 

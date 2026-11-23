@@ -180,6 +180,12 @@ namespace NOReplay
         internal void OnReplaySeek(float time)
         {
             if (!_ordnance || IsFlareTrack()) return;
+            if (DetonatedAt(time))
+            {
+                _boomed = true;
+                if (gameObject.activeSelf) gameObject.SetActive(false);
+                return;
+            }
             bool detonated = _boomed || _boomShotPlayed;
             int live = CountAudioSources();
             bool lost = _srcHome != null && _srcHome.Count > 0 && live == 0;

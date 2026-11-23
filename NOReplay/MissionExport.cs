@@ -311,7 +311,7 @@ namespace NOReplay
                     kept.Add((n, s.X, s.Y, s.Z));
             }
             if (drop.Count > 0)
-                Log.LogInfo("Statik-Duplikate entfernt: " + drop.Count);
+                Log.LogInfo("Static duplicates removed: " + drop.Count);
             return drop;
         }
 
@@ -573,7 +573,7 @@ namespace NOReplay
                 return;
             }
             ExportMissionJson(CurrentDoc);
-            Log.LogInfo("Mission 'NOReplay' unter Missions/NOReplay/. Im Menü als Custom Mission starten.");
+            Log.LogInfo("Mission 'NOReplay' is under Missions/NOReplay/. Start it from the menu as a custom mission.");
         }
 
 

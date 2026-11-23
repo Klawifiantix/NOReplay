@@ -42,7 +42,7 @@ namespace NOReplay
                 harmony.Patch(spawn, postfix: new HarmonyMethod(typeof(RecordWreck), nameof(AfterSpawn)));
                 n++;
             }
-            else Plugin.Log?.LogWarning("Wreck-Record: SpawnWreckage fehlt");
+            else Plugin.Log?.LogWarning("Wreck record: SpawnWreckage is missing");
             if (damage != null)
             {
                 harmony.Patch(damage,

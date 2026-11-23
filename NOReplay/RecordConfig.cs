@@ -393,7 +393,7 @@ namespace NOReplay
             CasePatternKey = BindHotkey(config, ReplayHotkeys, "Case Pattern", DefaultCasePatternKey,
                 "Toggle the green Case I approach pattern on each Hyperion. Default: P. Off when the game starts. Ignored while a text field is focused. The game binding for this key is muted during replay.");
 
-            EnableLogging = config.Bind(DeveloperFeatures, "EnableLogging", DefaultEnableLogging, "Toggle Logging. Default: false");
+            EnableLogging = config.Bind(DeveloperFeatures, "EnableLogging", DefaultEnableLogging, "Write per-event replay diagnostics to NOReplay.log. Off by default.");
             Record.Log?.LogDebug($"EnableLogging = {EnableLogging.Value}");
 
             WarnHotkeyCollisions();
@@ -438,7 +438,7 @@ namespace NOReplay
                 {
                     string flyId = keys[i].Name + "|WASD|" + a.MainKey;
                     if (_warnedHotkeys.Add(flyId))
-                        Plugin.Log.LogWarning("Hotkey-Konflikt: " + keys[i].Name + " (" + a + ") liegt auf " + a.MainKey + ". WASD bewegt die freie Kamera weiter.");
+                        Plugin.Log.LogWarning("Hotkey clash: " + keys[i].Name + " (" + a + ") is bound to " + a.MainKey + ". WASD still moves the free camera.");
                 }
                 for (int j = i + 1; j < keys.Length; j++)
                 {
@@ -446,7 +446,7 @@ namespace NOReplay
                     if (a.MainKey != b.MainKey) continue;
                     string id = keys[i].Name + "|" + keys[j].Name + "|" + a.MainKey;
                     if (!_warnedHotkeys.Add(id)) continue;
-                    Plugin.Log.LogWarning("Hotkey-Konflikt: " + keys[i].Name + " (" + a + ") und " + keys[j].Name + " (" + b + ") nutzen " + a.MainKey + ".");
+                    Plugin.Log.LogWarning("Hotkey clash: " + keys[i].Name + " (" + a + ") and " + keys[j].Name + " (" + b + ") both use " + a.MainKey + ".");
                 }
             }
         }

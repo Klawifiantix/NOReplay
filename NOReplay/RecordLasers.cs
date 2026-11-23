@@ -57,13 +57,13 @@ namespace NOReplay
             var t = Plugin.FindGameType("Laser");
             if (t == null)
             {
-                Plugin.Log?.LogInfo("Laser-Record: Laser fehlt");
+                Plugin.Log?.LogInfo("Laser record: Laser is missing");
                 return;
             }
             var late = t.GetMethod("LateUpdate", Flags);
             if (late == null)
             {
-                Plugin.Log?.LogInfo("Laser-Record: LateUpdate fehlt");
+                Plugin.Log?.LogInfo("Laser record: LateUpdate is missing");
                 return;
             }
             _laserType = t;

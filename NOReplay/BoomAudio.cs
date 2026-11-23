@@ -106,7 +106,7 @@ namespace NOReplay
                 string name = ClipName(source, clips);
                 if (!BoomDelay.InRangeAtDetonation(dist, max))
                 {
-                    Plugin.Log?.LogInfo(Line(name, dist, max, 0f, "skipped range"));
+                    Plugin.Log?.LogDebug(Line(name, dist, max, 0f, "skipped range"));
                     continue;
                 }
                 int pick = clips.Length == 1 ? 0 : UnityEngine.Random.Range(0, clips.Length);
@@ -125,7 +125,7 @@ namespace NOReplay
                     Delay = delay,
                     Name = name
                 });
-                Plugin.Log?.LogInfo(Line(name, dist, max, delay, "armed"));
+                Plugin.Log?.LogDebug(Line(name, dist, max, delay, "armed"));
             }
         }
 
@@ -184,7 +184,7 @@ namespace NOReplay
                     if (late && !voice.LoggedSkip)
                     {
                         voice.LoggedSkip = true;
-                        Plugin.Log?.LogInfo(Line(voice.Name, dist, max, voice.Delay, "skipped seek"));
+                        Plugin.Log?.LogDebug(Line(voice.Name, dist, max, voice.Delay, "skipped seek"));
                     }
                     else if (!late)
                         voice.LoggedSkip = false;
@@ -198,7 +198,7 @@ namespace NOReplay
                 if (!voice.LoggedPlay)
                 {
                     voice.LoggedPlay = true;
-                    Plugin.Log?.LogInfo(Line(voice.Name, dist, max, voice.Delay, "played"));
+                    Plugin.Log?.LogDebug(Line(voice.Name, dist, max, voice.Delay, "played"));
                 }
             }
             _prev = time;

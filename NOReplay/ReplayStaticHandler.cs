@@ -431,7 +431,7 @@ namespace NOReplay
             {
                 SpawnTimedEffects(unit, shown, wantFire: false);
                 shown.BoomsOn = bd;
-                Plugin.Log?.LogInfo("Boom " + label + " at=" + booms[bd - 1].ToString("0.00")
+                Plugin.Log?.LogDebug("Boom " + label + " at=" + booms[bd - 1].ToString("0.00")
                     + " cook=" + (WreckMark.IsCookoff(label) ? "1" : "0") + " src=boom n=" + bd);
             }
             var ps = ParticlesOf(shown.TimedFx);
@@ -512,7 +512,7 @@ namespace NOReplay
             shown.Wreck = SpawnWreck(unit, blast);
             if (WreckMark.IsCookoff(obj.Name) && !TimelineOwnsFx(obj))
             {
-                Plugin.Log?.LogInfo("Boom " + (unit.definition != null ? unit.definition.unitName : unit.name)
+                Plugin.Log?.LogDebug("Boom " + (unit.definition != null ? unit.definition.unitName : unit.name)
                     + " at=" + blast.ToString("0.00")
                     + " cook=1 src=" + WreckMark.Source(obj.BoomAt, obj.DyingAt, true));
             }

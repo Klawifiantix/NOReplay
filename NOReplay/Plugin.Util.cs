@@ -70,7 +70,7 @@ namespace NOReplay
             _datum = ResolveDatum();
             if (_datum == null || _datumLogged) return;
             _datumLogged = true;
-            Log.LogInfo("Datum bereit " + _datum.position.ToString("F0"));
+            Log.LogInfo("Datum ready " + _datum.position.ToString("F0"));
             if (CurrentDoc != null) ApplyWeather(CurrentDoc);
         }
 
@@ -265,7 +265,7 @@ namespace NOReplay
         static void DumpTypeShape(string typeName)
         {
             var t = FindGameType(typeName);
-            if (t == null) { Log.LogWarning("Typ fehlt: " + typeName); return; }
+            if (t == null) { Log.LogWarning("Type missing: " + typeName); return; }
             Log.LogInfo("--- " + t.FullName + " ---");
             var flags = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
             foreach (var c in t.GetConstructors(flags))

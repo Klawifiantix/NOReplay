@@ -218,7 +218,7 @@ namespace NOReplay
                 _trail.material = mat;
                 // Plugin.Log?.LogInfo("Trail-Shader " + sh.name);
             }
-            else Plugin.Log?.LogWarning("Trail: kein Shader");
+            else Plugin.Log?.LogWarning("Trail: no shader");
             _trail.startWidth = 8f;
             _trail.endWidth = 6f;
             _trail.widthMultiplier = _ordnance ? 2f : 8f;

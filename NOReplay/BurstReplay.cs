@@ -90,7 +90,7 @@ namespace NOReplay
                 if (!_shown && spawned > 0)
                 {
                     _shown = true;
-                    Plugin.Log.LogInfo("Kanonenstoß nativ " + o.Id + " rpm=" + rpm.ToString("0") + " gun=" + o.GunIndex + " " + (o.Weapon ?? ""));
+                    Plugin.Log.LogInfo("Gun burst native " + o.Id + " rpm=" + rpm.ToString("0") + " gun=" + o.GunIndex + " " + (o.Weapon ?? ""));
                 }
             }
         }
@@ -118,7 +118,7 @@ namespace NOReplay
                     list.Add(obj);
             }
             _bursts = list.ToArray();
-            Plugin.Log.LogInfo("Kanonenstöße im Replay: " + _bursts.Length);
+            Plugin.Log.LogInfo("Gun bursts in replay: " + _bursts.Length);
         }
 
         static void HaltAll(bool clearBullets)

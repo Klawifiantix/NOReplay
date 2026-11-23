@@ -35,7 +35,7 @@ namespace NOReplay
                 if (!_menuMiss)
                 {
                     _menuMiss = true;
-                    Log.LogInfo("Replay-Button: Workshop im Menü nicht gefunden.");
+                    Log.LogInfo("Replay button: Workshop was not found in the menu.");
                 }
                 return;
             }
@@ -65,7 +65,7 @@ namespace NOReplay
             _menuHooked = true;
             _menuMiss = false;
             var scene = SceneManager.GetActiveScene();
-            Log.LogInfo("Replay-Button nur in MainMenu. Szene=" + scene.name + " Pfad=" + scene.path);
+            Log.LogInfo("Replay button only in MainMenu. scene=" + scene.name + " path=" + scene.path);
             DumpGameMaps();
         }
 
@@ -136,7 +136,7 @@ namespace NOReplay
             _pickerOpen = true;
             _replayLive = false;
             if (_replayFiles.Count > 0) _replayIndex = _replayFiles.Count - 1;
-            Log.LogInfo("Replay-Auswahl: " + _replayFiles.Count);
+            Log.LogInfo("Replay picker: " + _replayFiles.Count);
         }
 
         void DrawReplayPicker()
@@ -276,10 +276,10 @@ namespace NOReplay
                 string? jsonPath = ExportMissionJson(CurrentDoc);
                 if (string.IsNullOrEmpty(jsonPath) || !File.Exists(jsonPath))
                 {
-                    Log.LogError("JSON wurde nicht geschrieben, Abbruch.");
+                    Log.LogError("JSON was not written, stopping.");
                     return;
                 }
-                Log.LogInfo("JSON bereit (" + new FileInfo(jsonPath).Length + " Byte).");
+                Log.LogInfo("JSON ready (" + new FileInfo(jsonPath).Length + " Byte).");
                 _pickerOpen = false;
                 _replayLive = true;
                 _seenWorld = false;
@@ -289,7 +289,7 @@ namespace NOReplay
                 ApplyNamedUserMission("NOReplay");
                 _pendingOfficialStart = true;
                 OpenMissionsMenu();
-                Log.LogInfo("Missionsmenü — warte auf SinglePlayerMenu.");
+                Log.LogInfo("Missions menu, waiting for SinglePlayerMenu.");
             }
             catch (Exception ex)
             {
@@ -307,7 +307,7 @@ namespace NOReplay
                 if (f?.GetValue(null) is string s && !string.IsNullOrEmpty(s))
                     scene = s;
             }
-            Log.LogInfo("Lade Szene " + scene);
+            Log.LogInfo("Loading scene " + scene);
             _worldReadyAt = Time.unscaledTime + 0.5f;
             SceneManager.LoadScene(scene);
         }

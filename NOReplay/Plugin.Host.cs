@@ -24,7 +24,7 @@ namespace NOReplay
             TryActivateServer();
             _worldStarting = true;
             _worldReadyAt = Time.unscaledTime + 2.5f;
-            Log.LogInfo("Replay-Welt startet. Warte 2.5s auf Server/SOM.");
+            Log.LogInfo("Replay world starting. Waiting 2.5s for the server.");
         }
 
         static void TickWorldStart()
@@ -49,14 +49,14 @@ namespace NOReplay
         static void DumpEnumNames(string typeName)
         {
             var t = FindGameType(typeName);
-            if (t == null) { Log.LogInfo("Enum fehlt: " + typeName); return; }
+            if (t == null) { Log.LogInfo("Enum missing: " + typeName); return; }
             if (t.IsEnum)
             {
                 var names = Enum.GetNames(t);
                 Log.LogInfo(typeName + " = " + string.Join(", ", names));
                 return;
             }
-            Log.LogInfo(typeName + " ist kein Enum (" + t.FullName + ")");
+            Log.LogInfo(typeName + " is not an enum (" + t.FullName + ")");
         }
 
         static void CallStartHost()
@@ -68,7 +68,7 @@ namespace NOReplay
             var mmType = FindGameType("MissionManager");
             if (nmType == null || optType == null || gsType == null || sockType == null || mmType == null)
             {
-                Log.LogError("Typ fehlt.");
+                Log.LogError("Type missing.");
                 return;
             }
             UnityEngine.Object? nm = FindNetworkManager(nmType);
@@ -77,13 +77,13 @@ namespace NOReplay
             _cachedNm = nm;
             if (IsServerActive())
             {
-                Log.LogInfo("Host läuft bereits.");
+                Log.LogInfo("Host is already running.");
                 return;
             }
             object? mission = EnsureCurrentMission();
             if (mission == null)
             {
-                Log.LogError("CurrentMission fehlt, StartHost abgebrochen.");
+                Log.LogError("CurrentMission is missing, StartHost cancelled.");
                 return;
             }
             object? map = mission.GetType().GetField("MapKey")?.GetValue(mission);
@@ -95,7 +95,7 @@ namespace NOReplay
             try
             {
                 start!.Invoke(nm, new[] { opt });
-                Log.LogInfo("StartHost zurück (wie SinglePlayerMenu).");
+                Log.LogInfo("StartHost returned (same as SinglePlayerMenu).");
             }
             catch (Exception ex)
             {
@@ -120,7 +120,7 @@ namespace NOReplay
                 Log.LogWarning("SetMission: " + (ex.InnerException?.Message ?? ex.Message));
             }
             if (mission == null) mission = _loadedMission;
-            Log.LogInfo("SetMission erneut für Replay.");
+            Log.LogInfo("SetMission again for the replay.");
             return mission;
         }
 
@@ -175,7 +175,7 @@ namespace NOReplay
             var confirm = pickerType.GetMethod("ConfirmPressed", flags);
             if (confirm == null)
             {
-                Log.LogError("MissionsPicker.ConfirmPressed fehlt.");
+                Log.LogError("MissionsPicker.ConfirmPressed is missing.");
                 return false;
             }
             try
@@ -203,9 +203,9 @@ namespace NOReplay
                 return;
             }
             if (viaMenu || viaPicker)
-                Log.LogInfo("Menü-Start hat den Host nicht gestartet, StartHost direkt.");
+                Log.LogInfo("The menu start did not start the host, calling StartHost directly.");
             else
-                Log.LogInfo("Kein SinglePlayerMenu und kein aktiver MissionsPicker, StartHost direkt.");
+                Log.LogInfo("No SinglePlayerMenu and no active mission picker, calling StartHost directly.");
             CallStartHost();
         }
 
@@ -241,7 +241,7 @@ namespace NOReplay
                 var loaderType = FindGameType("MapLoader");
                 if (loaderType == null)
                 {
-                    Log.LogInfo("MapLoader Typ fehlt.");
+                    Log.LogInfo("MapLoader Type missing.");
                     return;
                 }
                 foreach (var o in Resources.FindObjectsOfTypeAll(loaderType))
@@ -351,7 +351,7 @@ namespace NOReplay
                 if (!_missionNoted)
                 {
                     _missionNoted = true;
-                    Log.LogInfo("StartMission unvollstaendig, kein zweiter Lauf.");
+                    Log.LogInfo("StartMission did not finish, not running it again.");
                 }
                 return;
             }
@@ -371,7 +371,7 @@ namespace NOReplay
                 if (Time.unscaledTime - _missionWaitLog > 2f)
                 {
                     _missionWaitLog = Time.unscaledTime;
-                    Log.LogInfo("StartMission wartet auf MapSettings.");
+                    Log.LogInfo("StartMission is waiting for map settings.");
                 }
                 return;
             }
@@ -385,12 +385,12 @@ namespace NOReplay
             }
             catch (Exception ex)
             {
-                Log.LogWarning("StartMission nachgeholt: " + ExcText(ex));
+                Log.LogWarning("StartMission catch-up: " + ExcText(ex));
             }
             if (_missionStartFinished)
-                Log.LogInfo("StartMission nachgeholt.");
+                Log.LogInfo("StartMission catch-up finished.");
             else
-                Log.LogInfo("StartMission nachgeholt, Mission laeuft nicht.");
+                Log.LogInfo("StartMission catch-up finished, the mission is not running.");
         }
 
         static bool MissionWorldReady()
@@ -553,7 +553,7 @@ namespace NOReplay
                 _missionStartFinished = false;
                 Log.LogWarning("StartMission exception: " + ExcText(__exception));
                 SetMissionRunning(false);
-                Log.LogInfo("StartMission fehlgeschlagen, IsRunning zurueck.");
+                Log.LogInfo("StartMission failed, IsRunning restored.");
             }
             return __exception;
         }
@@ -620,7 +620,7 @@ namespace NOReplay
             var nmType = FindGameType("NetworkManagerNuclearOption");
             if (nmType == null) return;
             var nm = FindNetworkManager(nmType);
-            if (nm == null) { Log.LogInfo("kein NM"); return; }
+            if (nm == null) { Log.LogInfo("no network manager"); return; }
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             foreach (var f in nmType.GetFields(flags))
             {
@@ -730,7 +730,7 @@ namespace NOReplay
             var t = FindGameType(typeName);
             if (t == null)
             {
-                Log.LogInfo("  Typ fehlt: " + typeName);
+                Log.LogInfo("  type missing: " + typeName);
                 return;
             }
             var all = Resources.FindObjectsOfTypeAll(t);

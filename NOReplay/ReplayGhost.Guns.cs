@@ -585,7 +585,7 @@ namespace NOReplay
                 if (!_shellGunLogged)
                 {
                     _shellGunLogged = true;
-                    Plugin.Log.LogInfo("Kanone feuert Geschoss, kein Tracer " + rt.Path);
+                    Plugin.Log.LogInfo("Gun fired a shell, no tracer " + rt.Path);
                 }
                 return;
             }
@@ -680,7 +680,7 @@ namespace NOReplay
                 if (!_simLogged)
                 {
                     _simLogged = true;
-                    Plugin.Log.LogInfo("Kanonen über BulletSim (visualOnly) Läufe=" + rt.Muzzles.Length + " " + rt.Path);
+                    Plugin.Log.LogInfo("Guns via BulletSim (visualOnly) barrels=" + rt.Muzzles.Length + " " + rt.Path);
                 }
                 return sim;
             }

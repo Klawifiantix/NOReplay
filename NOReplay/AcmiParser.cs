@@ -515,9 +515,9 @@ namespace NOReplay
                 if (IsShell(o.Type) && FillShell(o, doc)) filled++;
             }
             if (filled > 0)
-                Plugin.Log.LogInfo("Shell-Pfad ergänzt: " + filled);
+                Plugin.Log.LogInfo("Shell paths filled: " + filled);
             if (bursts > 0)
-                Plugin.Log.LogInfo("Kanonenstöße: " + bursts);
+                Plugin.Log.LogInfo("Gun bursts: " + bursts);
             int turretUnits = 0;
             foreach (var o in doc.Objects)
                 if (o.HasTurrets) turretUnits++;
@@ -532,7 +532,7 @@ namespace NOReplay
                 if (o.PartBreaks != null) partBreaks += o.PartBreaks.Length;
             }
             if (launches > 0 || partBreaks > 0)
-                Plugin.Log.LogInfo("Waffen-Index Starts=" + launches + " Teile=" + partBreaks);
+                Plugin.Log.LogInfo("Weapon index launches=" + launches + " parts=" + partBreaks);
             if (doc.Traps.Count > 0)
                 Plugin.Log.LogInfo("Fangseile: " + doc.Traps.Count);
             int feedChat = 0, feedKill = 0, feedMission = 0;

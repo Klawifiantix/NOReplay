@@ -102,7 +102,7 @@ namespace NOReplay
                                     + " d=" + Mathf.Sqrt(dx * dx + dz * dz).ToString("0.0"));
                 }
             }
-            Log.LogInfo("Statik-Dedup Kandidaten=" + list.Count + " ausgeblendet=" + killed);
+            Log.LogInfo("Static dedup candidates=" + list.Count + " hidden=" + killed);
         }
 
         static void BindGhostsToMissionUnits()

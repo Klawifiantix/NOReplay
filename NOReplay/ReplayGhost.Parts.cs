@@ -250,7 +250,7 @@ namespace NOReplay
                     if (_partMissLog < 4)
                     {
                         _partMissLog++;
-                        Plugin.Log.LogInfo("Teil nicht gefunden id=" + ev.PartId + " " + (ev.PartPath ?? "")
+                        Plugin.Log.LogInfo("Part not found id=" + ev.PartId + " " + (ev.PartPath ?? "")
                             + " " + (Track?.Name ?? name));
                     }
                     continue;

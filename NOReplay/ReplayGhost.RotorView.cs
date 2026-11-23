@@ -10,14 +10,54 @@ namespace NOReplay
         bool _rotorTreeLogged;
         float _rotorTreeWait;
         float _rotorViewLogAt = -999f;
+        float _rotorRenderAt = -999f;
         string _rotorViewSig = "";
         bool _rotorYawReady;
         readonly Dictionary<int, float> _rotorPrevYaw = new Dictionary<int, float>();
         readonly Dictionary<int, float> _rotorMoved = new Dictionary<int, float>();
 
+        Transform? _spinHub;
+        Transform? _spinSeg;
+        int _postFrame = -1;
+        float _postHub;
+        float _postSeg;
+        bool _rear;
+        float _rearAt;
+        static bool _rotorCamHook;
+        static ReplayGhost? _rotorWatch;
+
+        struct RotorFrame
+        {
+            public float T;
+            public int F;
+            public float Post;
+            public float Cull;
+            public float Rend;
+            public float DRend;
+            public float Dt;
+            public float Udt;
+            public float Behind;
+            public Vector3 Rel;
+        }
+
+        readonly RotorFrame[] _rotorRing = new RotorFrame[40];
+        int _rotorRingAt;
+        int _rotorRingN;
+        int _rotorFast;
+        int _rotorSlow;
+        int _rotorBurst;
+        bool _rotorStopped;
+        float _rendPrev;
+        bool _rendPrevOk;
+        float _cullHub;
+        int _cullFrame = -1;
+
         void NoteRotorView()
         {
-            if (!_air || !IsChicaneRotor()) return;
+            if (Plugin.CurrentDoc == null || !_air || !IsChicaneRotor()) return;
+            EnsureRotorCamHook();
+            _rotorWatch = this;
+            TrackBehind();
             DumpRotorTreeOnce();
             StepRotorYaw();
             bool sideChanged = false;
@@ -50,7 +90,7 @@ namespace NOReplay
                 if (transform.childCount == 0) return;
                 if (_rotorTreeWait <= 0f) _rotorTreeWait = Time.unscaledTime + 2f;
                 if (Time.unscaledTime < _rotorTreeWait) return;
-                Plugin.Log?.LogInfo("Rotor tree " + RotorWho() + " root=none");
+                Plugin.Log?.LogInfo(RotorStamp() + "Rotor tree " + RotorWho() + " root=none");
                 _rotorTreeLogged = true;
                 return;
             }
@@ -60,12 +100,12 @@ namespace NOReplay
                 var root = roots[r];
                 if (root == null) continue;
                 var all = root.GetComponentsInChildren<Transform>(true);
-                Plugin.Log?.LogInfo("Rotor tree " + who + " root=" + root.name + " n=" + all.Length);
+                Plugin.Log?.LogInfo(RotorStamp() + "Rotor tree " + who + " root=" + root.name + " n=" + all.Length);
                 for (int i = 0; i < all.Length; i++)
                 {
                     var t = all[i];
                     if (t == null) continue;
-                    Plugin.Log?.LogInfo("Rotor tree " + who + " " + RotorPath(t) + " [" + RotorCompNames(t) + "]");
+                    Plugin.Log?.LogInfo(RotorStamp() + "Rotor tree " + who + " " + RotorPath(t) + " [" + RotorCompNames(t) + "]");
                 }
             }
             _rotorTreeLogged = true;
@@ -160,10 +200,11 @@ namespace NOReplay
                     side = p < 0f ? "rear" : "front";
                 }
             }
-            Plugin.Log?.LogInfo("Rotor view " + who
+            Plugin.Log?.LogInfo(RotorStamp() + "Rotor view " + who
                 + " dot=" + dot
                 + " side=" + side
-                + " pos=" + pos);
+                + " pos=" + pos
+                + " behind=" + BehindAge().ToString("0.00"));
 
             var renderers = GetComponentsInChildren<Renderer>(true);
             int shown = 0;
@@ -174,7 +215,7 @@ namespace NOReplay
                 string path = RotorPath(r.transform);
                 if (!RotorMeshPath(path)) continue;
                 shown++;
-                Plugin.Log?.LogInfo("Rotor mesh " + who
+                Plugin.Log?.LogInfo(RotorStamp() + "Rotor mesh " + who);
                     + " en=" + (r.enabled ? "true" : "false")
                     + " vis=" + (r.isVisible ? "true" : "false")
                     + " underHub=" + (UnderHub(r.transform) ? "yes" : "no")
@@ -183,7 +224,7 @@ namespace NOReplay
                     + " path=" + path);
             }
             if (shown == 0)
-                Plugin.Log?.LogInfo("Rotor mesh " + who + " n=0");
+                Plugin.Log?.LogInfo(RotorStamp() + "Rotor mesh " + who + " n=0");
             if (withYaw) LogRotorYaw(who, cam);
         }
 
@@ -193,7 +234,7 @@ namespace NOReplay
             var parts = RotorSpinParts();
             if (parts.Count == 0)
             {
-                Plugin.Log?.LogInfo("Rotor yaw " + who + " n=0");
+                Plugin.Log?.LogInfo(RotorStamp() + "Rotor yaw " + who + " n=0");
                 return;
             }
             for (int i = 0; i < parts.Count; i++)
@@ -215,7 +256,7 @@ namespace NOReplay
                 string kind = t.name.IndexOf("visible", StringComparison.OrdinalIgnoreCase) >= 0
                     || t.name.IndexOf("rotorhub", StringComparison.OrdinalIgnoreCase) >= 0
                     ? "hub" : "seg";
-                Plugin.Log?.LogInfo("Rotor yaw " + who
+                Plugin.Log?.LogInfo(RotorStamp() + "Rotor yaw " + who);
                     + " " + kind
                     + " yaw=" + yaw.ToString("0.0")
                     + " moved=" + moved.ToString("0.0")
@@ -422,6 +463,206 @@ namespace NOReplay
                 guard++;
             }
             return path;
+        }
+
+        static string RotorStamp()
+        {
+            float t = Plugin.Clock != null ? Plugin.Clock.Time : -1f;
+            return "t=" + t.ToString("0.00") + " f=" + Time.frameCount + " ";
+        }
+
+        void TrackBehind()
+        {
+            var cam = Plugin.MainCamera();
+            bool rear = false;
+            if (cam != null)
+            {
+                Vector3 fwd = Flat(Drive.forward);
+                Vector3 to = Flat(cam.transform.position - Drive.position);
+                if (fwd.sqrMagnitude > 1e-6f && to.sqrMagnitude > 1e-6f)
+                    rear = Vector3.Dot(fwd, to) < 0f;
+            }
+            if (rear && !_rear)
+            {
+                _rearAt = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
+                _rotorFast = 0;
+                _rotorSlow = 0;
+                _rotorStopped = false;
+                Plugin.Log?.LogInfo(RotorStamp() + "Rotor behind cam="
+                    + (Plugin.MainCamera() != null ? Plugin.MainCamera().name : "-"));
+            }
+            _rear = rear;
+        }
+
+        float BehindAge()
+        {
+            if (!_rear || Plugin.Clock == null) return 0f;
+            return Plugin.Clock.Time - _rearAt;
+        }
+
+        internal void NoteRotorSpun(Transform hub)
+        {
+            if (Plugin.CurrentDoc == null || hub == null || !IsChicaneRotor()) return;
+            if (hub.name.IndexOf("visible", StringComparison.OrdinalIgnoreCase) < 0 && _spinHub != null)
+                return;
+            EnsureRotorCamHook();
+            _rotorWatch = this;
+            _spinHub = hub;
+            if (_spinSeg == null) _spinSeg = FindBlade1();
+            Vector3 axis = hub.up;
+            _postHub = AngleAbout(hub, axis);
+            _postSeg = _spinSeg != null ? AngleAbout(_spinSeg, axis) : _postHub;
+            _postFrame = Time.frameCount;
+        }
+
+        Transform? FindBlade1()
+        {
+            var all = GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < all.Length; i++)
+            {
+                var t = all[i];
+                if (t == null || t.name != "segment1") continue;
+                if (t.parent != null && t.parent.name == "blade1") return t;
+            }
+            return null;
+        }
+
+        static void EnsureRotorCamHook()
+        {
+            if (_rotorCamHook) return;
+            _rotorCamHook = true;
+            Camera.onPreCull += OnRotorPreCull;
+            Camera.onPreRender += OnRotorPreRender;
+        }
+
+        static bool RotorCam(Camera cam)
+        {
+            if (Plugin.CurrentDoc == null || cam == null) return false;
+            return cam == Camera.main;
+        }
+
+        static void OnRotorPreCull(Camera cam)
+        {
+            if (!RotorCam(cam)) return;
+            var g = _rotorWatch;
+            if (g == null || g._spinHub == null) return;
+            g._cullHub = AngleAbout(g._spinHub, g._spinHub.up);
+            g._cullFrame = Time.frameCount;
+        }
+
+        static void OnRotorPreRender(Camera cam)
+        {
+            if (!RotorCam(cam)) return;
+            var g = _rotorWatch;
+            if (g == null || g._spinHub == null) return;
+            g.SampleRotorRender(cam);
+        }
+
+        void SampleRotorRender(Camera cam)
+        {
+            if (_spinHub == null) return;
+            Vector3 axis = _spinHub.up;
+            float rend = AngleAbout(_spinHub, axis);
+            float seg = _spinSeg != null ? AngleAbout(_spinSeg, axis) : rend;
+            float dRend = 0f;
+            if (_rendPrevOk) dRend = Mathf.DeltaAngle(_rendPrev, rend);
+            _rendPrev = rend;
+            _rendPrevOk = true;
+            float behind = BehindAge();
+            bool fresh = _postFrame == Time.frameCount;
+            float post = fresh ? _postHub : rend;
+            float cull = _cullFrame == Time.frameCount ? _cullHub : rend;
+            var rel = cam.transform.position - _spinHub.position;
+            var sample = new RotorFrame
+            {
+                T = Plugin.Clock != null ? Plugin.Clock.Time : -1f,
+                F = Time.frameCount,
+                Post = post,
+                Cull = cull,
+                Rend = rend,
+                DRend = dRend,
+                Dt = Time.deltaTime,
+                Udt = Time.unscaledDeltaTime,
+                Behind = behind,
+                Rel = rel
+            };
+            _rotorRing[_rotorRingAt] = sample;
+            _rotorRingAt = (_rotorRingAt + 1) % _rotorRing.Length;
+            if (_rotorRingN < _rotorRing.Length) _rotorRingN++;
+
+            bool fast = Mathf.Abs(dRend) > 3f;
+            if (fast) { _rotorFast++; _rotorSlow = 0; }
+            else if (_rendPrevOk) _rotorSlow++;
+            if (_rear && _rotorFast > 8 && _rotorSlow == 2 && !_rotorStopped)
+            {
+                _rotorStopped = true;
+                Plugin.Log?.LogInfo(RotorStamp() + "Rotor freeze behind=" + behind.ToString("0.00")
+                    + " post=" + post.ToString("0.0")
+                    + " cull=" + cull.ToString("0.0")
+                    + " rend=" + rend.ToString("0.0")
+                    + " seg=" + seg.ToString("0.0")
+                    + " dRend=" + dRend.ToString("0.00"));
+                DumpRotorRing();
+                _rotorBurst = 30;
+            }
+            if (_rotorStopped && fast)
+            {
+                _rotorStopped = false;
+                _rotorFast = 0;
+                Plugin.Log?.LogInfo(RotorStamp() + "Rotor resume behind=" + behind.ToString("0.00")
+                    + " side=" + (_rear ? "rear" : "front")
+                    + " dRend=" + dRend.ToString("0.00")
+                    + " rend=" + rend.ToString("0.0"));
+                _rotorBurst = 15;
+            }
+            if (_rotorBurst > 0)
+            {
+                _rotorBurst--;
+                LogRotorFrame("Rotor frame", sample, cam, seg, fresh);
+            }
+            if (Time.unscaledTime - _rotorRenderAt < 1f) return;
+            _rotorRenderAt = Time.unscaledTime;
+            LogRotorFrame("Rotor render", sample, cam, seg, fresh);
+        }
+
+        void DumpRotorRing()
+        {
+            int n = _rotorRingN;
+            int start = (_rotorRingAt - n + _rotorRing.Length) % _rotorRing.Length;
+            for (int i = 0; i < n; i++)
+            {
+                var s = _rotorRing[(start + i) % _rotorRing.Length];
+                Plugin.Log?.LogInfo("t=" + s.T.ToString("0.00")
+                    + " f=" + s.F
+                    + " Rotor hold behind=" + s.Behind.ToString("0.00")
+                    + " post=" + s.Post.ToString("0.0")
+                    + " cull=" + s.Cull.ToString("0.0")
+                    + " rend=" + s.Rend.ToString("0.0")
+                    + " gap=" + Mathf.DeltaAngle(s.Post, s.Rend).ToString("0.00")
+                    + " dRend=" + s.DRend.ToString("0.00")
+                    + " dt=" + s.Dt.ToString("0.000")
+                    + " udt=" + s.Udt.ToString("0.000")
+                    + " rel=" + s.Rel.x.ToString("0") + "," + s.Rel.y.ToString("0") + "," + s.Rel.z.ToString("0"));
+            }
+        }
+
+        void LogRotorFrame(string tag, RotorFrame s, Camera cam, float seg, bool fresh)
+        {
+            Plugin.Log?.LogInfo("t=" + s.T.ToString("0.00")
+                + " f=" + s.F
+                + " " + tag
+                + " behind=" + s.Behind.ToString("0.00")
+                + " post=" + (fresh ? s.Post.ToString("0.0") : "hold")
+                + " cull=" + s.Cull.ToString("0.0")
+                + " rend=" + s.Rend.ToString("0.0")
+                + " seg=" + seg.ToString("0.0")
+                + " gap=" + (fresh ? Mathf.DeltaAngle(s.Post, s.Rend).ToString("0.00") : "hold")
+                + " dRend=" + s.DRend.ToString("0.00")
+                + " dt=" + s.Dt.ToString("0.000")
+                + " udt=" + s.Udt.ToString("0.000")
+                + " cam=" + cam.name
+                + " comp=" + cam.GetType().Name
+                + " rel=" + s.Rel.x.ToString("0") + "," + s.Rel.y.ToString("0") + "," + s.Rel.z.ToString("0"));
         }
     }
 }

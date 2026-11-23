@@ -215,7 +215,7 @@ namespace NOReplay
                 string path = RotorPath(r.transform);
                 if (!RotorMeshPath(path)) continue;
                 shown++;
-                Plugin.Log?.LogInfo(RotorStamp() + "Rotor mesh " + who);
+                Plugin.Log?.LogInfo(RotorStamp() + "Rotor mesh " + who
                     + " en=" + (r.enabled ? "true" : "false")
                     + " vis=" + (r.isVisible ? "true" : "false")
                     + " underHub=" + (UnderHub(r.transform) ? "yes" : "no")
@@ -256,7 +256,7 @@ namespace NOReplay
                 string kind = t.name.IndexOf("visible", StringComparison.OrdinalIgnoreCase) >= 0
                     || t.name.IndexOf("rotorhub", StringComparison.OrdinalIgnoreCase) >= 0
                     ? "hub" : "seg";
-                Plugin.Log?.LogInfo(RotorStamp() + "Rotor yaw " + who);
+                Plugin.Log?.LogInfo(RotorStamp() + "Rotor yaw " + who
                     + " " + kind
                     + " yaw=" + yaw.ToString("0.0")
                     + " moved=" + moved.ToString("0.0")

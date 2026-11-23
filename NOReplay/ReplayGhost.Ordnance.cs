@@ -624,30 +624,34 @@ namespace NOReplay
             PlayUnitWreckFx(transform.position, transform.rotation);
         }
 
-        static void PlayDetachedShot(object? clip, Vector3 pos)
+        void PlayFlightDetonation()
         {
-            if (clip == null) return;
-            if (!Plugin.AudioNearWorld(pos, 700f)) return;
-            try
+            CacheFlightClip();
+            if (_boomShotPlayed || _flightAudio == null || _boomClip == null) return;
+            _boomShotPlayed = true;
+            var src = _flightAudio;
+            if (!src.gameObject.activeSelf) src.gameObject.SetActive(true);
+            src.enabled = true;
+            src.mute = false;
+            src.Stop();
+            src.clip = _boomClip;
+            src.pitch = 1f;
+            src.volume = 1f;
+            src.dopplerLevel = 1f;
+            src.loop = false;
+            src.Play();
+        }
+
+        static string EffectField(char kind)
+        {
+            switch (kind)
             {
-                var go = new GameObject("NOReplay_Detonate");
-                go.transform.position = pos;
-                var at = Type.GetType("UnityEngine.AudioSource, UnityEngine.AudioModule")
-                         ?? Plugin.FindGameType("AudioSource");
-                if (at == null) { UnityEngine.Object.Destroy(go); return; }
-                var src = go.AddComponent(at);
-                at.GetProperty("clip")?.SetValue(src, clip);
-                at.GetProperty("loop")?.SetValue(src, false);
-                at.GetProperty("spatialBlend")?.SetValue(src, 1f);
-                at.GetProperty("dopplerLevel")?.SetValue(src, 0f);
-                at.GetProperty("volume")?.SetValue(src, 1f);
-                at.GetProperty("minDistance")?.SetValue(src, 20f);
-                at.GetProperty("maxDistance")?.SetValue(src, 800f);
-                at.GetProperty("rolloffMode")?.SetValue(src, 1);
-                at.GetMethod("Play", Type.EmptyTypes)?.Invoke(src, null);
-                UnityEngine.Object.Destroy(go, 8f);
+                case 'F': return "fizzleEffect";
+                case 'U': return "underwaterEffect";
+                case 'T': return "terrainEffect";
+                case 'R': return "armorEffect";
+                default: return "airEffect";
             }
-            catch { }
         }
 
         void DisableMissileSim()
@@ -682,30 +686,15 @@ namespace NOReplay
                     if (warhead != null)
                     {
                         var wt = warhead.GetType();
-                        bool terrain = false;
-                        try
-                        {
-                            terrain = Physics.Raycast(pos + Vector3.up * 2f, Vector3.down, 8f);
-                        }
-                        catch { }
-                        string field = terrain ? "terrainEffect" : "airEffect";
-                        fx = wt.GetField(field, flags)?.GetValue(warhead) as GameObject
-                             ?? wt.GetField("airEffect", flags)?.GetValue(warhead) as GameObject
-                             ?? wt.GetField("fizzleEffect", flags)?.GetValue(warhead) as GameObject;
+                        char kind = Track != null && Track.Det != '\0' ? Track.Det : 'A';
+                        string field = EffectField(kind);
+                        fx = wt.GetField(field, flags)?.GetValue(warhead) as GameObject;
+                        if (fx == null && field != "airEffect")
+                            fx = wt.GetField("airEffect", flags)?.GetValue(warhead) as GameObject;
                     }
                 }
                 catch { }
-                if (!_boomShotPlayed)
-                {
-                    _boomShotPlayed = true;
-                    try
-                    {
-                        if (_detonateClip == null)
-                            _detonateClip = mt.GetField("nearbyDetonationClip", flags)?.GetValue(missile);
-                        PlayDetachedShot(_detonateClip, pos);
-                    }
-                    catch { }
-                }
+                PlayFlightDetonation();
             }
             if (fx != null)
             {

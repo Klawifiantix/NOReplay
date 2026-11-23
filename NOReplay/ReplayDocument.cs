@@ -141,6 +141,8 @@ namespace NOReplay
         public int GunIndex = -1;
         /// <summary>Missile blast yield in kilograms of TNT. Negative when the file has no Yield property.</summary>
         public float Yield = -1f;
+        /// <summary>Detonation prefab. F fizzle, U underwater, T terrain, R armor, A air.</summary>
+        public char Det = 'A';
         public float Rpm;
         public float Muzzle;
         public float Drag;

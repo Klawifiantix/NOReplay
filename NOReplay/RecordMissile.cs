@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
 using System.Text;
+using HarmonyLib;
 using UnityEngine;
 
 namespace NOReplay
@@ -97,6 +98,7 @@ namespace NOReplay
                 if (ownerRec != null)
                     props["Parent"] = ownerRec.tacviewId.ToString("X", CultureInfo.InvariantCulture);
             }
+            Live[missile.GetInstanceID()] = this;
             UpdatePose();
             recorder.invokeWriterUpdate(this);
             props.Clear();
@@ -104,6 +106,19 @@ namespace NOReplay
             base.enabled = true;
         }
         bool _deathWritten;
+        char _detKind;
+        static readonly Dictionary<int, RecordMissile> Live = new();
+
+        internal static void NoteDetonation(Missile missile, char kind)
+        {
+            if (missile == null || kind == '\0') return;
+            if (!Live.TryGetValue(missile.GetInstanceID(), out var rec)) return;
+            rec._detKind = kind;
+            if (!rec._deathWritten) return;
+            rec.props["Det"] = kind.ToString();
+            rec.Engine?.invokeWriterUpdate(rec);
+            rec.props.Clear();
+        }
 
         void WriteDeath()
         {
@@ -118,14 +133,18 @@ namespace NOReplay
                 }
                 props["Visible"] = "0.0";
                 props["Type"] = null;
+                if (_detKind != '\0')
+                    props["Det"] = _detKind.ToString();
                 Engine.invokeWriterUpdate(this);
                 props.Clear();
                 Engine.invokeWriterRemove(this);
-                Record.Log?.LogInfo("Missile tot " + (missile != null ? missile.definition.unitName : "?")
-                    + " id=" + tacviewId.ToString("X"));
+                Record.Log?.LogInfo("Missile ended " + (missile != null ? missile.definition.unitName : "?")
+                    + " id=" + tacviewId.ToString("X")
+                    + " det=" + (_detKind == '\0' ? "-" : _detKind.ToString()));
             }
             catch { }
             this.enabled = false;
+            if (missile != null) Live.Remove(missile.GetInstanceID());
             if (Engine != null) Engine.Retire(unitId, gameObject);
             Destroy(gameObject);
         }
@@ -237,6 +256,29 @@ namespace NOReplay
 
             if (missile != null)
                 NoteLock(missile);
+        }
+    }
+
+    /// <summary>
+    /// One character on the missile's last line: F fizzle, U underwater, T terrain, R armor, A air.
+    /// A miss is air. Armor and terrain are not set together by the game's collision check.
+    /// </summary>
+    [HarmonyPatch(typeof(Missile), nameof(Missile.Detonate), typeof(Vector3), typeof(bool), typeof(bool))]
+    static class RecordMissileDetonation
+    {
+        static void Postfix(Missile __instance, bool hitArmor, bool hitTerrain)
+        {
+            if (!Record.Active || Plugin.CurrentDoc != null || __instance == null) return;
+            char kind = 'A';
+            try
+            {
+                if (!__instance.IsArmed()) kind = 'F';
+                else if (__instance.transform.position.y < Datum.LocalSeaY + 0.1f) kind = 'U';
+                else if (hitArmor) kind = 'R';
+                else if (hitTerrain) kind = 'T';
+            }
+            catch { kind = 'A'; }
+            RecordMissile.NoteDetonation(__instance, kind);
         }
     }
 }

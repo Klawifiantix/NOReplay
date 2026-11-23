@@ -191,7 +191,12 @@ namespace NOReplay
                     continue;
                 }
                 if (voice.Played || voice.SeekSkipped) continue;
-                if (!BoomDelay.Reached(voice.Born, previousDelay, voice.Delay, _prev, time, false, false, false))
+                bool arrived = time + 0.0001f >= voice.Born + voice.Delay;
+                // Armed in LateUpdate, after this clock sample was stored. A burst
+                // inside the shock front has no delay, so the next tick already
+                // looks like the wave passed. Play it once.
+                bool justBorn = voice.Born + 0.02f >= _prev;
+                if (!arrived || !(justBorn || BoomDelay.Reached(voice.Born, previousDelay, voice.Delay, _prev, time, false, false, false)))
                     continue;
                 Play(voice, voice.Delay);
                 voice.Played = true;
@@ -208,6 +213,9 @@ namespace NOReplay
         {
             var source = voice.Source;
             if (source == null) return;
+            if (!source.gameObject.activeSelf) source.gameObject.SetActive(true);
+            source.enabled = true;
+            source.mute = false;
             source.bypassListenerEffects = travel > 0.1f;
             if (voice.Filter != null)
             {

@@ -149,6 +149,10 @@ namespace NOReplay
                                 System.Globalization.CultureInfo.InvariantCulture, out float yieldKg))
                             obj.Yield = yieldKg;
                     }
+                    else if (AcmiScan.KeyIs(key, "Det"))
+                    {
+                        if (val.Length > 0) obj.Det = val[0];
+                    }
                     else if (AcmiScan.KeyIs(key, "Type"))
                     {
                         if (val.Length > 0

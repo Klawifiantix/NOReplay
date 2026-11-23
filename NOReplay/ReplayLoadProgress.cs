@@ -9,10 +9,10 @@ namespace NOReplay
     {
         private static ReplayLoadProgress _inst;
         private static float _progress;
-        private static string _label = "Lade Replay…";
+        private static string _label = "Loading replay…";
         private static bool _active;
 
-        public static void Begin(string label = "Lade Replay…")
+        public static void Begin(string label = "Loading replay…")
         {
             _label = label;
             _progress = 0f;

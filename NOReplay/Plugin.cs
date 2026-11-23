@@ -46,6 +46,14 @@ namespace NOReplay
         internal static bool PerfLog;
         internal static float TrailSeconds = 60f;
         static bool _holdClock;
+        static bool _openingGate;
+        static bool _playAfterOpen;
+        static float _openingArm = -1f;
+        static int _staticExpect = -1;
+        static bool _seekHold;
+        static bool _seekResume;
+        static float _seekHoldUntil;
+        internal static bool SpawnRush;
         Vector2 _pickerScroll;
         internal static ConfigEntry<string>? ReplayFolder;
         string _folderEdit = "";
@@ -123,7 +131,7 @@ namespace NOReplay
                     "Paths",
                     "ReplayFolder",
                     def,
-                    "Ordner mit .acmi Replay-Dateien");
+                    "Folder of .acmi replay files");
                 string saved = LoadFolderBesideDll(ReplayFolder.Value);
                 if (!string.IsNullOrWhiteSpace(saved) && saved != ReplayFolder.Value)
                     ReplayFolder.Value = saved;
@@ -134,7 +142,7 @@ namespace NOReplay
                         "Debug",
                         "PerfLog",
                         false,
-                        "Alle 5 Sekunden die mittlere Dauer des Replay-Updates in NOReplay.log schreiben.").Value;
+                        "Every 5 seconds, write the average replay update time to NOReplay.log.").Value;
                 }
                 catch { }
                 Harmony = new Harmony(PluginGuid);
@@ -152,7 +160,7 @@ namespace NOReplay
                     InstallSpawnGuard();
                 }
                 catch (Exception ex) { Log.LogError("StartMission guard: " + ex); }
-                Log.LogInfo($"{PluginName} {PluginVersion} geladen.");
+                Log.LogInfo($"{PluginName} {PluginVersion} loaded.");
                 SceneManager.sceneUnloaded += OnSceneUnloaded;
             }
             catch (Exception ex)
@@ -198,6 +206,15 @@ namespace NOReplay
             _warmSeen.Clear();
             _aircraftQueued = false;
             _holdClock = false;
+            _openingGate = false;
+            _playAfterOpen = false;
+            _openingArm = -1f;
+            _staticExpect = -1;
+            _openingSkipped.Clear();
+            _hurryAt = 0f;
+            _seekHold = false;
+            _seekResume = false;
+            SpawnRush = false;
             _pickerOpen = false;
             ReplayRounds.Clear();
             BoomAudio.Clear();
@@ -212,7 +229,7 @@ namespace NOReplay
             _menuHooked = false;
             _replayBtn = null;
             StateTextId = 0;
-            Log.LogInfo("Replay beendet, Zeitleiste aus. " + why);
+            Log.LogInfo("Replay ended, timeline off. " + why);
         }
 
         private void Update()
@@ -228,14 +245,18 @@ namespace NOReplay
                 int jumpSerial = Clock.SeekSerial;
                 if (HotkeyDown(RecordConfig.PlayPauseKey, KeyCode.Space))
                 {
-                    _holdClock = false;
-                    Clock.Paused = !Clock.Paused;
+                    if (_openingGate) _playAfterOpen = true;
+                    else
+                    {
+                        _holdClock = false;
+                        Clock.Paused = !Clock.Paused;
+                    }
                 }
                 if (HotkeyDown(RecordConfig.Speed1Key, KeyCode.Alpha1)) Clock.Speed = 1f;
                 if (HotkeyDown(RecordConfig.Speed2Key, KeyCode.Alpha2)) Clock.Speed = 2f;
                 if (HotkeyDown(RecordConfig.Speed4Key, KeyCode.Alpha4)) Clock.Speed = 4f;
-                if (HotkeyDown(RecordConfig.SeekBackKey, KeyCode.LeftArrow)) Clock.Seek(Clock.Time - 5f);
-                if (HotkeyDown(RecordConfig.SeekForwardKey, KeyCode.RightArrow)) Clock.Seek(Clock.Time + 5f);
+                if (!_openingGate && HotkeyDown(RecordConfig.SeekBackKey, KeyCode.LeftArrow)) Clock.Seek(Clock.Time - 5f);
+                if (!_openingGate && HotkeyDown(RecordConfig.SeekForwardKey, KeyCode.RightArrow)) Clock.Seek(Clock.Time + 5f);
                 EnsureReplayKeysMuted();
                 if (!ReplayTextFocused())
                 {
@@ -243,6 +264,14 @@ namespace NOReplay
                     if (HotkeyDown(RecordConfig.LookAtLockKey, KeyCode.F)) ToggleLookLock();
                     if (HotkeyDown(RecordConfig.CasePatternKey, KeyCode.P)) TogglePattern();
                 }
+                if (Clock.SeekSerial != jumpSerial && !_openingGate && Clock.Time > jumpFrom + 2f)
+                {
+                    _seekHold = true;
+                    _seekResume = !Clock.Paused;
+                    _seekHoldUntil = Time.unscaledTime + 2f;
+                }
+                if (_seekHold)
+                    Clock.Paused = true;
                 if (_holdClock)
                 {
                     Clock.Paused = true;
@@ -293,6 +322,7 @@ namespace NOReplay
                 TickTrails();
                 ReplayPerf.Add("trails", ReplayPerf.Stamp() - section);
                 WarmOrdnance();
+                FlushDeferredKit();
                 section = ReplayPerf.Stamp();
                 ShellReplay.Tick(CurrentDoc, Clock.Time);
                 ReplayRounds.Tick(Clock.Time, Clock.Paused);
@@ -300,6 +330,8 @@ namespace NOReplay
                 section = ReplayPerf.Stamp();
                 FeedPlayback.Tick(CurrentDoc, Clock.Time, Clock.Paused);
                 ReplayPerf.Add("feed", ReplayPerf.Stamp() - section);
+                TickOpeningLoad();
+                TickSeekHold();
                 TickPanel();
                 ReplayPerf.Add("plugin", ReplayPerf.Stamp() - perfStamp);
             }
@@ -308,7 +340,7 @@ namespace NOReplay
             TickOfficialStart();
             if (HotkeyDown(RecordConfig.StartStopRecordingKey, KeyCode.F8))
             {
-                Log.LogInfo("Aufnahmetaste gedrückt.");
+                Log.LogInfo("Record key pressed.");
                 Record.Toggle();
             }
         }
@@ -388,7 +420,7 @@ namespace NOReplay
         static void FlushOrdnanceRespawn()
         {
             if (_ordRespawn.Count == 0) return;
-            int budget = 2;
+            int budget = SpawnRush ? 16 : 2;
             for (int i = 0; i < _ordRespawn.Count && budget > 0;)
             {
                 var rg = _ordRespawn[i];
@@ -554,7 +586,7 @@ namespace NOReplay
             {
                 _sceneLogged = id;
                 ClearHqCache();
-                Log.LogInfo("Szene gewechselt: name=" + scene.name + " path=" + scene.path);
+                Log.LogInfo("Scene changed: name=" + scene.name + " path=" + scene.path);
             }
             if (!InGameWorld())
             {
@@ -587,7 +619,7 @@ namespace NOReplay
                 if (!unique.Contains(f)) unique.Add(f);
             _replayFiles = unique;
             _replayFiles.Sort();
-            Log.LogInfo($"Replay-Dateien gefunden: {_replayFiles.Count} in {folder}");
+            Log.LogInfo($"Replay files found: {_replayFiles.Count} in {folder}");
             for (int i = 0; i < _replayFiles.Count; i++)
                 Log.LogInfo($"  [{i}] {_replayFiles[i]}");
         }
@@ -632,7 +664,16 @@ namespace NOReplay
                 Clock.Seek(0f);
                 Clock.Paused = true;
                 _holdClock = true;
-                Log.LogInfo($"Geladen [{index + 1}/{_replayFiles.Count}]: {Path.GetFileName(path)}");
+                _openingGate = true;
+                _playAfterOpen = false;
+                _openingArm = -1f;
+                _staticExpect = -1;
+                _openingSkipped.Clear();
+                _hurryAt = 0f;
+                _seekHold = false;
+                _seekResume = false;
+                SpawnRush = false;
+                Log.LogInfo($"Loaded [{index + 1}/{_replayFiles.Count}]: {Path.GetFileName(path)}");
                 int players = 0;
                 foreach (var o in doc.Objects)
                     if (!string.IsNullOrEmpty(PlayerNameFromCallSign(o.CallSign))) players++;
@@ -646,11 +687,11 @@ namespace NOReplay
                     float b = o.SpawnAt >= 0f ? o.SpawnAt : o.Samples[0].Time;
                     if (b < minBorn) minBorn = b;
                 }
-                Log.LogInfo("ACMI SpawnAt min=" + minBorn.ToString("0.000") + " mitPose=" + withPose);
+                Log.LogInfo("ACMI SpawnAt min=" + minBorn.ToString("0.000") + " withPose=" + withPose);
                 int withKit = 0;
                 foreach (var o in doc.Objects)
                     if (!string.IsNullOrEmpty(o.Loadout) || !string.IsNullOrEmpty(o.Livery)) withKit++;
-                Log.LogInfo("ACMI Loadout/Livery an " + withKit + " Einheiten.");
+                Log.LogInfo("ACMI loadout/livery on " + withKit + " units.");
             }
             catch (Exception ex)
             {
@@ -659,6 +700,7 @@ namespace NOReplay
         }
 
         GUIStyle? _recStyle;
+        GUIStyle? _loadStyle;
 
         // DynamicMap.Maximize sets mapMaximized and raises onMapMaximized.
         // Minimize clears it and raises onMapMinimized. The flag is static,
@@ -689,6 +731,21 @@ namespace NOReplay
             }
             if (_pickerOpen) DrawReplayPicker();
             else if (ReplayTimelineOpen()) DrawTimeline();
+            DrawLoadProgress();
+        }
+
+        void DrawLoadProgress()
+        {
+            if (CurrentDoc == null || !InGameWorld()) return;
+            int percent = LoadPercent(Clock.Time);
+            if (percent >= 100) return;
+            if (_loadStyle == null)
+            {
+                _loadStyle = new GUIStyle(GUI.skin.label) { fontSize = 22 };
+                _loadStyle.normal.textColor = Color.green;
+            }
+            GUI.Label(new Rect(16f, Screen.height - 42f, 520f, 28f),
+                "Loading replay objects: " + percent + "%", _loadStyle);
         }
     }
 
@@ -710,6 +767,15 @@ namespace NOReplay
             _w = null;
         }
         public void LogInfo(object d) => Write("Info", d);
+        public void LogDebug(object d)
+        {
+            try
+            {
+                if (RecordConfig.EnableLogging == null || !RecordConfig.EnableLogging.Value) return;
+            }
+            catch { return; }
+            Write("Info", d);
+        }
         public void LogWarning(object d) => Write("Warning", d);
         public void LogError(object d) => Write("Error", d);
         void Write(string lvl, object d)

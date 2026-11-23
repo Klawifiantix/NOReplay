@@ -303,7 +303,7 @@ namespace NOReplay
                         }
                     }
                     if (_pylonLogged.Add(name + "|" + j))
-                        Plugin.Log?.LogInfo(note.ToString());
+                        Plugin.Log?.LogDebug(note.ToString());
 
                     if (fPlug?.GetValue(hp) is Renderer plug && plug != null)
                         ApplyHardpointRendererState(plug, plug.enabled);
@@ -2282,7 +2282,7 @@ namespace NOReplay
             bool cook = WreckMark.IsCookoff(Track?.Name);
             bool recorded = Track != null && Track.BoomTimes != null && Track.BoomTimes.Count > 0;
             string src = recorded ? "boom" : WreckMark.Source(Track?.BoomAt ?? -1f, Track?.DyingAt ?? -1f, cook);
-            Plugin.Log?.LogInfo("Boom " + (Track?.Name ?? name)
+            Plugin.Log?.LogDebug("Boom " + (Track?.Name ?? name)
                 + " at=" + at.ToString("0.00")
                 + " cook=" + (cook ? "1" : "0")
                 + " src=" + src

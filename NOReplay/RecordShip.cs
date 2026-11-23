@@ -165,7 +165,7 @@ namespace NOReplay
             if (turrets != null) turrets.enabled = false;
             if (base.destroyedEvent)
                 Engine.invokeWriterDestroy(this);
-            Record.Log?.LogInfo("Schiff sinkt " + tacviewId.ToString("X")
+            Record.Log?.LogInfo("Ship sinking " + tacviewId.ToString("X")
                 + " noch " + _despawnLimit.ToString("0.#", CultureInfo.InvariantCulture) + "s");
             if (_despawnLimit <= 0f || ship == null)
                 EndSink();
@@ -182,7 +182,7 @@ namespace NOReplay
                 if (field == null && !_delayWarned)
                 {
                     _delayWarned = true;
-                    Record.Log?.LogWarning("Ship.disabledDespawnDelay fehlt. Die Hülle wird bis zum Zerstören mitgeschrieben.");
+                    Record.Log?.LogWarning("Ship.disabledDespawnDelay is missing. The hull is recorded until it is destroyed.");
                 }
             }
             catch (Exception ex)

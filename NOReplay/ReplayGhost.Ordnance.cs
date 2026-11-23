@@ -139,7 +139,7 @@ namespace NOReplay
                 if (go == null) continue;
                 ForgetOwned(go);
                 UnityEngine.Object.Destroy(go);
-                Plugin.Log?.LogInfo("Scorch remove " + who + " t=" + t.ToString("0.00") + " reason=" + reason);
+                Plugin.Log?.LogDebug("Scorch remove " + who + " t=" + t.ToString("0.00") + " reason=" + reason);
             }
         }
 
@@ -189,7 +189,7 @@ namespace NOReplay
                 _ownedScorches.RemoveAt(i);
                 if (go == null) continue;
                 UnityEngine.Object.Destroy(go);
-                Plugin.Log?.LogInfo("Scorch remove " + who + " t=" + t.ToString("0.00") + " reason=" + reason);
+                Plugin.Log?.LogDebug("Scorch remove " + who + " t=" + t.ToString("0.00") + " reason=" + reason);
             }
         }
 
@@ -269,7 +269,7 @@ namespace NOReplay
                     if (go == null) continue;
                     RememberScorch(go, stamp, ScorchUnit());
                     owned = true;
-                    Plugin.Log?.LogInfo("Scorch add " + ScorchUnit() + " t=" + stamp.ToString("0.00") + " kind=decal");
+                    Plugin.Log?.LogDebug("Scorch add " + ScorchUnit() + " t=" + stamp.ToString("0.00") + " kind=decal");
                 }
                 // A failed linecast must leave the spawner alive so its Start can
                 // still place the game's decal. Start is what the player was seeing.
@@ -306,7 +306,7 @@ namespace NOReplay
             if (go == null) return false;
             if (ghost != null) ghost.RememberScorch(go, stamp, who);
             else RememberOwned(go, stamp, who);
-            Plugin.Log?.LogInfo("Scorch add " + who + " t=" + stamp.ToString("0.00") + " kind=decal");
+            Plugin.Log?.LogDebug("Scorch add " + who + " t=" + stamp.ToString("0.00") + " kind=decal");
             return true;
         }
 
@@ -349,11 +349,11 @@ namespace NOReplay
                     if (ghost != null) ghost.RememberScorch(child.gameObject, stamp, who);
                     else RememberOwned(child.gameObject, stamp, who);
                     nearOwned = true;
-                    Plugin.Log?.LogInfo("Scorch add " + who + " t=" + stamp.ToString("0.00") + " kind=decal");
+                    Plugin.Log?.LogDebug("Scorch add " + who + " t=" + stamp.ToString("0.00") + " kind=decal");
                 }
             }
             if (!nearOwned)
-                Plugin.Log?.LogInfo("Scorch unowned " + who + " t=" + stamp.ToString("0.00") + " kind=decal");
+                Plugin.Log?.LogDebug("Scorch unowned " + who + " t=" + stamp.ToString("0.00") + " kind=decal");
         }
 
         internal static void ClaimShockDecal(Component wave)
@@ -373,7 +373,7 @@ namespace NOReplay
             float stamp = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
             if (ghost != null) ghost.RememberScorch(go, stamp, who);
             else RememberOwned(go, stamp, who);
-            Plugin.Log?.LogInfo("Scorch add " + who + " t=" + stamp.ToString("0.00") + " kind=shockwave");
+            Plugin.Log?.LogDebug("Scorch add " + who + " t=" + stamp.ToString("0.00") + " kind=shockwave");
         }
 
         void NoteUnownedProjectors(GameObject host)
@@ -391,7 +391,7 @@ namespace NOReplay
                 var parent = c.transform.parent;
                 bool leaked = parent == null || (datum != null && parent == datum && c.gameObject != host);
                 if (!leaked) continue;
-                Plugin.Log?.LogInfo("Scorch unowned " + ScorchUnit() + " t=" + stamp.ToString("0.00") + " kind=projector");
+                Plugin.Log?.LogDebug("Scorch unowned " + ScorchUnit() + " t=" + stamp.ToString("0.00") + " kind=projector");
             }
         }
 
@@ -662,7 +662,7 @@ namespace NOReplay
         void PlayWarheadBoom(Vector3 pos)
         {
             CacheFlightClip();
-            Plugin.Log?.LogInfo("Boom " + gameObject.name + " at " + pos);
+            Plugin.Log?.LogDebug("Boom " + gameObject.name + " at " + pos);
             var mt = Plugin.FindGameType("Missile");
             object? missile = mt != null ? (GetComponent(mt) ?? GetComponentInChildren(mt, true)) : null;
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
@@ -709,7 +709,7 @@ namespace NOReplay
             }
             if (fx != null)
             {
-                Plugin.Log?.LogInfo("Boom-FX " + fx.name + " for " + gameObject.name);
+                Plugin.Log?.LogDebug("Boom-FX " + fx.name + " for " + gameObject.name);
                 ClearBoom();
                 float yieldKg = Track != null && Track.Yield > 0f ? Track.Yield : 0f;
                 if (yieldKg <= 0f && mt != null)
@@ -771,10 +771,10 @@ namespace NOReplay
                     float hold = BoomAudio.HoldSeconds(go);
                     UnityEngine.Object.Destroy(go, hold > 12f ? hold : 12f);
                 }
-                Plugin.Log?.LogInfo("Boom yield kg=" + yieldKg.ToString("0.##") + " nuke=" + nuke);
+                Plugin.Log?.LogDebug("Boom yield kg=" + yieldKg.ToString("0.##") + " nuke=" + nuke);
                 return;
             }
-            Plugin.Log?.LogWarning("Boom kein Effekt für " + gameObject.name);
+            Plugin.Log?.LogWarning("Boom has no effect for " + gameObject.name);
         }
 
         void ClearBoom()
@@ -829,7 +829,7 @@ namespace NOReplay
                 if (_boomPrefab != null)
                     Plugin.Log.LogInfo("Boom-Prefab " + _boomPrefab.name);
                 else
-                    Plugin.Log.LogWarning("Kein Explosion-Prefab gefunden.");
+                    Plugin.Log.LogWarning("No explosion prefab found.");
             }
             if (_boomPrefab == null) return;
             GameObject go;
@@ -1124,7 +1124,7 @@ namespace NOReplay
                     if (_wreckPrefab != null)
                         Plugin.Log.LogInfo("Wreck-Prefab " + _wreckPrefab.name);
                     else
-                        Plugin.Log.LogWarning("GameAssets.vehicleWreckDestroyed nicht gefunden.");
+                        Plugin.Log.LogWarning("GameAssets.vehicleWreckDestroyed was not found.");
                 }
                 catch (Exception ex) { Plugin.Log.LogWarning("Wreck-FX bind: " + ex.Message); }
             }

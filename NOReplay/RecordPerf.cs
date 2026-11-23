@@ -104,7 +104,7 @@ namespace NOReplay
             line += " gc0=" + gc.ToString()
                 + " allocKB/s=" + kb.ToString("0")
                 + " doors=" + RecordBay.Watched;
-            Plugin.Log?.LogInfo(line);
+            if (Plugin.PerfLog) Plugin.Log?.LogInfo(line);
             for (int i = 0; i < n; i++) _ticks[i] = 0;
             _frames = 0;
             _sampled = 0;

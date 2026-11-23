@@ -110,7 +110,7 @@ namespace NOReplay
                 double ms = _frames > 0 ? _ticks[slot] * 1000.0 / freq / _frames : 0;
                 line += " " + _names[slot] + "=" + ms.ToString("0.00");
             }
-            Plugin.Log?.LogInfo(line);
+            if (Plugin.PerfLog) Plugin.Log?.LogInfo(line);
             var late = "Perf late n=" + _frames;
             bool anyLate = false;
             for (int i = 0; i < n; i++)
@@ -121,7 +121,7 @@ namespace NOReplay
                 late += " " + _names[i] + "=" + ms.ToString("0.00");
             }
             if (!anyLate) late += " none";
-            Plugin.Log?.LogInfo(late);
+            if (Plugin.PerfLog) Plugin.Log?.LogInfo(late);
             for (int i = 0; i < n; i++) _ticks[i] = 0;
             _frames = 0;
             _logAt = Time.unscaledTime + 5f;

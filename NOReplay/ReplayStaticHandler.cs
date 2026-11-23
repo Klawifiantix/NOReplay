@@ -13,9 +13,33 @@ namespace NOReplay
     /// </summary>
     internal class ReplayStaticHandler : MonoBehaviour
     {
+        static ReplayStaticHandler? _live;
         private ReplayDocument _doc;
         private readonly List<(ReplayObject obj, Unit unit)> _tracked = new();
         private readonly List<ReplayObject> _waiting = new();
+        bool _scanned;
+
+        internal static bool Started => _live != null && _live._scanned;
+        internal static int Bound => _live == null ? 0 : _live._tracked.Count;
+        internal static int Waiting => _live == null ? 0 : _live._waiting.Count;
+
+        internal static void Hurry()
+        {
+            if (_live == null) return;
+            _live._nextScan = 0f;
+        }
+
+        internal static void CopyWaiting(List<string> into)
+        {
+            into.Clear();
+            if (_live == null) return;
+            for (int i = 0; i < _live._waiting.Count; i++)
+            {
+                var obj = _live._waiting[i];
+                if (obj == null) continue;
+                into.Add((obj.Name ?? "?") + " id=" + (obj.Id ?? ""));
+            }
+        }
         private readonly Dictionary<string, Shown> _shown = new Dictionary<string, Shown>();
         private readonly HashSet<string> _missLogged = new HashSet<string>();
         float _nextScan;
@@ -50,6 +74,7 @@ namespace NOReplay
             UnityEngine.Object.DontDestroyOnLoad(go);
             go.hideFlags = HideFlags.HideAndDontSave;
             var h = go.AddComponent<ReplayStaticHandler>();
+            _live = h;
             h.Init(doc);
             // Auto-start progress display
             // ReplayLoadProgress.Begin("Lade Statik…");
@@ -212,6 +237,7 @@ namespace NOReplay
                 + " bound=" + _tracked.Count
                 + " waiting=" + _waiting.Count);
             Plugin.Log?.LogInfo("ReplayStaticHandler: " + matched + " zugeordnet, warten " + _waiting.Count + " von " + removed);
+            _scanned = true;
         }
 
         static string SanitizeId(string? raw)
@@ -287,6 +313,7 @@ namespace NOReplay
             if (Plugin.CurrentDoc == null)
             {
                 ClearVisuals();
+                if (_live == this) _live = null;
                 UnityEngine.Object.Destroy(gameObject);
                 return;
             }
@@ -404,7 +431,7 @@ namespace NOReplay
             {
                 SpawnTimedEffects(unit, shown, wantFire: false);
                 shown.BoomsOn = bd;
-                Plugin.Log?.LogInfo("Boom " + label + " at=" + booms[bd - 1].ToString("0.00")
+                Plugin.Log?.LogDebug("Boom " + label + " at=" + booms[bd - 1].ToString("0.00")
                     + " cook=" + (WreckMark.IsCookoff(label) ? "1" : "0") + " src=boom n=" + bd);
             }
             var ps = ParticlesOf(shown.TimedFx);
@@ -485,7 +512,7 @@ namespace NOReplay
             shown.Wreck = SpawnWreck(unit, blast);
             if (WreckMark.IsCookoff(obj.Name) && !TimelineOwnsFx(obj))
             {
-                Plugin.Log?.LogInfo("Boom " + (unit.definition != null ? unit.definition.unitName : unit.name)
+                Plugin.Log?.LogDebug("Boom " + (unit.definition != null ? unit.definition.unitName : unit.name)
                     + " at=" + blast.ToString("0.00")
                     + " cook=1 src=" + WreckMark.Source(obj.BoomAt, obj.DyingAt, true));
             }

@@ -59,7 +59,7 @@ namespace NOReplay
                 info[1] = "Weapon+Missile";
             if (_shell)
             {
-                Record.Log?.LogInfo("Kanone-Shell " + (missile.definition?.unitName ?? "?")
+                Record.Log?.LogInfo("Gun shell " + (missile.definition?.unitName ?? "?")
                     + " code=" + code
                     + " seeker=" + (missile.GetComponent<MissileSeeker>()?.GetType().Name ?? "-"));
             }

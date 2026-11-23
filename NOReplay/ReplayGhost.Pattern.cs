@@ -140,7 +140,7 @@ namespace NOReplay
                 sh = Shader.Find("Sprites/Default") ?? sh;
             if (sh == null)
             {
-                Plugin.Log?.LogWarning("Case pattern: kein Shader");
+                Plugin.Log?.LogWarning("Case pattern: no shader");
                 return;
             }
             var mat = new Material(sh) { hideFlags = HideFlags.HideAndDontSave };

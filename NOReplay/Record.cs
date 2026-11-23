@@ -59,14 +59,14 @@ namespace NOReplay
             catch (Exception ex) { Plugin.Log.LogError("NukeTime.Install: " + ex); }
             try { RecordSession.Install(); }
             catch (Exception ex) { Plugin.Log.LogError("RecordSession.Install: " + ex); }
-            Plugin.Log.LogInfo("Aufnahme bereit. " + RecordKeyLabel() + " startet und stoppt.");
+            Plugin.Log.LogInfo("Recording ready. " + RecordKeyLabel() + " starts and stops.");
         }
 
         public static void Toggle()
         {
             if (Plugin.CurrentDoc != null)
             {
-                Plugin.Log.LogInfo(RecordKeyLabel() + " ignoriert, Replay läuft.");
+                Plugin.Log.LogInfo(RecordKeyLabel() + " ignored, a replay is running.");
                 return;
             }
             if (Active) Stop("manual");
@@ -88,12 +88,13 @@ namespace NOReplay
                 RecordParts.Reset();
                 Active = true;
                 engine.CaptureExistingUnits();
-                Plugin.Log.LogInfo("Aufnahme gestartet (" + RecordKeyLabel() + ").");
+                engine.ArmOpeningCapture();
+                Plugin.Log.LogInfo("Recording started (" + RecordKeyLabel() + ").");
             }
             catch (Exception ex)
             {
                 Active = false;
-                Plugin.Log.LogError("Aufnahme Start: " + ex);
+                Plugin.Log.LogError("Recording start: " + ex);
             }
         }
 
@@ -135,7 +136,7 @@ namespace NOReplay
             for (int i = 0; i < turrets.Length; i++)
                 if (turrets[i] != null) UnityEngine.Object.Destroy(turrets[i]);
             Plugin.Log.LogInfo("Recording stopped: " + reason);
-            Plugin.Log.LogInfo("Aufnahme gestoppt (" + RecordKeyLabel() + ").");
+            Plugin.Log.LogInfo("Recording stopped (" + RecordKeyLabel() + ").");
         }
 
         static string RecordKeyLabel()

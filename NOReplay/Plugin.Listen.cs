@@ -52,7 +52,7 @@ namespace NOReplay
             BlockStateLabel();
             PatchScorchDecals();
             PatchOriginShift();
-            Log.LogInfo("Listen-Patches gesetzt (ohne SOM.Spawn-Spam).");
+            Log.LogInfo("Listen patches installed (without SOM.Spawn spam).");
         }
 
         static void PatchOriginShift()
@@ -162,7 +162,7 @@ namespace NOReplay
             var uiType = FindGameType("GameplayUI");
             if (uiType == null)
             {
-                Log.LogWarning("Spectator-UI: GameplayUI fehlt");
+                Log.LogWarning("Spectator UI: GameplayUI is missing");
             }
             else
             {
@@ -172,7 +172,7 @@ namespace NOReplay
                     try
                     {
                         Harmony.Patch(mShowJoin, postfix: new HarmonyMethod(typeof(Plugin), nameof(PostfixShowJoinMenu)));
-                        Log.LogInfo("Spectator-UI GameplayUI.ShowJoinMenu gepatcht");
+                        Log.LogInfo("Spectator UI GameplayUI.ShowJoinMenu patched");
                     }
                     catch (Exception ex) { Log.LogWarning("Spectator-UI ShowJoinMenu: " + ex.Message); }
                 }
@@ -183,7 +183,7 @@ namespace NOReplay
                     try
                     {
                         Harmony.Patch(mShouldShow, prefix: new HarmonyMethod(typeof(Plugin), nameof(PrefixShouldShowSpectatorPanel)));
-                        Log.LogInfo("Spectator-UI GameplayUI.ShouldShowSpectatorPanel gepatcht");
+                        Log.LogInfo("Spectator UI GameplayUI.ShouldShowSpectatorPanel patched");
                     }
                     catch (Exception ex) { Log.LogWarning("Spectator-UI ShouldShowSpectatorPanel: " + ex.Message); }
                 }
@@ -194,7 +194,7 @@ namespace NOReplay
                     try
                     {
                         Harmony.Patch(mCheckShow, prefix: new HarmonyMethod(typeof(Plugin), nameof(PrefixCheckShowSpectatorPanel)));
-                        Log.LogInfo("Spectator-UI GameplayUI.CheckShowSpectatorPanel gepatcht");
+                        Log.LogInfo("Spectator UI GameplayUI.CheckShowSpectatorPanel patched");
                     }
                     catch (Exception ex) { Log.LogWarning("Spectator-UI CheckShowSpectatorPanel: " + ex.Message); }
                 }
@@ -210,7 +210,7 @@ namespace NOReplay
                     try
                     {
                         Harmony.Patch(mUpdate, postfix: new HarmonyMethod(typeof(Plugin), nameof(PostfixVirtualMFDUpdate)));
-                        Log.LogInfo("Spectator-UI VirtualMFD.Update gepatcht");
+                        Log.LogInfo("Spectator UI VirtualMFD.Update patched");
                     }
                     catch (Exception ex) { Log.LogWarning("Spectator-UI VirtualMFD.Update: " + ex.Message); }
                 }
@@ -244,7 +244,7 @@ namespace NOReplay
 
                 uiType.GetMethod("HideSpectatorPanel", flags)?.Invoke(__instance, null);
                 uiType.GetMethod("HideSelectAirbase", flags)?.Invoke(__instance, null);
-                Log.LogInfo("Spectator-Modus automatisch aktiviert (JoinMenu übersprungen).");
+                Log.LogInfo("Spectator mode turned on (join menu skipped).");
             }
             catch (Exception ex)
             {
@@ -387,7 +387,7 @@ namespace NOReplay
                     Harmony.Patch(m, prefix: new HarmonyMethod(typeof(Plugin), nameof(SkipGearIfGhost)));
                     n++;
                 }
-                catch (Exception ex) { Log.LogWarning("Gear-Block SetGear: " + ex.Message); }
+                catch (Exception ex) { Log.LogWarning("Gear block SetGear: " + ex.Message); }
             }
             Log.LogInfo("Gear-Block Aircraft.SetGear(bool) x" + n);
         }
@@ -416,7 +416,7 @@ namespace NOReplay
                      ?? FindGameType("AudioSource");
             if (at == null)
             {
-                Log.LogWarning("Audio-Gate: AudioSource fehlt");
+                Log.LogWarning("Audio gate: AudioSource is missing");
                 return;
             }
             int n = 0;
@@ -523,7 +523,7 @@ namespace NOReplay
                     catch (Exception ex) { Log.LogWarning("JobManager.Add CS: " + ex.Message); }
                 }
             }
-            Log.LogInfo("Airbrake/Surface-Block x" + n);
+            Log.LogInfo("Airbrake/surface block x" + n);
         }
 
         static bool SkipSurfacesInReplay()
@@ -580,7 +580,7 @@ namespace NOReplay
             _shiftMapSelect = true;
             HoldCamera();
             try { SelectInPlace(__instance); }
-            catch (Exception ex) { Log.LogWarning("Shift-Auswahl: " + ex.Message); }
+            catch (Exception ex) { Log.LogWarning("Shift-select: " + ex.Message); }
             RestoreHeldCamera();
             return false;
         }
@@ -597,7 +597,7 @@ namespace NOReplay
                 return;
             }
             try { TrySelectFromMapClick(__instance); }
-            catch (Exception ex) { Log.LogWarning("Auswahl: " + ex.Message); }
+            catch (Exception ex) { Log.LogWarning("Selection: " + ex.Message); }
             _mapClickFollow = false;
             _clickCamPosOk = false;
         }
@@ -714,7 +714,7 @@ namespace NOReplay
                 }
                 catch { }
             }
-            Log.LogInfo("Missile-Sim-Block Methoden: " + n);
+            Log.LogInfo("Missile sim block methods: " + n);
         }
 
         static void BlockFollowOrdnance()
@@ -803,7 +803,7 @@ namespace NOReplay
                     }
                 }
             }
-            Log.LogInfo("Fire-Block Methoden: " + n);
+            Log.LogInfo("Fire block methods: " + n);
         }
 
         static int PatchFireType(string typeName, string methodName)
@@ -848,7 +848,7 @@ namespace NOReplay
                 }
                 catch { }
             }
-            Log.LogInfo("Laser-Sim-Block Methoden: " + n);
+            Log.LogInfo("Laser sim block methods: " + n);
             BlockGearPhysics();
         }
 
@@ -908,13 +908,13 @@ namespace NOReplay
             var t = FindGameType("Aircraft");
             if (t == null)
             {
-                Log.LogInfo("ComplexPhys: Aircraft fehlt");
+                Log.LogInfo("ComplexPhys: Aircraft is missing");
                 return;
             }
             var m = t.GetMethod("SetComplexPhysics", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             if (m == null)
             {
-                Log.LogInfo("ComplexPhys: SetComplexPhysics fehlt");
+                Log.LogInfo("ComplexPhys: SetComplexPhysics is missing");
                 return;
             }
             try
@@ -924,7 +924,7 @@ namespace NOReplay
             }
             catch (Exception ex)
             {
-                Log.LogInfo("ComplexPhys-Block Fehler: " + ex.Message);
+                Log.LogInfo("ComplexPhys block error: " + ex.Message);
             }
         }
 
@@ -1011,7 +1011,7 @@ namespace NOReplay
                     }
                 }
             }
-            Log.LogInfo("Eject-Block Methoden: " + n);
+            Log.LogInfo("Eject block methods: " + n);
         }
 
         static void BlockBreakMethods()
@@ -1053,7 +1053,7 @@ namespace NOReplay
                     }
                 }
             }
-            Log.LogInfo("Break-Block Methoden: " + n);
+            Log.LogInfo("Break block methods: " + n);
         }
 
         static void PatchNamed(string typeName, string methodName, bool hasResult)
@@ -1061,7 +1061,7 @@ namespace NOReplay
             var t = FindGameType(typeName);
             if (t == null)
             {
-                Log.LogInfo("Listen: Typ fehlt " + typeName);
+                Log.LogInfo("Listen: type missing " + typeName);
                 return;
             }
             var flags = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;

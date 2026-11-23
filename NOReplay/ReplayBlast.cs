@@ -34,7 +34,7 @@ namespace NOReplay
             if (_logs >= 8 || age < _nextLog) return;
             _logs++;
             _nextLog = age + 2f;
-            Plugin.Log?.LogInfo(NukeTime.Describe(gameObject, age));
+            Plugin.Log?.LogDebug(NukeTime.Describe(gameObject, age));
         }
     }
 }

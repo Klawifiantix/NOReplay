@@ -607,7 +607,7 @@ namespace NOReplay
                 _firedField = typeof(MountedMissile).GetField("fired",
                     BindingFlags.Instance | BindingFlags.NonPublic);
                 if (_firedField == null)
-                    Plugin.Log.LogWarning("MountedMissile.fired fehlt");
+                    Plugin.Log.LogWarning("MountedMissile.fired is missing");
             }
             try { _firedField?.SetValue(mm, fired); } catch { }
             mm.ammo = fired ? 0 : 1;
@@ -632,7 +632,7 @@ namespace NOReplay
                 _gunLoaded = typeof(Gun).GetField("bulletsLoaded",
                     BindingFlags.Instance | BindingFlags.NonPublic);
                 if (_gunLoaded == null)
-                    Plugin.Log.LogWarning("Gun.bulletsLoaded fehlt");
+                    Plugin.Log.LogWarning("Gun.bulletsLoaded is missing");
             }
             try { _gunLoaded?.SetValue(gun, rounds); } catch { }
         }

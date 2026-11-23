@@ -35,7 +35,7 @@ namespace NOReplay
                 if (!_menuMiss)
                 {
                     _menuMiss = true;
-                    Log.LogInfo("Replay-Button: Workshop im Menü nicht gefunden.");
+                    Log.LogInfo("Replay button: Workshop was not found in the menu.");
                 }
                 return;
             }
@@ -65,7 +65,7 @@ namespace NOReplay
             _menuHooked = true;
             _menuMiss = false;
             var scene = SceneManager.GetActiveScene();
-            Log.LogInfo("Replay-Button nur in MainMenu. Szene=" + scene.name + " Pfad=" + scene.path);
+            Log.LogInfo("Replay button only in MainMenu. scene=" + scene.name + " path=" + scene.path);
             DumpGameMaps();
         }
 
@@ -136,7 +136,7 @@ namespace NOReplay
             _pickerOpen = true;
             _replayLive = false;
             if (_replayFiles.Count > 0) _replayIndex = _replayFiles.Count - 1;
-            Log.LogInfo("Replay-Auswahl: " + _replayFiles.Count);
+            Log.LogInfo("Replay picker: " + _replayFiles.Count);
         }
 
         void DrawReplayPicker()
@@ -148,8 +148,8 @@ namespace NOReplay
             GUI.Label(new Rect(x + 16, y + 8, 200, 20), "SELECT REPLAY");
             if (GUI.Button(new Rect(x + w - 90, y + 6, 74, 22), "Back"))
                 _pickerOpen = false;
-            GUI.Label(new Rect(x + 16, y + 32, 40, 20), "Pfad");
-            _folderEdit = GUI.TextField(new Rect(x + 56, y + 30, w - 280, 22), _folderEdit ?? "");
+            GUI.Label(new Rect(x + 16, y + 32, 56, 20), "Folder");
+            _folderEdit = GUI.TextField(new Rect(x + 76, y + 30, w - 300, 22), _folderEdit ?? "");
             if (GUI.Button(new Rect(x + w - 216, y + 30, 70, 22), "Scan"))
             {
                 if (ReplayFolder != null)
@@ -206,15 +206,19 @@ namespace NOReplay
             GUI.Label(new Rect(x + 10, y + 4, w - 20, 18), head);
             float slider = Clock.Duration <= 0f ? 0f : Clock.Time / Clock.Duration;
             float next = GUI.HorizontalSlider(new Rect(x + 10, y + 24, w - 20, 16), slider, 0f, 1f);
-            if (Math.Abs(next - slider) > 0.0001f)
+            if (!_openingGate && Math.Abs(next - slider) > 0.0001f)
             {
                 _holdClock = false;
                 Clock.Seek(next * Clock.Duration);
             }
             if (GUI.Button(new Rect(x + 10, y + 36, 70, 18), Clock.Paused ? "Play" : "Pause"))
             {
-                _holdClock = false;
-                Clock.Paused = !Clock.Paused;
+                if (_openingGate) _playAfterOpen = true;
+                else
+                {
+                    _holdClock = false;
+                    Clock.Paused = !Clock.Paused;
+                }
             }
             if (GUI.Button(new Rect(x + 88, y + 36, 36, 18), "-4x")) Clock.Speed = -4f;
             if (GUI.Button(new Rect(x + 126, y + 36, 36, 18), "-2x")) Clock.Speed = -2f;
@@ -226,13 +230,13 @@ namespace NOReplay
             if (GUI.Button(new Rect(x + 406, y + 36, 36, 18), "1x")) Clock.Speed = 1f;
             if (GUI.Button(new Rect(x + 444, y + 36, 36, 18), "2x")) Clock.Speed = 2f;
             if (GUI.Button(new Rect(x + 482, y + 36, 36, 18), "4x")) Clock.Speed = 4f;
-            if (GUI.Button(new Rect(x + 530, y + 36, 64, 18), TrailsOn ? "Trails: an" : "Trails: aus"))
+            if (GUI.Button(new Rect(x + 530, y + 36, 84, 18), TrailsOn ? "Trails: On" : "Trails: Off"))
                 ToggleTrails();
             float mins = TrailSeconds / 60f;
-            GUI.Label(new Rect(x + 600, y + 36, 52, 18), $"{mins:0.0}m");
+            GUI.Label(new Rect(x + 618, y + 36, 52, 18), $"{mins:0.0}m");
             float killW = 112f, chatW = 78f, systemW = 100f, gap = 4f;
             float buttons = killW + chatW + systemW + gap * 2f;
-            float sliderX = 652f;
+            float sliderX = 674f;
             float sliderW = Mathf.Max(36f, w - 8f - buttons - gap - sliderX);
             float nextMin = GUI.HorizontalSlider(new Rect(x + sliderX, y + 40, sliderW, 16), mins, 0f, 10f);
             if (Math.Abs(nextMin - mins) > 0.01f)
@@ -272,10 +276,10 @@ namespace NOReplay
                 string? jsonPath = ExportMissionJson(CurrentDoc);
                 if (string.IsNullOrEmpty(jsonPath) || !File.Exists(jsonPath))
                 {
-                    Log.LogError("JSON wurde nicht geschrieben, Abbruch.");
+                    Log.LogError("JSON was not written, stopping.");
                     return;
                 }
-                Log.LogInfo("JSON bereit (" + new FileInfo(jsonPath).Length + " Byte).");
+                Log.LogInfo("JSON ready (" + new FileInfo(jsonPath).Length + " Byte).");
                 _pickerOpen = false;
                 _replayLive = true;
                 _seenWorld = false;
@@ -285,7 +289,7 @@ namespace NOReplay
                 ApplyNamedUserMission("NOReplay");
                 _pendingOfficialStart = true;
                 OpenMissionsMenu();
-                Log.LogInfo("Missionsmenü — warte auf SinglePlayerMenu.");
+                Log.LogInfo("Missions menu, waiting for SinglePlayerMenu.");
             }
             catch (Exception ex)
             {
@@ -303,7 +307,7 @@ namespace NOReplay
                 if (f?.GetValue(null) is string s && !string.IsNullOrEmpty(s))
                     scene = s;
             }
-            Log.LogInfo("Lade Szene " + scene);
+            Log.LogInfo("Loading scene " + scene);
             _worldReadyAt = Time.unscaledTime + 0.5f;
             SceneManager.LoadScene(scene);
         }

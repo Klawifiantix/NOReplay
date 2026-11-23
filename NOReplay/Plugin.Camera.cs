@@ -108,7 +108,7 @@ namespace NOReplay
             var ghost = go.GetComponent<ReplayGhost>();
             if (ghost != null && IsOrdnance(ghost.Track?.Type, ghost.Track?.Name))
             {
-                LogOnce("Cam-Bombe", "Cam bleibt frei, keine Bombe verfolgt: " + go.name, false);
+                LogOnce("Cam-Bombe", "Camera stays free, no bomb followed: " + go.name, false);
                 return;
             }
             var unit = FindUnitOn(go);

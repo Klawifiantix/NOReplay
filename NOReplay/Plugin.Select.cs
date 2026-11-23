@@ -132,7 +132,7 @@ namespace NOReplay
                 if (_selErr != ex.Message)
                 {
                     _selErr = ex.Message;
-                    Log.LogWarning("Auswahl: " + ex.Message);
+                    Log.LogWarning("Selection: " + ex.Message);
                 }
                 _ownOrbit = false;
             }
@@ -420,7 +420,7 @@ namespace NOReplay
             var m = t?.GetMethod("UpdateState", Inst);
             if (m == null)
             {
-                Log.LogWarning("CameraFreeState.UpdateState fehlt");
+                Log.LogWarning("CameraFreeState.UpdateState is missing");
                 return;
             }
             Harmony.Patch(m, postfix: new HarmonyMethod(typeof(Plugin), nameof(AfterFreeCamera)));
@@ -783,12 +783,12 @@ namespace NOReplay
                 if (n < 0) return;
                 _keysMuted = true;
                 string label = ReplayMuteLabel();
-                Log.LogInfo("Replay-Tasten " + (label.Length == 0 ? "(keine)" : label) + " stumm x" + n);
+                Log.LogInfo("Replay keys " + (label.Length == 0 ? "(none)" : label) + " muted x" + n);
             }
             catch (Exception ex)
             {
                 _keysMuted = true;
-                Log.LogWarning("Replay-Tasten: " + ex.Message);
+                Log.LogWarning("Replay keys: " + ex.Message);
             }
         }
 

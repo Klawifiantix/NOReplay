@@ -10,7 +10,7 @@ namespace NOReplay
     {
         void WarmOrdnance()
         {
-            if (_warmLeft.Count == 0) return;
+            if (SpawnRush || _warmLeft.Count == 0) return;
             int step = _holdClock ? 4 : 2;
             for (int n = 0; n < step && _warmLeft.Count > 0; n++)
             {
@@ -79,7 +79,7 @@ namespace NOReplay
                 if (_flareFxLog < 8)
                 {
                     _flareFxLog++;
-                    Log.LogWarning("Flare-FX kein Airframe nahe " + pos);
+                    Log.LogWarning("Flare FX found no airframe near " + pos);
                 }
                 return;
             }

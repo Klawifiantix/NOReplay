@@ -69,6 +69,32 @@ namespace NOReplay
 
 
         static readonly HashSet<int> _warmSeen = new HashSet<int>();
+        static readonly List<ReplayGhost> _deferKit = new List<ReplayGhost>();
+
+        static void QueueDeferredKit(ReplayGhost? rg)
+        {
+            if (rg == null || _deferKit.Contains(rg)) return;
+            _deferKit.Add(rg);
+        }
+
+        static void FlushDeferredKit()
+        {
+            if (SpawnRush || _deferKit.Count == 0) return;
+            int n = 0;
+            while (_deferKit.Count > 0 && n < 2)
+            {
+                var rg = _deferKit[0];
+                _deferKit.RemoveAt(0);
+                n++;
+                if (rg == null || rg.Track == null) continue;
+                var go = rg.gameObject;
+                if (go == null) continue;
+                TryApplyRecordedLivery(go, rg.Track);
+                TryApplyRecordedLoadout(go, rg.Track);
+                WarmLoadout(rg.Track);
+                rg.StartCoroutine(SimpleLiveryFix(go));
+            }
+        }
 
         static void WarmLoadout(ReplayObject obj)
         {
@@ -94,8 +120,8 @@ namespace NOReplay
                 if (prefab != null && prefab.name.IndexOf("VTOL", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                 n += QueuePrefab(prefab, _warmSeen);
             }
-            if (n > 0)
-                Log.LogInfo("Waffen warm aus Loadout " + obj.Name + " arten=" + n);
+                if (n > 0)
+                Log.LogDebug("Loadout warm " + obj.Name + " kinds=" + n);
         }
 
         static bool IsAirframePrefab(GameObject? prefab)
@@ -171,7 +197,7 @@ namespace NOReplay
                     DumpDefPrefabs(found);
             }
             else
-                Log.LogWarning("Keine Def für " + obj.Name + " typ=" + obj.Type);
+                Log.LogWarning("No definition for " + obj.Name + " typ=" + obj.Type);
             return found;
         }
 
@@ -369,11 +395,11 @@ namespace NOReplay
 
         static void SpawnAllAircraft()
         {
-            if (CurrentDoc == null) { Log.LogWarning("Kein Replay."); return; }
+            if (CurrentDoc == null) { Log.LogWarning("No replay."); return; }
             DumpSession("Spawn All");
             if (FindLocalNetworkPlayer() == null)
             {
-                Log.LogWarning("Kein Live-Player. Erst leere Mission über das Menü starten.");
+                Log.LogWarning("No live player. Start an empty mission from the menu first.");
                 return;
             }
             ClearGhosts();
@@ -404,6 +430,7 @@ namespace NOReplay
             _ghostComps.Clear();
             _ghost = null;
             _pendingAir.Clear();
+            _deferKit.Clear();
             _flareEvents.Clear();
             _flareDone.Clear();
             _flareClock = -1f;
@@ -452,28 +479,39 @@ namespace NOReplay
                 _pendingAir.Add(obj);
                 n++;
             }
-            Log.LogInfo("Airframes in eigene Queue: " + n);
+            Log.LogInfo("Airframes queued: " + n);
         }
 
         static void TickGhostSpawns()
         {
             QueueOwnAircraft();
             TickFlareEvents();
-            if (_pendingAir.Count == 0) return;
+            if (_pendingAir.Count == 0) { SpawnRush = false; return; }
             if (FindLocalNetworkPlayer() == null)
             {
+                SpawnRush = false;
                 if ((Time.frameCount % 180) == 0)
-                    Log.LogWarning("Spawn wartet auf Live-Player (Mission im Menü starten).");
+                    Log.LogWarning("Spawn waiting for a live player (start a mission from the menu).");
                 return;
             }
             float t = Clock.Time;
             MaybeLogMapIcons();
-            int budget = 2;
+            int dueNow = DuePending(t);
+            bool backlog = dueNow > 0;
+            // A long queue defers livery, loadout and launch-fx cleanup.
+            // A short queue still uses the time budget, then keeps the normal setup.
+            SpawnRush = _openingGate || _seekHold || dueNow > 4;
+            int budget = backlog ? 16 : 2;
+            long rushStart = backlog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+            long rushSlice = backlog ? (long)(System.Diagnostics.Stopwatch.Frequency * 0.008) : 0;
             for (int i = 0; i < _pendingAir.Count && budget > 0;)
             {
+                if (backlog && budget < 16 && System.Diagnostics.Stopwatch.GetTimestamp() - rushStart >= rushSlice)
+                    break;
                 var obj = _pendingAir[i];
                 if (obj.Samples.Count == 0) { _pendingAir.RemoveAt(i); continue; }
                 if (t + 0.05f < TrackBorn(obj)) { i++; continue; }
+                if (AlreadyGone(obj, t)) { i++; continue; }
                 if (AlreadySpawned(obj)) { _pendingAir.RemoveAt(i); continue; }
                 if (SkipInvalidDuplicate(obj))
                 {
@@ -514,12 +552,192 @@ namespace NOReplay
                     if (follow && !mapFallback && !_camStayLogged)
                     {
                         _camStayLogged = true;
-                        Log.LogInfo("Cam bleibt, kein Auto-Follow.");
+                        Log.LogInfo("Camera stays, no auto-follow.");
                     }
                 }
                 _pendingAir.RemoveAt(i);
                 budget--;
             }
+        }
+
+        static readonly List<string> _openingLeft = new List<string>();
+        static readonly HashSet<string> _openingSkipped = new HashSet<string>();
+        static float _hurryAt;
+
+        static int DuePending(float t)
+        {
+            int n = 0;
+            for (int i = 0; i < _pendingAir.Count; i++)
+            {
+                var obj = _pendingAir[i];
+                if (obj == null || OpeningSkipped(obj)) continue;
+                if (t + 0.05f < TrackBorn(obj)) continue;
+                if (AlreadyGone(obj, t)) continue;
+                n++;
+            }
+            return n;
+        }
+
+        static bool AlreadyGone(ReplayObject obj, float t)
+        {
+            return obj.RemovedAt >= 0f && t + 0.0001f >= obj.RemovedAt;
+        }
+
+        static void TickSeekHold()
+        {
+            if (!_seekHold || CurrentDoc == null) return;
+            Clock.Paused = true;
+            if (DuePending(Clock.Time) == 0 || Time.unscaledTime >= _seekHoldUntil)
+            {
+                _seekHold = false;
+                if (_seekResume && !_openingGate)
+                    Clock.Paused = false;
+            }
+        }
+
+        static void TickOpeningLoad()
+        {
+            if (!_openingGate || CurrentDoc == null) return;
+            bool canSpawn = InGameWorld() && FindLocalNetworkPlayer() != null;
+            if (canSpawn && _openingArm < 0f) _openingArm = Time.unscaledTime;
+            if (canSpawn && Time.unscaledTime >= _hurryAt)
+            {
+                _hurryAt = Time.unscaledTime + 0.25f;
+                ReplayStaticHandler.Hurry();
+            }
+            if (OpeningLoaded())
+            {
+                ReleaseOpening("ready");
+                return;
+            }
+            if (_openingArm >= 0f && Time.unscaledTime - _openingArm > 25f)
+            {
+                LogOpeningStuck();
+                ReleaseOpening("timeout");
+            }
+        }
+
+        static void ReleaseOpening(string why)
+        {
+            if (!_openingGate) return;
+            _openingGate = false;
+            Log.LogInfo("Opening load " + why);
+            if (_playAfterOpen)
+            {
+                _playAfterOpen = false;
+                _holdClock = false;
+                Clock.Paused = false;
+            }
+        }
+
+        static bool OpeningLoaded()
+        {
+            if (CurrentDoc == null || !InGameWorld()) return false;
+            if (FindLocalNetworkPlayer() == null) return false;
+            if (!_aircraftQueued) return false;
+            if (!_missionStartFinished && !_missionStartFailed) return false;
+            if (!ReplayStaticHandler.Started) return false;
+            LoadCounts(0f, out int due, out int ready);
+            return ready >= due;
+        }
+
+        internal static int LoadPercent(float t)
+        {
+            LoadCounts(t, out int due, out int ready);
+            if (due <= 0) return _openingGate ? 0 : 100;
+            int pct = ready * 100 / due;
+            if (pct >= 100 && _openingGate && !OpeningLoaded()) return 99;
+            return pct > 100 ? 100 : pct;
+        }
+
+        static void LoadCounts(float t, out int due, out int ready)
+        {
+            int pendingDue = 0;
+            for (int i = 0; i < _pendingAir.Count; i++)
+            {
+                var obj = _pendingAir[i];
+                if (obj == null || OpeningSkipped(obj)) continue;
+                if (t + 0.05f < TrackBorn(obj)) continue;
+                if (AlreadyGone(obj, t)) continue;
+                pendingDue++;
+            }
+            int spawnedDue = 0;
+            for (int i = 0; i < _ghostComps.Count; i++)
+            {
+                var obj = _ghostComps[i]?.Track;
+                if (obj == null) continue;
+                if (t + 0.05f < TrackBorn(obj)) continue;
+                spawnedDue++;
+            }
+            int bound = ReplayStaticHandler.Bound;
+            int waiting = 0;
+            if (ReplayStaticHandler.Started)
+            {
+                ReplayStaticHandler.CopyWaiting(_openingLeft);
+                for (int i = 0; i < _openingLeft.Count; i++)
+                {
+                    if (_openingSkipped.Contains("static:" + _openingLeft[i])) continue;
+                    waiting++;
+                }
+            }
+            int pendingStatics = ReplayStaticHandler.Started ? 0 : StaticExpect();
+            due = pendingDue + spawnedDue + bound + waiting + pendingStatics;
+            ready = spawnedDue + bound;
+        }
+
+        static bool OpeningSkipped(ReplayObject obj)
+        {
+            if (_openingSkipped.Count == 0) return false;
+            string id = obj.Id ?? obj.Name ?? "";
+            return id.Length > 0 && _openingSkipped.Contains(id);
+        }
+
+        static int StaticExpect()
+        {
+            if (_staticExpect >= 0) return _staticExpect;
+            int n = 0;
+            if (CurrentDoc != null)
+            {
+                foreach (var o in CurrentDoc.Objects)
+                {
+                    if (o == null) continue;
+                    if (!string.IsNullOrEmpty(o.Map)) { n++; continue; }
+                    string typ = o.Type ?? "";
+                    if (typ.IndexOf("Building", StringComparison.OrdinalIgnoreCase) >= 0
+                        || typ.IndexOf("Scenery", StringComparison.OrdinalIgnoreCase) >= 0)
+                        n++;
+                }
+            }
+            _staticExpect = n;
+            return n;
+        }
+
+        static void LogOpeningStuck()
+        {
+            _openingSkipped.Clear();
+            int shown = 0;
+            var sb = new System.Text.StringBuilder("Opening load timeout. Still due at t=0:");
+            for (int i = 0; i < _pendingAir.Count; i++)
+            {
+                var obj = _pendingAir[i];
+                if (obj == null) continue;
+                if (0.05f < TrackBorn(obj)) continue;
+                string id = obj.Id ?? obj.Name ?? "";
+                if (id.Length > 0) _openingSkipped.Add(id);
+                if (shown >= 16) continue;
+                sb.Append(" [").Append(obj.Name ?? "?").Append(" id=").Append(obj.Id ?? "").Append(']');
+                shown++;
+            }
+            ReplayStaticHandler.CopyWaiting(_openingLeft);
+            for (int i = 0; i < _openingLeft.Count; i++)
+            {
+                _openingSkipped.Add("static:" + _openingLeft[i]);
+                if (shown >= 24) continue;
+                sb.Append(" static ").Append(_openingLeft[i]);
+                shown++;
+            }
+            if (shown == 0) sb.Append(" (none listed)");
+            Log.LogWarning(sb.ToString());
         }
 
         static bool SkipInvalidDuplicate(ReplayObject obj)
@@ -685,7 +903,7 @@ namespace NOReplay
             if (n == 0 && _flareFxLog < 4)
             {
                 _flareFxLog++;
-                Log.LogInfo("Flare-FX keine Flare-PS an " + host.name);
+                Log.LogInfo("Flare FX found no flare particle system on " + host.name);
             }
             return n;
         }
@@ -737,7 +955,7 @@ namespace NOReplay
 
             go.name = "NOReplay_" + (obj.Name ?? obj.Id);
             if (aircraft)
-                Log.LogInfo("Ghost " + go.name + " id=" + (obj.Id ?? "")
+                Log.LogDebug("Ghost " + go.name + " id=" + (obj.Id ?? "")
                     + " samples=" + obj.Samples.Count
                     + " pilot=" + (string.IsNullOrEmpty(obj.Pilot) ? "-" : obj.Pilot)
                     + " pos=" + pos.ToString("0.#"));
@@ -758,12 +976,18 @@ namespace NOReplay
             bool vehicle = !aircraft && !ship && !ordnance && !flare && !visualOnly && !pilotPrefab;
             if (aircraft)
             {
-                TryApplyRecordedLivery(go, obj);
-                TryApplyRecordedLoadout(go, obj);
-                WarmLoadout(obj);
+                if (SpawnRush)
+                    QueueDeferredKit(rg);
+                else
+                {
+                    TryApplyRecordedLivery(go, obj);
+                    TryApplyRecordedLoadout(go, obj);
+                    WarmLoadout(obj);
+                }
                 ApplyHq(go, obj.Coalition);
                 try { TryRegisterGhostOnMap(go, false); } catch { }
-                rg.StartCoroutine(SimpleLiveryFix(go));
+                if (!SpawnRush)
+                    rg.StartCoroutine(SimpleLiveryFix(go));
             }
             else if (ship || vehicle)
             {
@@ -1087,7 +1311,7 @@ namespace NOReplay
                 rg.InvalidateGuns();
                 rg.EnsureGunsCurrent(true);
             }
-            Log.LogInfo("Loadout " + obj.Loadout + " stations=" + sets.Length + " gesetzt=" + filled + " -> " + go.name);
+            Log.LogDebug("Loadout " + obj.Loadout + " stations=" + sets.Length + " set=" + filled + " -> " + go.name);
         }
 
         static void SilenceGhostWeapons(GameObject go)
@@ -1180,7 +1404,7 @@ namespace NOReplay
                 try { lbT.GetMethod("Setup")?.Invoke(lb, new object[] { ac, key }); } catch { }
                 try { lbT.GetMethod("SetKey")?.Invoke(lb, new object[] { key }); } catch { }
                 if (!string.IsNullOrEmpty(raw))
-                    Log.LogInfo("Livery " + raw + " -> " + go.name);
+                    Log.LogDebug("Livery " + raw + " -> " + go.name);
             }
             catch (Exception ex)
             {
@@ -1199,7 +1423,7 @@ namespace NOReplay
             {
                 unit.GetType().GetProperty("NetworkHQ", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                     ?.SetValue(unit, hq);
-                Log.LogInfo("Fraktion " + go.name + " -> " + FactionName(coal));
+                Log.LogDebug("Faction " + go.name + " -> " + FactionName(coal));
             }
             catch { }
         }
@@ -1313,7 +1537,7 @@ namespace NOReplay
             object? found = scene ?? asset;
             if (found == null)
             {
-                LogOnce("hq:" + want, "kein HQ für " + want, true);
+                LogOnce("hq:" + want, "no HQ for " + want, true);
                 return null;
             }
             _hqCache[want] = found;
@@ -1378,13 +1602,13 @@ namespace NOReplay
                         {
                             go.transform.SetPositionAndRotation(pos, rot);
                             ShowMissile(go);
-                            int moved = RetargetStrayLaunchFx(pos, rot);
+                            if (!SpawnRush)
+                                RetargetStrayLaunchFx(pos, rot);
                             var ownerComp = owner as Component;
                             float dist = ownerComp != null ? Vector3.Distance(ownerComp.transform.position, pos) : -1f;
-                            Log.LogInfo("GameSpawn SpawnMissile " + obj.Name + " coal=" + coal
+                            Log.LogDebug("GameSpawn SpawnMissile " + obj.Name + " coal=" + coal
                                 + " owner=" + (ownerComp != null ? ownerComp.name : "?")
-                                + " dist=" + dist.ToString("0")
-                                + " fx=" + moved);
+                                + " dist=" + dist.ToString("0"));
                             if (anchor.transform.childCount == 0)
                                 UnityEngine.Object.Destroy(anchor, 8f);
                             return go;
@@ -1449,7 +1673,7 @@ namespace NOReplay
                 if (n >= 4) break;
             }
             if (n > 0)
-                Log.LogInfo("Launch fx off camera n=" + n + " at=" + pos.ToString("0"));
+                Log.LogDebug("Launch fx off camera n=" + n + " at=" + pos.ToString("0"));
             return n;
         }
 
@@ -1479,7 +1703,7 @@ namespace NOReplay
                 set("NetworkstartingVelocity", vel);
                 var hq = GetHq(obj.Coalition);
                 if (hq != null) set("NetworkHQ", hq);
-                else LogOnce("hq-unit:" + (obj.Name ?? "") + ":" + (obj.Coalition ?? "-"), "kein HQ für " + obj.Name + " coal=" + (obj.Coalition ?? "-"), true);
+                else LogOnce("hq-unit:" + (obj.Name ?? "") + ":" + (obj.Coalition ?? "-"), "no HQ for " + obj.Name + " coal=" + (obj.Coalition ?? "-"), true);
             }
             var rb = go.GetComponent<Rigidbody>();
             if (rb != null) rb.velocity = vel;
@@ -1599,7 +1823,7 @@ namespace NOReplay
             catch (Exception ex)
             {
                 _gameSpawnDead = true;
-                Log.LogWarning("GameSpawn Abbruch: " + ex.Message);
+                Log.LogWarning("GameSpawn aborted: " + ex.Message);
                 if (ex.InnerException != null)
                     Log.LogWarning("inner: " + ex.InnerException);
                 return null;
@@ -1751,7 +1975,7 @@ namespace NOReplay
                     if (g != null) { target = g; break; }
             }
             if (target != null) TryFollowGhost(target);
-            Log.LogInfo("Replay-View: orbit auf " + (target != null ? target.name : "kein Ziel"));
+            Log.LogInfo("Replay view: orbit on " + (target != null ? target.name : "no target"));
         }
 
         internal static string? PlayerNameFromCallSign(string? callSign)
@@ -1881,7 +2105,7 @@ namespace NOReplay
             if (unit == null)
             {
                 if (_ghosts.Count <= 8)
-                    Log.LogWarning("Kein Unit-Component an " + go.name);
+                    Log.LogWarning("No Unit component on " + go.name);
                 return;
             }
             var unitType = unit.GetType();

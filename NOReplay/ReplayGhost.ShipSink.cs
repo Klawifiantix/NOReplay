@@ -80,7 +80,7 @@ namespace NOReplay
             if (!_sinkLogged)
             {
                 _sinkLogged = true;
-                Plugin.Log.LogInfo("Schiff sinkt (Kurve) " + (Track.Name ?? name));
+                Plugin.Log.LogInfo("Ship sinking (curve) " + (Track.Name ?? name));
             }
             if (!_visible) SetGhostVisible(true);
             var local = Plugin.GlobalToLocal(last.X, last.Y, last.Z);

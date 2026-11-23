@@ -37,11 +37,10 @@ Open a replay
 * Leave the mission and the timeline closes. The Replay button is back in the main menu.
 
 Timeline
-* The timeline sits at the top center while a replay is running.
+* The timeline sits at the top center while a replay is running and the map is open. Closing the map hides it. Opening the map shows it again.
 * Play runs the track. Pause holds it.
 * Drag the marker to scrub. Units jump to that time. Dragging backward shows the reverse motion.
 * Speeds: -4x -2x -1x -0.5x -0.25x 0.25x 0.5x 1x 2x 4x.
-* F10 hides the timeline. F10 shows it again. F10 is the default.
 * Trails button toggles flight paths. The T key does the same. T is the default. The slider next to it sets trail length from 0 to 10 minutes. Dead airframes lose their trail.
 
 Camera
@@ -56,7 +55,7 @@ Camera
 * The camera does not jump to a unit on its own.
 
 Shortcuts
-* Defaults: F8 records, Space plays or pauses, 1 / 2 / 4 set speed to 1x / 2x / 4x, Left and Right arrow jump 5 seconds, F10 hides or shows the timeline, F toggles look-at lock, T toggles trails, P toggles the carrier approach pattern.
+* Defaults: F8 records, Space plays or pauses, 1 / 2 / 4 set speed to 1x / 2x / 4x, Left and Right arrow jump 5 seconds, F toggles look-at lock, T toggles trails, P toggles the carrier approach pattern.
 * Look-at lock, trails and the approach pattern do nothing while a text field is selected. During a replay the game's own binding for those keys is muted. They follow the key you set. The pattern starts off.
 * WASD still flies the free camera. Those four keys are not in the config.
 * Change them in `BepInEx/config/you.noreplay.cfg`, or in ConfigurationManager (F1). Recording is StartStopRecordingKey under Hotkeys. Replay keys are under Replay Hotkeys. A value already saved in the config is kept. Only a missing entry uses the default above.

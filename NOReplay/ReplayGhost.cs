@@ -1648,6 +1648,8 @@ namespace NOReplay
                 try { DriveCarrier(nowT); }
                 catch (Exception ex) { LogSubsystemOnce("Carrier", ex); }
             }
+            try { NoteRotorView(); }
+            catch (Exception ex) { LogSubsystemOnce("RotorView", ex); }
             ReplayPerf.Add("late-fx", ReplayPerf.Stamp() - mark);
         }
 
@@ -1660,7 +1662,8 @@ namespace NOReplay
                 : where == "TickStructural" ? 4
                 : where == "TickAmmo" ? 8
                 : where == "Vapor" ? 32
-                : where == "Carrier" ? 64 : 16;
+                : where == "Carrier" ? 64
+                : where == "RotorView" ? 128 : 16;
             if ((_subFail & bit) != 0) return;
             _subFail |= bit;
             Plugin.Log.LogWarning(where + " " + ex.GetType().Name + ": " + ex.Message);

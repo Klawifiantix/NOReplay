@@ -1,88 +1,69 @@
-﻿using System.Reflection;
+﻿using System.Collections.Generic;
+using System.Reflection;
+using System.Reflection.Emit;
 using HarmonyLib;
 using UnityEngine;
 
 namespace NOReplay
 {
+    /// <summary>
+    /// Fly-by reads Rigidbody.velocity in CameraTVState. A replay ghost is
+    /// kinematic, so that value stays zero and the 3 second timer never fires.
+    /// Substitute the recorded velocity for the reads in that state. The ghost
+    /// update never calls into the camera.
+    /// </summary>
     [HarmonyPatch]
     static class CameraTVPatch
     {
-        static System.Type? _camType;
-        static FieldInfo? _follow;
-        static bool _ready;
-        static Object? _cam;
-        static Component? _unit;
-        static ReplayGhost? _ghost;
-
-        static MethodBase TargetMethod()
+        static IEnumerable<MethodBase> TargetMethods()
         {
             var type = Plugin.FindGameType("CameraTVState");
-            return type?.GetMethod("GetTVCamPoint", BindingFlags.Instance | BindingFlags.NonPublic);
+            if (type == null) yield break;
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var update = type.GetMethod("UpdateState", flags);
+            var enter = type.GetMethod("EnterState", flags);
+            if (update != null) yield return update;
+            if (enter != null) yield return enter;
         }
 
-        static void Prefix(ref Vector3 targetVel)
+        static void Prefix(object[] __args)
         {
-            InjectVelocity(ref targetVel);
+            if (Plugin.CurrentDoc == null || __args == null || __args.Length == 0) return;
+            if (__args[0] is not Component cam) return;
+            var rb = cam.GetType().GetField("followingRB",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(cam) as Rigidbody;
+            if (rb == null) return;
+            var ghost = rb.GetComponent<ReplayGhost>() ?? rb.GetComponentInParent<ReplayGhost>();
+            if (ghost == null) return;
+            rb.velocity = ghost.CameraFeedVelocity();
         }
 
-        static void InjectVelocity(ref Vector3 targetVel)
+        static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
         {
-            if (!_ready)
+            var getter = typeof(Rigidbody).GetProperty(nameof(Rigidbody.velocity))?.GetGetMethod();
+            var feed = typeof(CameraTVPatch).GetMethod(nameof(FeedVelocity), BindingFlags.Static | BindingFlags.NonPublic);
+            if (getter == null || feed == null)
             {
-                _ready = true;
-                _camType = Plugin.FindGameType("CameraStateManager");
-                if (_camType != null)
-                    _follow = _camType.GetField("followingUnit",
-                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                foreach (var same in instructions) yield return same;
+                yield break;
             }
-            if (_camType == null || _follow == null) return;
-            if (!ReadFollow(out var ghost) && !Rescan(out ghost)) return;
-            int id = ghost.GetInstanceID();
-            if (ReplayGhost.Velocities.TryGetValue(id, out var vel))
-                targetVel = vel * 1.5f;
+            foreach (var instruction in instructions)
+            {
+                if (instruction.Calls(getter))
+                    yield return new CodeInstruction(OpCodes.Call, feed);
+                else
+                    yield return instruction;
+            }
         }
 
-        static bool ReadFollow(out ReplayGhost ghost)
+        static Vector3 FeedVelocity(Rigidbody body)
         {
-            ghost = null!;
-            if (_cam == null || _follow == null) return false;
-            Component? unit;
-            try { unit = _follow.GetValue(_cam) as Component; }
-            catch { return false; }
-            if (unit == null) return false;
-            if (!object.ReferenceEquals(unit, _unit))
+            if (Plugin.CurrentDoc != null && body != null)
             {
-                _unit = unit;
-                _ghost = unit.GetComponent<ReplayGhost>();
+                var ghost = body.GetComponent<ReplayGhost>() ?? body.GetComponentInParent<ReplayGhost>();
+                if (ghost != null) return ghost.CameraFeedVelocity();
             }
-            if (_ghost == null) return false;
-            ghost = _ghost;
-            return true;
-        }
-
-        static bool Rescan(out ReplayGhost ghost)
-        {
-            ghost = null!;
-            _cam = null;
-            _unit = null;
-            _ghost = null;
-            if (_camType == null || _follow == null) return false;
-            foreach (var cam in Resources.FindObjectsOfTypeAll(_camType))
-            {
-                if (cam == null) continue;
-                Component? unit;
-                try { unit = _follow.GetValue(cam) as Component; }
-                catch { continue; }
-                if (unit == null) continue;
-                var found = unit.GetComponent<ReplayGhost>();
-                if (found == null) continue;
-                _cam = cam;
-                _unit = unit;
-                _ghost = found;
-                ghost = found;
-                return true;
-            }
-            return false;
+            return body != null ? body.velocity : Vector3.zero;
         }
     }
 }

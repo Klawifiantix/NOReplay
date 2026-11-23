@@ -1276,10 +1276,7 @@ namespace NOReplay
                         object? dv = ReadFit(_fRotorDir, c);
                         if (dv != null) dir = Convert.ToSingle(dv);
                         if (hub != null)
-                        {
                             hub.Rotate(0f, nom * 6f * dir * govern * dt, 0f, Space.Self);
-                            NoteRotorSpun(hub);
-                        }
                     }
                 }
             }

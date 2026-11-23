@@ -192,8 +192,6 @@ namespace NOReplay
         int _flareKids = -1;
         public static readonly System.Collections.Generic.Dictionary<int, Vector3> Velocities = new System.Collections.Generic.Dictionary<int, Vector3>();
         static readonly System.Collections.Generic.HashSet<string> _pylonLogged = new System.Collections.Generic.HashSet<string>();
-        float _camTimer;
-        Vector3 _lastCamPos;
 
         void RefreshRenderers()
         {
@@ -395,64 +393,11 @@ namespace NOReplay
             }
         }
 
-        void CheckCameraReposition(Vector3 vel)
+        internal Vector3 CameraFeedVelocity()
         {
-            var cam = Plugin.MainCamera();
-            if (cam == null || Drive == null) return;
-            Vector3 camPos = cam.transform.position;
-            Vector3 toCam = camPos - Drive.position;
-            // If target is flying away from camera (dot < 0)
-            if (Vector3.Dot(vel, toCam) < 0f)
-            {
-                _camTimer += Plugin.Clock.Speed * Time.deltaTime;
-                if (_camTimer > 4f)
-                {
-                    // Trigger reposition by calling GetTVCamPoint via reflection
-                    TriggerTVReposition(vel);
-                    _camTimer = 0f;
-                }
-            }
-            else
-            {
-                _camTimer = 0f;
-            }
-        }
-
-        void TriggerTVReposition(Vector3 vel)
-        {
-            var camType = Plugin.FindGameType("CameraStateManager");
-            if (camType == null) return;
-            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
-            foreach (var cam in Resources.FindObjectsOfTypeAll(camType))
-            {
-                if (cam == null) continue;
-                var tv = camType.GetField("TVState", flags)?.GetValue(cam);
-                if (tv == null) continue;
-                var method = tv.GetType().GetMethod("GetTVCamPoint", flags);
-                if (method != null)
-                {
-                    method.Invoke(tv, new object[] { Drive.position, vel });
-                    Plugin.Log.LogInfo("TV reposition triggered");
-                }
-                break;
-            }
-        }
-
-        void LogCameraState()
-        {
-            var camType = Plugin.FindGameType("CameraStateManager");
-            if (camType == null) return;
-            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
-            foreach (var cam in Resources.FindObjectsOfTypeAll(camType))
-            {
-                if (cam == null) continue;
-                var cur = camType.GetField("currentState", flags)?.GetValue(cam);
-                var tv = camType.GetField("TVState", flags)?.GetValue(cam);
-                var orbit = camType.GetField("orbitState", flags)?.GetValue(cam);
-                string state = cur == tv ? "TV" : cur == orbit ? "Orbit" : cur?.GetType().Name ?? "?";
-                Plugin.Log.LogInfo("CamState=" + state);
-                break;
-            }
+            var clock = Plugin.Clock;
+            if (clock == null || clock.Paused) return Vector3.zero;
+            return _velMs * clock.Speed;
         }
 
         bool CheckIsShip(string t, string nm, string gn)
@@ -1589,8 +1534,6 @@ namespace NOReplay
                 _spdMs = coastVel.magnitude;
             }
             Velocities[GetInstanceID()] = _velMs;
-            if (_air && gameObject == Plugin._ghost)
-                CheckCameraReposition(_velMs);
             bool velChanged = !_velAppliedSet || (_velMs - _velApplied).sqrMagnitude > 0.0001f;
             for (int i = 0; i < _rbs.Length; i++)
             {
@@ -1648,8 +1591,6 @@ namespace NOReplay
                 try { DriveCarrier(nowT); }
                 catch (Exception ex) { LogSubsystemOnce("Carrier", ex); }
             }
-            try { NoteRotorView(); }
-            catch (Exception ex) { LogSubsystemOnce("RotorView", ex); }
             ReplayPerf.Add("late-fx", ReplayPerf.Stamp() - mark);
         }
 
@@ -1662,8 +1603,7 @@ namespace NOReplay
                 : where == "TickStructural" ? 4
                 : where == "TickAmmo" ? 8
                 : where == "Vapor" ? 32
-                : where == "Carrier" ? 64
-                : where == "RotorView" ? 128 : 16;
+                : where == "Carrier" ? 64 : 16;
             if ((_subFail & bit) != 0) return;
             _subFail |= bit;
             Plugin.Log.LogWarning(where + " " + ex.GetType().Name + ": " + ex.Message);

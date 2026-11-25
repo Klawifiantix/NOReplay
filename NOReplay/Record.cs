@@ -152,22 +152,101 @@ namespace NOReplay
 
         sealed class RecLabel : MonoBehaviour
         {
+            const float HoldSeconds = 3f;
+            const float FadeSeconds = 1f;
+            const float FontSize = 22f;
             GUIStyle? _style;
+            bool _recording;
+            bool _stop;
+            bool _draw;
+            float _phaseAt;
+
+            void Awake()
+            {
+                useGUILayout = false;
+            }
 
             void Update()
             {
                 if (Plugin.CurrentDoc != null && Active) Stop("replay");
+                bool recording = Active;
+                if (recording != _recording)
+                {
+                    _recording = recording;
+                    _phaseAt = Time.unscaledTime;
+                    _stop = !recording && WantFade() && WantIndicator();
+                }
+                else if (_stop && Time.unscaledTime - _phaseAt >= HoldSeconds + FadeSeconds)
+                    _stop = false;
+                _draw = ShouldDraw();
             }
 
             void OnGUI()
             {
-                if (!Active) return;
+                if (!_draw) return;
+                float alpha = LabelAlpha();
+                if (alpha <= 0f) return;
                 if (_style == null)
+                    _style = new GUIStyle(GUI.skin.label) { fontSize = (int)FontSize };
+                Color color = _stop ? new Color(1f, 0f, 0f, alpha) : RecColor(alpha);
+                _style.normal.textColor = color;
+                float x = Unit(RecordConfig.RecordingIndicatorX, RecordConfig.DefaultRecordingIndicatorX) * Screen.width;
+                float y = Unit(RecordConfig.RecordingIndicatorY, RecordConfig.DefaultRecordingIndicatorY) * Screen.height;
+                GUI.Label(new Rect(x, y, 90f, 28f), _stop ? "STOP" : "REC", _style);
+            }
+
+            bool ShouldDraw()
+            {
+                if (!WantIndicator()) return false;
+                if (_recording) return !WantFade() || Time.unscaledTime - _phaseAt < HoldSeconds + FadeSeconds;
+                return _stop && WantFade() && Time.unscaledTime - _phaseAt < HoldSeconds + FadeSeconds;
+            }
+
+            float LabelAlpha()
+            {
+                float opacity = Unit(RecordConfig.TextColorA, RecordConfig.DefaultTextColorA);
+                if (!WantFade()) return opacity;
+                float age = Time.unscaledTime - _phaseAt;
+                if (age <= HoldSeconds) return opacity;
+                if (age >= HoldSeconds + FadeSeconds) return 0f;
+                return opacity * (1f - (age - HoldSeconds) / FadeSeconds);
+            }
+
+            static Color RecColor(float alpha)
+            {
+                return new Color(
+                    Unit(RecordConfig.TextColorR, RecordConfig.DefaultTextColorR),
+                    Unit(RecordConfig.TextColorG, RecordConfig.DefaultTextColorG),
+                    Unit(RecordConfig.TextColorB, RecordConfig.DefaultTextColorB),
+                    alpha);
+            }
+
+            static bool WantIndicator()
+            {
+                var entry = RecordConfig.EnableRecordingIndicator;
+                if (entry == null) return RecordConfig.DefaultEnableRecordingIndicator;
+                try { return entry.Value; }
+                catch { return RecordConfig.DefaultEnableRecordingIndicator; }
+            }
+
+            static bool WantFade()
+            {
+                var entry = RecordConfig.Fade;
+                if (entry == null) return RecordConfig.DefaultFade;
+                try { return entry.Value; }
+                catch { return RecordConfig.DefaultFade; }
+            }
+
+            static float Unit(ConfigEntry<float>? entry, float fallback)
+            {
+                if (entry == null) return fallback;
+                try
                 {
-                    _style = new GUIStyle(GUI.skin.label) { fontSize = 22 };
-                    _style.normal.textColor = Color.green;
+                    float value = entry.Value;
+                    if (value < 0f || value > 1f) return fallback;
+                    return value;
                 }
-                GUI.Label(new Rect(Screen.width - 78f, Screen.height - 42f, 60f, 28f), "Rec", _style);
+                catch { return fallback; }
             }
         }
     }

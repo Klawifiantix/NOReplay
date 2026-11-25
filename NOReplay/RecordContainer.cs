@@ -47,7 +47,7 @@ namespace NOReplay
         {
             if (!enabled || unit == null || unit.disabled) return;
             timer += Time.deltaTime;
-            if (timer < RecordConfig.vehicleUpdateDelta.Value) return;
+            if (timer < RecordConfig.VehicleUpdateDelta) return;
             UpdatePose();
             UpdateState();
             CommitMotion();

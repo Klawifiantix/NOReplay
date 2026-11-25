@@ -117,10 +117,8 @@ namespace NOReplay
                         props.Add("Type", null!);
                     Engine.invokeWriterUpdate(this);
                     props.Clear();
-                    if (base.destroyedEvent && !purge)
-                    {
-                        Engine.invokeWriterDestroy(this);
-                    }
+                    // The hidden pose is written on this frame. The remove waits
+                    // until the next one so both are not on the same timestamp.
                     if (purge)
                     {
                         Engine.invokeWriterRemove(this);
@@ -129,7 +127,6 @@ namespace NOReplay
                         Engine.Retire(unitId, gameObject);
                         GameObject.Destroy(gameObject);
                     }
-                    //this is to stagger the Destroyed Event and the Remove call to 2 different time steps, as having them both on the same time step will confuse Tacview
                     purge = true;
                 }
             }

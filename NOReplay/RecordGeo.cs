@@ -1,24 +1,9 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.IO;
 
 namespace NOReplay
 {
     public static class RecordGeo
     {
-        public static (bool isFolder, bool success) IsFileOrFolder(string path)
-        {
-            try
-            {
-                var attr = File.GetAttributes(path);
-                return attr.HasFlag(FileAttributes.Directory) ? (true, true)! : (false, true)!;
-            }
-            catch (FileNotFoundException)
-            {
-                return (false, false);
-            }
-        }
-
         public static (float, float) CartesianToGeodetic(float U /* X */, float V /* Z */)
         {
             //Stupid simplification but it works.

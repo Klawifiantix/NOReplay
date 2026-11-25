@@ -78,9 +78,75 @@ namespace NOReplay
 
         static string DefaultReplayFolder()
         {
+            try
+            {
+                string root = Application.persistentDataPath;
+                if (!string.IsNullOrEmpty(root))
+                    return Path.Combine(root, "Replays");
+            }
+            catch { }
             return Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "Low",
                 "Shockfront", "NuclearOption", "Replays");
+        }
+
+        static bool SameFolder(string? a, string? b)
+        {
+            return string.Equals(NormalizeFolder(a), NormalizeFolder(b), StringComparison.OrdinalIgnoreCase);
+        }
+
+        static string NormalizeFolder(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return "";
+            string folder = path.Trim().TrimEnd('/', '\\');
+            try { folder = Path.GetFullPath(folder); }
+            catch { }
+            return folder;
+        }
+
+        internal static string ReplayDirectory()
+        {
+            string folder = ReplayFolder != null ? ReplayFolder.Value : "";
+            folder = (folder ?? "").Trim();
+            if (folder.Length == 0) folder = DefaultReplayFolder();
+            return folder;
+        }
+
+        void OnReplayFolderChanged(object sender, EventArgs e)
+        {
+            string folder = ReplayFolder != null ? (ReplayFolder.Value ?? "").Trim() : "";
+            _folderEdit = folder;
+            SaveFolderBesideDll(folder);
+        }
+
+        static string? ReadConfigRaw(ConfigFile config, string section, string key)
+        {
+            try
+            {
+                string path = config.ConfigFilePath;
+                if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
+                string? current = null;
+                foreach (var line in File.ReadAllLines(path))
+                {
+                    string t = line.Trim();
+                    if (t.Length >= 2 && t[0] == '[' && t[t.Length - 1] == ']')
+                    {
+                        current = t.Substring(1, t.Length - 2).Trim();
+                        continue;
+                    }
+                    if (!string.Equals(current, section, StringComparison.Ordinal)) continue;
+                    if (t.Length == 0 || t[0] == '#' || t[0] == ';') continue;
+                    int eq = t.IndexOf('=');
+                    if (eq <= 0) continue;
+                    if (!string.Equals(t.Substring(0, eq).Trim(), key, StringComparison.Ordinal)) continue;
+                    string value = t.Substring(eq + 1).Trim();
+                    if (value.Length >= 2 && value[0] == '"' && value[value.Length - 1] == '"')
+                        value = value.Substring(1, value.Length - 2);
+                    return value;
+                }
+            }
+            catch { }
+            return null;
         }
 
         static void SaveFolderBesideDll(string folder)
@@ -127,15 +193,34 @@ namespace NOReplay
             try
             {
                 string def = DefaultReplayFolder();
+                string? previousPicker = ReadConfigRaw(Config, "Paths", "ReplayFolder");
+                string? previousOutput = ReadConfigRaw(Config, "General Settings", "OutputPath");
+                string initial = def;
+                bool pickerSet = !string.IsNullOrWhiteSpace(previousPicker);
+                bool outputSet = !string.IsNullOrWhiteSpace(previousOutput);
+                if (pickerSet && outputSet && !SameFolder(previousPicker, previousOutput))
+                {
+                    // The picker path wins, unless it is still the built-in folder and the old save path is not.
+                    if (SameFolder(previousPicker, def) && !SameFolder(previousOutput, def))
+                        initial = previousOutput!.Trim();
+                    else
+                        initial = previousPicker!.Trim();
+                }
+                else if (pickerSet)
+                    initial = previousPicker!.Trim();
+                else if (outputSet)
+                    initial = previousOutput!.Trim();
                 ReplayFolder = Config.Bind(
-                    "Paths",
-                    "ReplayFolder",
-                    def,
-                    "Folder of .acmi replay files");
-                string saved = LoadFolderBesideDll(ReplayFolder.Value);
-                if (!string.IsNullOrWhiteSpace(saved) && saved != ReplayFolder.Value)
-                    ReplayFolder.Value = saved;
-                _folderEdit = ReplayFolder.Value;
+                    "General Settings",
+                    "Replay Folder",
+                    initial,
+                    "Folder for saving new recordings and loading replays. The same path is kept in replay_folder.txt next to the plugin. Default: the game's persistent data folder plus Replays.");
+                ReplayFolder.SettingChanged += OnReplayFolderChanged;
+                string saved = LoadFolderBesideDll("");
+                if (!string.IsNullOrWhiteSpace(saved) && saved.Trim() != (ReplayFolder.Value ?? "").Trim())
+                    ReplayFolder.Value = saved.Trim();
+                else
+                    _folderEdit = (ReplayFolder.Value ?? "").Trim();
                 try
                 {
                     PerfLog = Config.Bind(
@@ -605,9 +690,7 @@ namespace NOReplay
 
         void ScanReplays()
         {
-            string folder = ReplayFolder != null && !string.IsNullOrWhiteSpace(ReplayFolder.Value)
-                ? ReplayFolder.Value.Trim()
-                : DefaultReplayFolder();
+            string folder = ReplayDirectory();
             _replayFiles.Clear();
             if (Directory.Exists(folder))
             {
@@ -699,7 +782,6 @@ namespace NOReplay
             }
         }
 
-        GUIStyle? _recStyle;
         GUIStyle? _loadStyle;
 
         // DynamicMap.Maximize sets mapMaximized and raises onMapMaximized.
@@ -720,15 +802,6 @@ namespace NOReplay
 
         private void OnGUI()
         {
-            if (Record.Active)
-            {
-                if (_recStyle == null)
-                {
-                    _recStyle = new GUIStyle(GUI.skin.label) { fontSize = 22 };
-                    _recStyle.normal.textColor = Color.green;
-                }
-                GUI.Label(new Rect(Screen.width - 78f, Screen.height - 42f, 60f, 28f), "Rec", _recStyle);
-            }
             if (_pickerOpen) DrawReplayPicker();
             else if (ReplayTimelineOpen()) DrawTimeline();
             DrawLoadProgress();
@@ -769,12 +842,10 @@ namespace NOReplay
         public void LogInfo(object d) => Write("Info", d);
         public void LogDebug(object d)
         {
-            try
-            {
-                if (RecordConfig.EnableLogging == null || !RecordConfig.EnableLogging.Value) return;
-            }
-            catch { return; }
+            if (!RecordConfig.EnableLogging) return;
+#pragma warning disable CS0162 // EnableLogging is a constant false. The write stays for a local flip.
             Write("Info", d);
+#pragma warning restore CS0162
         }
         public void LogWarning(object d) => Write("Warning", d);
         public void LogError(object d) => Write("Error", d);

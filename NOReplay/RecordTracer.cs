@@ -34,7 +34,7 @@ namespace NOReplay
         public override void Update()
         {
             timer += Time.deltaTime;
-            if (timer < RecordConfig.tracerUpdateDelta.Value)
+            if (timer < RecordConfig.TracerUpdateDelta)
             {
                 return;
             }

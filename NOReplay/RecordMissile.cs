@@ -24,7 +24,6 @@ namespace NOReplay
 
         private float lastAGL = float.NaN;
         private float lastTAS = float.NaN;
-        private float lastAOA = float.NaN;
 
         internal bool Detonated
         {
@@ -64,11 +63,6 @@ namespace NOReplay
                     + " code=" + code
                     + " seeker=" + (missile.GetComponent<MissileSeeker>()?.GetType().Name ?? "-"));
             }
-            if (unit.unitName.EndsWith("kt)"))
-            {
-                base.destroyedEvent = true;
-            }
-
             lastState = missile.unitState;
             Faction? faction = base.unit.NetworkHQ?.faction;
             props = new Dictionary<string, string>()
@@ -179,7 +173,7 @@ namespace NOReplay
                 return;
             }
             timer += Time.deltaTime;
-            float step = _shell ? 0.05f : RecordConfig.munitionUpdateDelta.Value;
+            float step = _shell ? 0.05f : RecordConfig.MunitionUpdateDelta;
             if (timer < step)
             {
                 return;
@@ -232,23 +226,13 @@ namespace NOReplay
                 return;
             }
 
-            if (unit.speed != lastTAS && RecordConfig.RecordSpeed.Value == true)
+            if (unit.speed != lastTAS)
             {
                 props.Add("TAS", unit.speed.ToString("0.##", CultureInfo.InvariantCulture));
-                props.Add("Mach", (unit.speed / 340).ToString("0.##", CultureInfo.InvariantCulture));
                 lastTAS = unit.speed;
             }
 
-            Vector3 vector3 = unit.transform.InverseTransformDirection(unit.rb.velocity);
-            float num = Mathf.Atan2(vector3.y, vector3.z) * -57.29578f;
-
-            if (num != lastAOA && RecordConfig.RecordAOA.Value == true)
-            {
-                props.Add("AOA", num.ToString("0.##", CultureInfo.InvariantCulture));
-                lastAOA = num;
-            }
-
-            if (unit.radarAlt != lastAGL && RecordConfig.RecordAGL.Value == true)
+            if (unit.radarAlt != lastAGL)
             {
                 props.Add("AGL", unit.radarAlt.ToString("0.##", CultureInfo.InvariantCulture));
                 lastAGL = unit.radarAlt;

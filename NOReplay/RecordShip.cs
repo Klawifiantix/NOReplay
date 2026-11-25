@@ -26,7 +26,6 @@ namespace NOReplay
             this.ship = ship;
             base.unitId = ship.persistentID.Id;
             base.tacviewId = ship.persistentID.Id + 1;
-            base.destroyedEvent = true;
             base.canTarget = true;
             lastState = ship.unitState;
 
@@ -74,7 +73,7 @@ namespace NOReplay
             if (unit == null || unit.disabled) return;
 
             timer += Time.deltaTime;
-            if (timer < RecordConfig.vehicleUpdateDelta.Value) return;
+            if (timer < RecordConfig.VehicleUpdateDelta) return;
 
             UpdatePose();
             if (unit != null) NoteLock(unit);
@@ -163,8 +162,6 @@ namespace NOReplay
             props.Clear();
             var turrets = GetComponent<RecordTurrets>();
             if (turrets != null) turrets.enabled = false;
-            if (base.destroyedEvent)
-                Engine.invokeWriterDestroy(this);
             Record.Log?.LogInfo("Ship sinking " + tacviewId.ToString("X")
                 + " noch " + _despawnLimit.ToString("0.#", CultureInfo.InvariantCulture) + "s");
             if (_despawnLimit <= 0f || ship == null)

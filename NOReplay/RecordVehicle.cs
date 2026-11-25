@@ -2,7 +2,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using System.Text;
 using UnityEngine;
 
@@ -109,12 +108,6 @@ namespace NOReplay
             int.TryParse(info[3], out range2);
             if (range1 > range2) { winningRange = range1; } else { winningRange = range2; }
 
-
-            if (new[] { "AA", "CIWS (L)", "CRAM", "SAM IR", "SAM R", "SPAAG", "RDR", "HPAD", "HGR-H", "HGR-M", "REV" }.Any(c => unit.definition.code.Contains(c)))
-            {
-                base.destroyedEvent = true;
-            }
-
             props = new Dictionary<string, string>()
             {
                 { "Name", this.unit.definition.unitName },
@@ -186,7 +179,7 @@ namespace NOReplay
                 return;
             }
             timer += Time.deltaTime;
-            if (timer < RecordConfig.vehicleUpdateDelta.Value)
+            if (timer < RecordConfig.VehicleUpdateDelta)
             {
                 return;
             }
@@ -218,8 +211,6 @@ namespace NOReplay
             // Dying only marks the disable. The wreck line stays Visible=0.
             Engine.invokeWriterUpdate(this);
             props.Clear();
-            if (destroyedEvent)
-                Engine.invokeWriterDestroy(this);
             var turrets = GetComponent<RecordTurrets>();
             if (turrets != null) turrets.enabled = false;
         }

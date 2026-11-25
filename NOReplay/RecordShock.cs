@@ -82,7 +82,7 @@ namespace NOReplay
             {
                 shockWaveTimer += Time.deltaTime;
                 timer += Time.deltaTime;
-                if (timer < RecordConfig.shockwaveUpdateDelta.Value)
+                if (timer < RecordConfig.ShockwaveUpdateDelta)
                 {
                     return;
                 }

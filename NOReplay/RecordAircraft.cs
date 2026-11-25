@@ -17,7 +17,6 @@ namespace NOReplay
         /// </summary>
         void NoteGear()
         {
-            if (RecordConfig.RecordLandingGear == null || !RecordConfig.RecordLandingGear.Value) return;
             if (aircraft == null || aircraft.gearState == LandingGear.GearState.Uninitialized) return;
             bool down = aircraft.gearDeployed;
             if (_gearSent && down == lastGear) return;
@@ -29,18 +28,14 @@ namespace NOReplay
             _gearSent = true;
         }
         int _liveryLog;
-        private bool lastRadar = false;
         private float lastAGL = float.NaN;
         private float lastTAS = float.NaN;
-        private float lastAOA = float.NaN;
         private float lastThrottle = float.NaN;
         string _lastTilt = "";
         bool _tiltLogged;
         private float lastPitch = float.NaN;
         private float lastYaw = float.NaN;
         private float lastRoll = float.NaN;
-        private float lastThrust = float.NaN;
-        private float avgThrust = float.NaN;
         private float lastRpmRatio = float.NaN;
         private float lastJetRpm = float.NaN;
         private float lastTurbineRpm = float.NaN;
@@ -49,7 +44,6 @@ namespace NOReplay
         int _tailTries;
         float _lastTailhook = float.NaN;
 
-        private Vector3 lastHead = Vector3.zero;
         RotorShaft[] _bendShafts = Array.Empty<RotorShaft>();
         bool _bendBound;
         bool _bendLogged;
@@ -63,7 +57,6 @@ namespace NOReplay
         static FieldInfo? _fBendFlap;
 
         Aircraft aircraft;
-        Aircraft localAircraft = null;
 
         private string? steamId;
         private string? lastEmittedPilot;
@@ -74,12 +67,11 @@ namespace NOReplay
 
         public virtual void Init(Aircraft aircraft)
         {
-            GameManager.GetLocalAircraft(out localAircraft);
+            GameManager.GetLocalAircraft(out Aircraft localAircraft);
             if (localAircraft && localAircraft.persistentID == aircraft.persistentID) { base.unit = localAircraft; } else { base.unit = aircraft; }
             this.aircraft = (Aircraft)base.unit;
             base.unitId = aircraft.persistentID.Id;
             base.tacviewId = aircraft.persistentID.Id + 1;
-            base.destroyedEvent = true;
             base.canTarget = true;
             lastState = aircraft.unitState;
             Faction? faction = this.unit.NetworkHQ?.faction;
@@ -101,9 +93,6 @@ namespace NOReplay
             if (aircraft.Player != null)
             {
                 steamId = aircraft.Player.SteamID.ToString();
-                if (RecordConfig.RecordSteamID.Value == true)
-                    props["Registration"] = steamId;
-
                 PilotNameCache.Watch(steamId, aircraft.Player);
                 ApplyPilotProps(force: true);
             }
@@ -120,7 +109,6 @@ namespace NOReplay
 
         public override void Update()
         {
-            base.destroyedEvent = !aircraft.IsLanded();
             if (!this.enabled || unit.disabled)
                 return;
 
@@ -128,7 +116,7 @@ namespace NOReplay
             PublishLoadout();
 
             timer += Time.deltaTime;
-            if (timer < RecordConfig.aircraftUpdateDelta.Value)
+            if (timer < RecordConfig.AircraftUpdateDelta)
                 return;
 
             if (aircraft.Player != null)
@@ -152,23 +140,6 @@ namespace NOReplay
         {
             if (aircraft == null) return;
             NoteLock(aircraft);
-        }
-
-        private float getAvgThrust()
-        {
-            float avgThrust = float.NaN;
-            int count = aircraft.engines.Count;
-            for (int i = 0; i < aircraft.engines.Count; i++)
-            {
-                float thrust = aircraft.engines[i].GetThrust();
-                if (thrust != 0f)
-                    avgThrust = avgThrust + thrust;
-                else
-                    count = count - 1;
-            }
-            if (avgThrust != 0f)
-                avgThrust /= count;
-            return avgThrust;
         }
 
         void BindRotorBend()
@@ -428,23 +399,13 @@ namespace NOReplay
 
         void UpdateAircraft()
         {
-            if (aircraft.speed != lastTAS && RecordConfig.RecordSpeed.Value == true)
+            if (aircraft.speed != lastTAS)
             {
                 props.Add("TAS", aircraft.speed.ToString("0.##", CultureInfo.InvariantCulture));
-                props.Add("Mach", (aircraft.speed / 340).ToString("0.###", CultureInfo.InvariantCulture));
                 lastTAS = aircraft.speed;
             }
 
-            Vector3 vector3 = aircraft.cockpit.transform.InverseTransformDirection(aircraft.cockpit.rb.velocity);
-            float num = MathF.Round(Mathf.Atan2(vector3.y, vector3.z) * -57.29578f, 2);
-
-            if (num != lastAOA && RecordConfig.RecordAOA.Value == true)
-            {
-                props.Add("AOA", num.ToString("0.##"));
-                lastAOA = num;
-            }
-
-            if (aircraft.radarAlt != lastAGL && RecordConfig.RecordAGL.Value == true)
+            if (aircraft.radarAlt != lastAGL)
             {
                 props.Add("AGL", Mathf.Max(0, aircraft.radarAlt).ToString("0.##", CultureInfo.InvariantCulture));
                 lastAGL = aircraft.radarAlt;
@@ -454,34 +415,6 @@ namespace NOReplay
 
             RecordNacelleTilt();
 
-            if (aircraft.radar != lastRadar && RecordConfig.RecordRadarMode.Value == true)
-            {
-                props.Add("RadarMode", aircraft.radar.activated ? "1" : "0");
-                lastRadar = aircraft.radar;
-            }
-
-            if (localAircraft && localAircraft.persistentID == aircraft.persistentID && CameraStateManager.cameraMode == CameraMode.cockpit && RecordConfig.RecordPilotHead.Value == true)
-            {
-                Camera camera = CameraStateManager.i.mainCamera;
-                Vector3 rot = camera.transform.localEulerAngles;
-                Vector3 newRot = new(MathF.Round(rot.x, 2), MathF.Round(rot.y, 2), MathF.Round(rot.z, 2));
-                if (newRot != lastHead)
-                {
-                    if (!Mathf.Approximately(newRot.x, lastHead.x))
-                    {
-                        float adjusted_pitch = newRot.x > 180.0f ? 360 - newRot.x : -newRot.x;
-                        props.Add("PilotHeadPitch", adjusted_pitch.ToString("0.##", CultureInfo.InvariantCulture));
-                    }
-                    if (!Mathf.Approximately(newRot.y, lastHead.y))
-                    {
-                        props.Add("PilotHeadYaw", newRot.y.ToString("0.##", CultureInfo.InvariantCulture));
-                    }
-                    lastHead = newRot;
-                }
-            }
-
-            // Surfaces read these. They are not part of the extra-telemetry switch,
-            // so turning that off does not freeze the sticks and the throttle.
             var inputs = aircraft.GetInputs();
             if (lastThrottle != inputs.throttle)
             {
@@ -504,16 +437,7 @@ namespace NOReplay
                 lastYaw = inputs.yaw;
             }
 
-            if (RecordConfig.RecordExtraTelemetry.Value == true)
-            {
-                if (lastThrust != getAvgThrust())
-                {
-                    avgThrust = getAvgThrust();
-                    props.Add("EngineRPM", avgThrust.ToString("0.##", CultureInfo.InvariantCulture));
-                    lastThrust = avgThrust;
-                }
-                EmitPowerRpm();
-            }
+            EmitPowerRpm();
             EmitTailhook();
         }
 

@@ -99,10 +99,11 @@ namespace NOReplay
             if (!_bendLogged && blades > 0)
             {
                 _bendLogged = true;
-                Plugin.Log?.LogInfo("Rotor bend drive " + gameObject.name
-                    + " rotors=" + _bendShafts.Length
-                    + " blades=" + blades
-                    + " segs=" + segs);
+                if (RecordConfig.EnableLogging)
+                    Plugin.Log?.LogInfo("Rotor bend drive " + gameObject.name
+                        + " rotors=" + _bendShafts.Length
+                        + " blades=" + blades
+                        + " segs=" + segs);
             }
         }
 
@@ -114,8 +115,11 @@ namespace NOReplay
             if (!_bendKeysLogged)
             {
                 _bendKeysLogged = true;
-                int n = Track != null ? Track.BendTimes.Count : 0;
-                Plugin.Log?.LogInfo("RotorBend keys " + gameObject.name + " n=" + n);
+                if (RecordConfig.EnableLogging)
+                {
+                    int n = Track != null ? Track.BendTimes.Count : 0;
+                    Plugin.Log?.LogInfo("RotorBend keys " + gameObject.name + " n=" + n);
+                }
             }
             // No recorded bend: the prefab rest pose is already drooped. Writing
             // zeros here is what flattened the blades.
@@ -173,7 +177,7 @@ namespace NOReplay
                 }
             }
             float wall = Time.unscaledTime;
-            if (wall - _bendStateAt >= 5f)
+            if (RecordConfig.EnableLogging && wall - _bendStateAt >= 5f)
             {
                 _bendStateAt = wall;
                 Plugin.Log?.LogInfo("Rotor bend state " + gameObject.name

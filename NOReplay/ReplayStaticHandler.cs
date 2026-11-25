@@ -425,7 +425,8 @@ namespace NOReplay
             {
                 SpawnTimedEffects(unit, shown, wantFire: true);
                 shown.FiresOn = fd;
-                Plugin.Log?.LogInfo("Fire " + label + " at=" + fires[fd - 1].ToString("0.00"));
+                if (RecordConfig.EnableLogging)
+                    Plugin.Log?.LogInfo("Fire " + label + " at=" + fires[fd - 1].ToString("0.00"));
             }
             if (bd > shown.BoomsOn)
             {
@@ -624,6 +625,7 @@ namespace NOReplay
             shown.BoomsOn = 0;
             if (shown.Wreck != null)
             {
+                ReplayPerf.Died(LifeKind.Wreck);
                 UnityEngine.Object.Destroy(shown.Wreck);
                 shown.Wreck = null;
             }
@@ -720,6 +722,7 @@ namespace NOReplay
                 UnityEngine.Object.Destroy(hold);
                 return null;
             }
+            ReplayPerf.Born(LifeKind.Wreck);
             go.SetActive(false);
             go.name = "NOReplay_BuildingWreck";
             var flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
@@ -762,7 +765,8 @@ namespace NOReplay
             else
                 Plugin.Log?.LogInfo("Wreck no FragmentManager " + label);
             if (kicked > 0)
-                Plugin.Log?.LogInfo("Wreck kick " + label + " methods=" + kicked);
+                if (RecordConfig.EnableLogging)
+                    Plugin.Log?.LogInfo("Wreck kick " + label + " methods=" + kicked);
             motion.PlayPieces();
             foreach (var rb in go.GetComponentsInChildren<Rigidbody>(true))
             {
@@ -775,7 +779,8 @@ namespace NOReplay
                 if (c != null) c.enabled = false;
             UnityEngine.Object.Destroy(hold);
             float now = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
-            Plugin.Log?.LogInfo("Wreck " + label + " type=" + unit.GetType().Name + " prefab=" + prefab.name
+            if (RecordConfig.EnableLogging)
+                Plugin.Log?.LogInfo("Wreck " + label + " type=" + unit.GetType().Name + " prefab=" + prefab.name
                 + " unit=" + unit.transform.position.ToString("0.#")
                 + " wreck=" + go.transform.position.ToString("0.#")
                 + " piece0=" + motion.FirstPiece.ToString("0.#")
@@ -998,6 +1003,7 @@ namespace NOReplay
                 UnityEngine.Object.Destroy(hold);
                 return;
             }
+            ReplayPerf.Born(LifeKind.Explosion);
             go.SetActive(false);
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             bool quietMushroom = false;

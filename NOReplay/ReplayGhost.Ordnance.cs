@@ -96,13 +96,17 @@ namespace NOReplay
         {
             if (_spawnedWreck != null)
             {
+                ReplayPerf.Died(LifeKind.Wreck);
                 UnityEngine.Object.Destroy(_spawnedWreck);
                 _spawnedWreck = null;
             }
             for (int i = 0; i < _spawnedDamageFx.Count; i++)
             {
                 if (_spawnedDamageFx[i] != null)
+                {
+                    ReplayPerf.Died(LifeKind.Explosion);
                     UnityEngine.Object.Destroy(_spawnedDamageFx[i]);
+                }
             }
             _spawnedDamageFx.Clear();
             // Decals are not children of the effect. Drop only the ones whose
@@ -715,6 +719,7 @@ namespace NOReplay
                 GameObject go;
                 try { go = UnityEngine.Object.Instantiate(fx, pos, Quaternion.identity); }
                 finally { fx.SetActive(wasActive); }
+                ReplayPerf.Born(LifeKind.Explosion);
                 go.name = "NOReplay_Boom";
                 go.SetActive(false);
                 var datum = Plugin.Datum;
@@ -770,6 +775,7 @@ namespace NOReplay
         {
             if (_boomGo == null) return;
             NukeTime.Forget(_boomGo);
+            ReplayPerf.Died(LifeKind.Explosion);
             UnityEngine.Object.Destroy(_boomGo);
             _boomGo = null;
         }
@@ -815,7 +821,7 @@ namespace NOReplay
                     }
                     if (_boomPrefab != null) break;
                 }
-                if (_boomPrefab != null)
+                if (_boomPrefab != null && RecordConfig.EnableLogging)
                     Plugin.Log.LogInfo("Boom-Prefab " + _boomPrefab.name);
                 else
                     Plugin.Log.LogWarning("No explosion prefab found.");
@@ -824,6 +830,7 @@ namespace NOReplay
             GameObject go;
             try { go = UnityEngine.Object.Instantiate(_boomPrefab, pos, Quaternion.identity); }
             catch { return; }
+            ReplayPerf.Born(LifeKind.Explosion);
             go.name = "NOReplay_Boom";
             foreach (var mb in go.GetComponentsInChildren<MonoBehaviour>(true))
             {
@@ -836,6 +843,7 @@ namespace NOReplay
             for (int i = 0; i < cols.Length; i++)
                 if (cols[i] != null) cols[i].enabled = false;
             PlayParticles(go);
+            ReplayPerf.Died(LifeKind.Explosion);
             UnityEngine.Object.Destroy(go, 4f);
         }
 
@@ -859,6 +867,7 @@ namespace NOReplay
             try
             {
                 var fxGo = UnityEngine.Object.Instantiate(fxPrefab, pos, rot);
+                ReplayPerf.Born(LifeKind.Explosion);
                 fxGo.name = "NOReplay_VehicleDamageFx";
                 var datum = Plugin.Datum;
                 fxGo.transform.SetParent(datum != null ? datum : null, true);
@@ -996,7 +1005,8 @@ namespace NOReplay
             if (model != null)
             {
                 _husk = model;
-                Plugin.Log?.LogInfo("Wreck " + who + " at=" + at + " prefab=" + _huskPrefabName);
+                if (RecordConfig.EnableLogging)
+                    Plugin.Log?.LogInfo("Wreck " + who + " at=" + at + " prefab=" + _huskPrefabName);
                 return;
             }
             // The killing explosion is already the Boom. A second destroyed-effect
@@ -1004,7 +1014,8 @@ namespace NOReplay
             if (RemovalBoomKept())
                 return;
             // Same stand-in the previous build logged. No part effects, so it is not a blast.
-            Plugin.Log?.LogInfo("Wreck " + who + " at=" + at + " prefab=VehicleWreckDestroyed");
+            if (RecordConfig.EnableLogging)
+                Plugin.Log?.LogInfo("Wreck " + who + " at=" + at + " prefab=VehicleWreckDestroyed");
             ArmScorch(Track != null && Track.RemovedAt >= 0f ? Track.RemovedAt : now);
             PlayDestroyedWreck(pos, rot);
             _scorchStamps.Clear();
@@ -1014,6 +1025,7 @@ namespace NOReplay
         {
             _huskOn = false;
             if (_husk == null) return;
+            ReplayPerf.Died(LifeKind.Wreck);
             UnityEngine.Object.Destroy(_husk);
             _husk = null;
         }
@@ -1052,6 +1064,7 @@ namespace NOReplay
                 if (wreckPrefab == null) return null;
                 _huskPrefabName = wreckPrefab.name;
                 var wreckGo = UnityEngine.Object.Instantiate(wreckPrefab, pos, rot);
+                ReplayPerf.Born(LifeKind.Wreck);
                 wreckGo.name = "NOReplay_VehicleWreck";
                 wreckGo.transform.SetParent(null, true);
                 wreckGo.SetActive(true);
@@ -1110,7 +1123,7 @@ namespace NOReplay
                             _pem = pemT.BaseType.GetProperty("i", BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy)?.GetValue(null);
                         _mGetPrefabEffect = pemT.GetMethod("GetPrefabEffect", BindingFlags.Instance | BindingFlags.Public);
                     }
-                    if (_wreckPrefab != null)
+                    if (_wreckPrefab != null && RecordConfig.EnableLogging)
                         Plugin.Log.LogInfo("Wreck-Prefab " + _wreckPrefab.name);
                     else
                         Plugin.Log.LogWarning("GameAssets.vehicleWreckDestroyed was not found.");
@@ -1139,11 +1152,13 @@ namespace NOReplay
             try
             {
                 var go = UnityEngine.Object.Instantiate(_wreckPrefab, pos, rot);
+                ReplayPerf.Born(LifeKind.Wreck);
                 go.name = "NOReplay_Wreck";
                 foreach (var c in go.GetComponentsInChildren<Collider>(true))
                     if (c != null) c.enabled = false;
                 PlayParticles(go);
                 TakeScorches(go);
+                ReplayPerf.Died(LifeKind.Wreck);
                 UnityEngine.Object.Destroy(go, 10f);
             }
             catch { }

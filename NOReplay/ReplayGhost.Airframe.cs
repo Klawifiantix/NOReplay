@@ -915,11 +915,12 @@ namespace NOReplay
             float radarAlt = dist < 0f ? -1f : dist - spawnOff;
             _surfaceSpawn = GearClock.OnGround(dist, SpawnOffsetY(), deck);
             _spawnGearKnown = true;
-            Plugin.Log?.LogInfo("Gear spawn " + gameObject.name
-                + " surface=" + (_surfaceSpawn ? "1" : "0")
-                + " gap=" + deck.ToString("0.0")
-                + " ray=" + (dist < 0f ? "none" : dist.ToString("0.0"))
-                + " radar=" + (radarAlt < 0f ? "none" : radarAlt.ToString("0.0")));
+            if (RecordConfig.EnableLogging)
+                Plugin.Log?.LogInfo("Gear spawn " + gameObject.name
+                    + " surface=" + (_surfaceSpawn ? "1" : "0")
+                    + " gap=" + deck.ToString("0.0")
+                    + " ray=" + (dist < 0f ? "none" : dist.ToString("0.0"))
+                    + " radar=" + (radarAlt < 0f ? "none" : radarAlt.ToString("0.0")));
             return true;
         }
 
@@ -1180,7 +1181,7 @@ namespace NOReplay
                 }
                 bool changed = _gearDownSent != gearDown;
                 ApplyReplayGear(gearDown);
-                if (changed && _gearDownSent == gearDown)
+                if (RecordConfig.EnableLogging && changed && _gearDownSent == gearDown)
                 {
                     string line = "Gear " + gameObject.name
                         + " down=" + (gearDown ? "1" : "0")
@@ -1243,7 +1244,7 @@ namespace NOReplay
                     }
                     catch { }
                     // Diagnostic: dump Ibis renderers once.
-                    if (gameObject.name.IndexOf("Ibis", StringComparison.OrdinalIgnoreCase) >= 0 && _ibisDump == 0)
+                    if (RecordConfig.EnableLogging && gameObject.name.IndexOf("Ibis", StringComparison.OrdinalIgnoreCase) >= 0 && _ibisDump == 0)
                     {
                         _ibisDump = 1;
                         // Dump only this Ibis, not the whole scene.
@@ -1511,10 +1512,11 @@ namespace NOReplay
                     _mSetGearState?.Invoke(ac, new[] { gearDown ? _gsLockedDown : _gsLockedUp });
                 }
                 float t = Plugin.Clock != null ? Plugin.Clock.Time : 0f;
-                Plugin.Log?.LogInfo("Gear " + (animate ? "anim" : "snap") + " " + gameObject.name
-                    + " " + state
-                    + " down=" + (gearDown ? "1" : "0")
-                    + " t=" + t.ToString("0.00"));
+                if (RecordConfig.EnableLogging)
+                    Plugin.Log?.LogInfo("Gear " + (animate ? "anim" : "snap") + " " + gameObject.name
+                        + " " + state
+                        + " down=" + (gearDown ? "1" : "0")
+                        + " t=" + t.ToString("0.00"));
             }
             catch { }
         }
@@ -2047,7 +2049,7 @@ namespace NOReplay
                 }
                 _landLights = lights.ToArray();
                 _navRends = rends.ToArray();
-                if (_air)
+                if (RecordConfig.EnableLogging && _air)
                     Plugin.Log.LogInfo("Lights " + gameObject.name
                         + " L=" + lights.Count + " R=" + rends.Count + " " + names);
             }

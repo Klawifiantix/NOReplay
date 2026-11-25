@@ -227,7 +227,7 @@ namespace NOReplay
                         "Debug",
                         "PerfLog",
                         false,
-                        "Every 5 seconds, write the average replay update time to NOReplay.log.").Value;
+                        "During a replay, write the average update time every 5 seconds, a line when a frame takes longer than 30 ms, and counts of created and destroyed objects. Off by default.").Value;
                 }
                 catch { }
                 Harmony = new Harmony(PluginGuid);
@@ -308,6 +308,7 @@ namespace NOReplay
                 _ghostComps[i]?.ReleaseScorches("end");
             ReplayGhost.ReleaseOwnedScorches("end");
             FeedPlayback.Reset();
+            ReplayPerf.ResetLife();
             _staticHandlerStarted = false;
             ResetMissionCatchup();
             Clock.Reset(0f);
@@ -432,7 +433,8 @@ namespace NOReplay
 
         void LateUpdate()
         {
-            ReplayPerf.Frame();
+            if (!PerfLog || CurrentDoc == null) return;
+            ReplayPerf.EndFrame(Clock.Time, Time.unscaledDeltaTime);
         }
 
         internal static void ToggleTrails()

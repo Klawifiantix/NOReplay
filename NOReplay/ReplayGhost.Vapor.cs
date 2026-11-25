@@ -188,9 +188,10 @@ namespace NOReplay
             if (!_vaporLogged && (_vapor.Length > 0 || _vaporRibbons.Length > 0))
             {
                 _vaporLogged = true;
-                Plugin.Log?.LogInfo("Vapor " + gameObject.name
-                    + " emitters=" + _vapor.Length
-                    + " ribbons=" + _vaporRibbons.Length);
+                if (RecordConfig.EnableLogging)
+                    Plugin.Log?.LogInfo("Vapor " + gameObject.name
+                        + " emitters=" + _vapor.Length
+                        + " ribbons=" + _vaporRibbons.Length);
             }
         }
 

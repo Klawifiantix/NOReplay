@@ -56,7 +56,7 @@ namespace NOReplay
                     _rollSpoke = false;
                     _squealSpoke = false;
                 }
-                if (!_missSpoke && gearDown && _spdMs > 25f)
+                if (RecordConfig.EnableLogging && !_missSpoke && gearDown && _spdMs > 25f)
                 {
                     _missSpoke = true;
                     Plugin.Log?.LogInfo("Tire miss " + gameObject.name
@@ -92,12 +92,12 @@ namespace NOReplay
                 _audioSpoke = true;
                 bool noise = _fNoise?.GetValue(gear) != null;
                 bool skid = _fSkid?.GetValue(gear) != null;
-                if (!noise || !skid)
+                if (RecordConfig.EnableLogging && (!noise || !skid))
                     Plugin.Log?.LogInfo("Tire audio missing " + gameObject.name
                         + " roll=" + noise + " squeal=" + skid);
             }
             string hitName = hit.collider != null ? hit.collider.name : "-";
-            if (fx.Rolling && !_rollSpoke)
+            if (RecordConfig.EnableLogging && fx.Rolling && !_rollSpoke)
             {
                 _rollSpoke = true;
                 Plugin.Log?.LogInfo("Tire roll " + gameObject.name
@@ -105,7 +105,7 @@ namespace NOReplay
                     + " along=" + along.ToString("0")
                     + " hit=" + hitName);
             }
-            if ((fx.Smoke || fx.Skid) && !_squealSpoke)
+            if (RecordConfig.EnableLogging && (fx.Smoke || fx.Skid) && !_squealSpoke)
             {
                 _squealSpoke = true;
                 Plugin.Log?.LogInfo("Tire squeal " + gameObject.name

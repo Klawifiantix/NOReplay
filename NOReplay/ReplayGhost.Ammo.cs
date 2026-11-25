@@ -186,10 +186,13 @@ namespace NOReplay
             if (!_ammoLogged)
             {
                 _ammoLogged = true;
-                int launches = Track?.OrdnanceLaunches != null ? Track.OrdnanceLaunches.Length : 0;
-                int bursts = Track?.GunBursts != null ? Track.GunBursts.Length : 0;
-                Plugin.Log.LogInfo("Munition " + (Track?.Name ?? name)
-                    + " stations=" + stations.Length + " starts=" + launches + " kanonen=" + bursts);
+                if (RecordConfig.EnableLogging)
+                {
+                    int launches = Track?.OrdnanceLaunches != null ? Track.OrdnanceLaunches.Length : 0;
+                    int bursts = Track?.GunBursts != null ? Track.GunBursts.Length : 0;
+                    Plugin.Log.LogInfo("Munition " + (Track?.Name ?? name)
+                        + " stations=" + stations.Length + " starts=" + launches + " kanonen=" + bursts);
+                }
             }
         }
 
@@ -347,7 +350,7 @@ namespace NOReplay
             }
             for (int i = 0; i < stations.Length; i++)
                 stations[i].LaunchTimes = buckets[i].ToArray();
-            if (missed > 0 && _ammoMissLog < 3)
+            if (RecordConfig.EnableLogging && missed > 0 && _ammoMissLog < 3)
             {
                 _ammoMissLog++;
                 Plugin.Log.LogInfo("Starts ohne Station " + missed + " " + (Track?.Name ?? name));

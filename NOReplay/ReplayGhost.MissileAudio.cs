@@ -137,6 +137,7 @@ namespace NOReplay
 
         void LogMissileAudio(string verb, string state, string extra = "")
         {
+            if (!RecordConfig.EnableLogging) return;
             string key = verb + "|" + state + "|" + extra;
             if (key == _audioLogKey) return;
             _audioLogKey = key;
@@ -149,6 +150,7 @@ namespace NOReplay
 
         void LogMissilePlay(MissileMotorAudio.Cue cue)
         {
+            if (!RecordConfig.EnableLogging) return;
             if (cue.Ignition)
             {
                 if (_audioPlay == "ignition") return;

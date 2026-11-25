@@ -13,7 +13,6 @@ namespace NOReplay
         internal float timer = 0f;
         internal float fx, fy, fz, fax, fay, faz;
         internal bool disabled = false;
-        internal bool destroyedEvent = false;
 
         public event Action<string, long[], string>? OnEvent;
 

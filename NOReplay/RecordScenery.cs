@@ -16,7 +16,6 @@ namespace NOReplay
             this.scenery = (Scenery)base.unit;
             base.unitId = unit.persistentID.Id;
             base.tacviewId = unit.persistentID.Id + 1;
-            base.destroyedEvent = true;
             lastState = unit.unitState;
 
             props = new Dictionary<string, string>()
@@ -72,11 +71,6 @@ namespace NOReplay
 
             Engine.invokeWriterUpdate(this);
             props.Clear();
-
-            if (base.destroyedEvent)
-            {
-                Engine.invokeWriterDestroy(this);
-            }
 
             Unsubscribe();
             this.enabled = false;

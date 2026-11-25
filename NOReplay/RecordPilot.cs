@@ -34,15 +34,14 @@ namespace NOReplay
             this.enabled = true;
             base.enabled = true;
             Record.Log?.LogInfo("Pilot rec " + pilotName
-                + " id=" + unitId.ToString(CultureInfo.InvariantCulture)
-                + " config=" + (RecordConfig.RecordEjectedPilots.Value ? "1" : "0"));
+                + " id=" + unitId.ToString(CultureInfo.InvariantCulture));
         }
 
         public override void Update()
         {
             if (!enabled || unit == null || unit.disabled) return;
             timer += Time.deltaTime;
-            if (timer < RecordConfig.vehicleUpdateDelta.Value) return;
+            if (timer < RecordConfig.VehicleUpdateDelta) return;
             UpdatePose();
             UpdateState();
             CommitMotion();

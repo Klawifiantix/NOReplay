@@ -20,7 +20,7 @@ namespace NOReplay
         internal MapKey currentMapKey;
         internal RecordWriter(DateTime reference)
         {
-            string dir = RecordConfig.OutputPath;
+            string dir = Plugin.ReplayDirectory();
             if (!Directory.Exists(dir))
             {
                 Directory.CreateDirectory(dir);
@@ -137,48 +137,6 @@ namespace NOReplay
             }
 
             WriteLine($"-{aObject.tacviewId:X}");
-        }
-
-        internal void WriteDestroyedEvent(RecordObject aObject, DateTime updateTime)
-        {
-            if (_shut) return;
-            TimeSpan diff = updateTime - reference;
-            if (diff != lastUpdate)
-            {
-                lastUpdate = diff;
-                //output.WriteLine("#" + diff.TotalSeconds);
-                WriteLine("#" + diff.TotalSeconds.ToString(CultureInfo.InvariantCulture));
-            }
-
-            if (RecordConfig.DestructionEvents.Value == true)
-            {
-                WriteLine("#" + diff.TotalSeconds.ToString(CultureInfo.InvariantCulture));
-                if (aObject.destroyedEvent)
-                {
-                    WriteLine($"0,Event=Message|{aObject.tacviewId:X}|Has been destroyed.");
-                }
-            }
-        }
-
-        internal void WriteRepairedEvent(RecordObject aObject, DateTime updateTime)
-        {
-            if (_shut) return;
-            TimeSpan diff = updateTime - reference;
-            if (diff != lastUpdate)
-            {
-                lastUpdate = diff;
-                //output.WriteLine("#" + diff.TotalSeconds);
-                WriteLine("#" + diff.TotalSeconds.ToString(CultureInfo.InvariantCulture));
-            }
-
-            if (RecordConfig.DestructionEvents.Value == true)
-            {
-                WriteLine("#" + diff.TotalSeconds.ToString(CultureInfo.InvariantCulture));
-                if (aObject.destroyedEvent)
-                {
-                    WriteLine($"0,Event=Message|{aObject.tacviewId:X}|Has been repaired.");
-                }
-            }
         }
 
         static readonly StringBuilder propText = new(256);

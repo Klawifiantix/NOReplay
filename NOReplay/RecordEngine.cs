@@ -11,7 +11,6 @@ namespace NOReplay
         private DateTime startDate;
         private DateTime curTime;
         public static RecordWriter writer;
-        private float unitDiscoveryTimer = 0f;
         readonly HashSet<long> _capturedIds = new HashSet<long>();
         float _openUntil;
         float _openNext;
@@ -20,8 +19,6 @@ namespace NOReplay
         internal Dictionary<long, GameObject> unitObjects = [];
         internal Dictionary<long, long> tacviewIds = [];
 
-        private Unit[] units = [];
-        private bool processUnits = false;
         internal int Retired { get; private set; }
 
         public void invokeWriterUpdate(RecordObject obj)
@@ -256,29 +253,18 @@ namespace NOReplay
             writer.RemoveObject(obj, _atStart ? startDate : curTime);
         }
 
-        public void invokeWriterDestroy(RecordObject obj)
-        {
-            writer.WriteDestroyedEvent(obj, _atStart ? startDate : curTime);
-        }
-
-        public void invokeWriterRepair(RecordObject obj)
-        {
-            writer.WriteRepairedEvent(obj, _atStart ? startDate : curTime);
-        }
-
         void Awake()
         {
             Record.Log?.LogDebug("USING MONO RECORDER");
-            if (RecordConfig.UseMissionTime?.Value == true)
+            double hours = 0d;
+            try
             {
-                startDate = DateTime.Today + TimeSpan.FromHours(MissionManager.CurrentMission.environment.timeOfDay);
-                Record.Log?.LogDebug("USING MISSION CLOCK");
+                var mission = MissionManager.CurrentMission;
+                if (mission != null) hours = mission.environment.timeOfDay;
             }
-            else
-            {
-                startDate = DateTime.Now;
-                Record.Log?.LogDebug("USING SERVER CLOCK");
-            }
+            catch { }
+            startDate = DateTime.Today + TimeSpan.FromHours(hours);
+            Record.Log?.LogDebug("USING MISSION CLOCK");
 
             curTime = startDate;
             writer = new RecordWriter(startDate);
@@ -288,126 +274,16 @@ namespace NOReplay
             Record.Manual = false;
 
         }
-        float _lockAt = -1f;
 
         void Update()
         {
             long t0 = RecordPerf.Stamp();
             curTime += TimeSpan.FromSeconds(Time.deltaTime);
             PilotNameCache.Tick();
-            if (processUnits)
-            {
-                foreach (var unit in units)
-                {
-                    if (!unit.networked || (unit.disabled && unit.GetType() != typeof(Missile)))
-                    {
-                        continue;
-                    }
-                    bool isNew = false;
-                    if (!unitObjects.TryGetValue(unit.persistentID.Id, out GameObject acmi))
-                    {
-
-                        switch (unit)
-                        {
-                            case Aircraft aircraft:
-
-                                // Flares handled via SpawnLocal hook
-                                acmi = new GameObject();
-                                acmi.AddComponent<RecordAircraft>();
-                                acmi.GetComponent<RecordAircraft>().Init(aircraft);
-                                acmi.GetComponent<RecordAircraft>().enabled = true;
-                                Record.Log?.LogDebug($"RECORDED UNIT,{unit.definition.name}," +
-                                    $"{unit.definition.unitName}," +
-                                    $"{unit.definition.code}");
-                                Track(unit, acmi);
-                                isNew = true;
-                                break;
-                            case Missile missile:
-                                acmi = new GameObject();
-                                acmi.AddComponent<RecordMissile>();
-                                acmi.GetComponent<RecordMissile>().Init(missile);
-                                acmi.GetComponent<RecordMissile>().enabled = true;
-                                Record.Log?.LogDebug($"RECORDED UNIT,{unit.definition.name}," +
-                                    $"{unit.definition.unitName}," +
-                                    $"{unit.definition.code}");
-                                Track(unit, acmi);
-                                isNew = true;
-                                break;
-                            case GroundVehicle vehicle:
-                                acmi = new GameObject();
-                                acmi.AddComponent<RecordVehicle>();
-                                acmi.GetComponent<RecordVehicle>().Init(vehicle);
-                                acmi.GetComponent<RecordVehicle>().enabled = true;
-                                Record.Log?.LogDebug($"RECORDED UNIT,{unit.definition.name}," +
-                                    $"{unit.definition.unitName}," +
-                                    $"{unit.definition.code}");
-                                Track(unit, acmi);
-                                isNew = true;
-                                break;
-                            case Ship ship:
-                                acmi = new GameObject();
-                                acmi.AddComponent<RecordShip>();
-                                acmi.GetComponent<RecordShip>().Init(ship);
-                                acmi.GetComponent<RecordShip>().enabled = true;
-                                Record.Log?.LogDebug($"RECORDED UNIT,{unit.definition.name}," +
-                                    $"{unit.definition.unitName}," +
-                                    $"{unit.definition.code}");
-                                Track(unit, acmi);
-                                isNew = true;
-                                break;
-                            case PilotDismounted pilot:
-                                acmi = new GameObject();
-                                acmi.AddComponent<RecordPilot>();
-                                acmi.GetComponent<RecordPilot>().Init(pilot);
-                                acmi.GetComponent<RecordPilot>().enabled = true;
-                                Track(unit, acmi);
-                                isNew = true;
-                                break;
-                            case Container cargo:
-                                acmi = new GameObject();
-                                acmi.AddComponent<RecordContainer>();
-                                acmi.GetComponent<RecordContainer>().Init(cargo);
-                                acmi.GetComponent<RecordContainer>().enabled = true;
-                                Track(unit, acmi);
-                                isNew = true;
-                                break;
-                            case Building building:
-                                acmi = new GameObject();
-                                acmi.AddComponent<RecordBuilding>();
-                                acmi.GetComponent<RecordBuilding>().Init(building);
-                                acmi.GetComponent<RecordBuilding>().enabled = true;
-                                Record.Log?.LogDebug($"RECORDED UNIT,{unit.definition.name}," +
-                                    $"{unit.definition.unitName}," +
-                                    $"{unit.definition.code}");
-                                Track(unit, acmi);
-                                isNew = true;
-                                break;
-                            case Scenery scenery:
-                                acmi = new GameObject();
-                                acmi.AddComponent<RecordScenery>();
-                                acmi.GetComponent<RecordScenery>().Init(scenery);
-                                acmi.GetComponent<RecordScenery>().enabled = true;
-                                Record.Log?.LogDebug($"RECORDED UNIT,{unit.definition.name}," +
-                                    $"{unit.definition.unitName}," +
-                                    $"{unit.definition.code}");
-                                Track(unit, acmi);
-                                isNew = true;
-                                break;
-                            default:
-                                break;
-                        }
-                        //acmi = new GameObject();
-                    }
-                }
-                processUnits = false;
-            }
             RecordPerf.Add("engine", RecordPerf.Stamp() - t0);
         }
         void LateUpdate()
         {
-            long t0 = RecordPerf.Stamp();
-            unitDiscoveryTimer += Time.deltaTime;
-            RecordPerf.Add("engine-late", RecordPerf.Stamp() - t0);
             if (Record.Active)
             {
                 long bay = RecordPerf.Stamp();
@@ -418,13 +294,6 @@ namespace NOReplay
                 RecordPerf.Add("bay", RecordPerf.Stamp() - bay);
             }
             RecordPerf.Frame(unitObjects.Count, Retired);
-            // Unit discovery is now event-driven via RecordListener (UnitRegistry.RegisterUnit).
-            // Periodic FindObjectsByType scan disabled.
-            // if (unitDiscoveryTimer >= RecordConfig.unitDiscoveryDelta.Value)
-            // {
-            //     processUnits = UnitDiscovery();
-            // }
-
         }
         void OnDisable()
         {
@@ -439,24 +308,6 @@ namespace NOReplay
             Retired = 0;
             writer?.Close();
             Record.Log?.LogDebug("DESTROYED MONO RECORDER");
-        }
-
-        private bool UnitDiscovery()
-        {
-            foreach (int key in unitObjects.Keys)
-            {
-                if (null == unitObjects[key])
-                {
-                    // Record.Log?.LogDebug($"REMOVING OBJECT {key.ToString(CultureInfo.InvariantCulture)}");
-                    unitObjects.Remove(key);
-                }
-            }
-            //Record.Log?.LogDebug($"Frame TICK at {curTime.ToString(CultureInfo.InvariantCulture)}");
-            units = UnityEngine.Object.FindObjectsByType<Unit>(FindObjectsSortMode.None);
-            //Record.Log?.LogDebug($"DISCOVERED {units.Length.ToString(CultureInfo.InvariantCulture)} UNITS!");
-            unitDiscoveryTimer = 0f;
-            return true;
-
         }
 
     }

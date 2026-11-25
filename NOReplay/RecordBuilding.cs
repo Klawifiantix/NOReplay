@@ -19,7 +19,6 @@ namespace NOReplay
             this.building = (Building)base.unit;
             base.unitId = unit.persistentID.Id;
             base.tacviewId = unit.persistentID.Id + 1;
-            base.destroyedEvent = true;
             lastState = unit.unitState;
 
             Faction? faction = this.unit.NetworkHQ?.faction;
@@ -161,11 +160,6 @@ namespace NOReplay
 
             Engine.invokeWriterUpdate(this);
             props.Clear();
-
-            if (base.destroyedEvent)
-            {
-                Engine.invokeWriterDestroy(this);
-            }
 
             Unsubscribe();
             this.enabled = false;

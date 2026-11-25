@@ -42,7 +42,7 @@ namespace NOReplay
         public override void Update()
         {
             timer += Time.deltaTime;
-            if (timer < RecordConfig.flareUpdateDelta.Value)
+            if (timer < RecordConfig.FlareUpdateDelta)
             {
                 return;
             }

@@ -77,8 +77,7 @@ namespace NOReplay
             n += Patch(harmony, "EjectionSeat", "LateUpdate", nameof(AfterSeat));
             n += Patch(harmony, "EjectionSeat", "Detach", nameof(AfterSeat));
             _patched = n > 0;
-            Plugin.Log?.LogInfo("Chute-Record methods=" + n
-                + " pilotConfig=" + (RecordConfig.RecordEjectedPilots.Value ? 1 : 0));
+            Plugin.Log?.LogInfo("Chute-Record methods=" + n);
         }
 
         public static void Flush()

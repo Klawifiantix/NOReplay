@@ -585,7 +585,8 @@ namespace NOReplay
                 if (!_shellGunLogged)
                 {
                     _shellGunLogged = true;
-                    Plugin.Log.LogInfo("Gun fired a shell, no tracer " + rt.Path);
+                    if (RecordConfig.EnableLogging)
+                        Plugin.Log.LogInfo("Gun fired a shell, no tracer " + rt.Path);
                 }
                 return;
             }
@@ -614,6 +615,7 @@ namespace NOReplay
                 {
                     _fVisualOnly?.SetValue(sim, true);
                     sim.AddBullet(muzzle, shot, spread, rt.SelfDestruct, tracer, rt.TracerSize, rt.TracerColor, 0f, null);
+                    ReplayPerf.Born(LifeKind.Bullet);
                 }
                 catch (Exception ex)
                 {
@@ -680,7 +682,8 @@ namespace NOReplay
                 if (!_simLogged)
                 {
                     _simLogged = true;
-                    Plugin.Log.LogInfo("Guns via BulletSim (visualOnly) barrels=" + rt.Muzzles.Length + " " + rt.Path);
+                    if (RecordConfig.EnableLogging)
+                        Plugin.Log.LogInfo("Guns via BulletSim (visualOnly) barrels=" + rt.Muzzles.Length + " " + rt.Path);
                 }
                 return sim;
             }

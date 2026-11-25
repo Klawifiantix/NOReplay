@@ -604,6 +604,7 @@ namespace NOReplay
 
         void OnDestroy()
         {
+            ReplayPerf.Died(_ordnance ? (IsFlareTrack() ? LifeKind.Flare : LifeKind.Missile) : LifeKind.Unit);
             ReleaseScorches("end");
             ClearStructural();
             ReleaseWheelMaterials();
@@ -667,8 +668,9 @@ namespace NOReplay
             HideLoadoutBits();
             if (_neutral)
             {
-                Plugin.Log.LogInfo("Neutral-Freeze " + (Track?.Name ?? name)
-                    + " coal=" + (Track?.Coalition ?? "-"));
+                if (RecordConfig.EnableLogging)
+                    Plugin.Log.LogInfo("Neutral-Freeze " + (Track?.Name ?? name)
+                        + " coal=" + (Track?.Coalition ?? "-"));
                 FreezeNeutral();
             }
             if (_air)
@@ -707,7 +709,7 @@ namespace NOReplay
             else
                 SetGhostVisible(true);
             _lastKids = Drive.childCount;
-            if (_air && !_dumpedKids)
+            if (RecordConfig.EnableLogging && _air && !_dumpedKids)
             {
                 _dumpedKids = true;
                 var trs = GetComponentsInChildren<Transform>(true);
@@ -1704,8 +1706,9 @@ namespace NOReplay
             if (!_cookFireOn)
             {
                 StartCookoffFire();
-                Plugin.Log?.LogInfo("Fire " + (Track?.Name ?? name)
-                    + " at=" + _fireTimes[due - 1].ToString("0.00"));
+                if (RecordConfig.EnableLogging)
+                    Plugin.Log?.LogInfo("Fire " + (Track?.Name ?? name)
+                        + " at=" + _fireTimes[due - 1].ToString("0.00"));
             }
             bool removed = Track != null && BlastSchedule.RemovalDue(now, Track.RemovedAt);
             if (!removed && _fireCulled)
@@ -1819,6 +1822,7 @@ namespace NOReplay
                     var quiet = new GameObject("NOReplay_FireHold");
                     quiet.SetActive(false);
                     var go = UnityEngine.Object.Instantiate(effect.prefab, quiet.transform);
+                    ReplayPerf.Born(LifeKind.Explosion);
                     var flame = ReadCookFlame(go, part.transform, flags);
                     go.transform.SetParent(part.transform, false);
                     go.transform.localPosition = flame.LocalPos;
@@ -1832,7 +1836,7 @@ namespace NOReplay
                 }
             }
             _scorchStamps.Clear();
-            if (n == 0)
+            if (n == 0 && RecordConfig.EnableLogging)
                 Plugin.Log?.LogInfo("Fire " + (Track?.Name ?? name) + " no prefab");
         }
 
@@ -1907,7 +1911,11 @@ namespace NOReplay
             for (int i = 0; i < _cookFire.Count; i++)
             {
                 var go = _cookFire[i].Go;
-                if (go != null) UnityEngine.Object.Destroy(go);
+                if (go != null)
+                {
+                    ReplayPerf.Died(LifeKind.Explosion);
+                    UnityEngine.Object.Destroy(go);
+                }
             }
             _cookFire.Clear();
         }
@@ -2124,6 +2132,7 @@ namespace NOReplay
                 bool world = string.Equals(space, "World", StringComparison.Ordinal);
                 bool loose = parent == null || (!underDatum && ps.GetComponentInParent<ReplayGhost>() == null);
                 if (!world && !loose) continue;
+                if (!RecordConfig.EnableLogging) continue;
                 string parentName = parent == null ? "null" : parent.name;
                 Plugin.Log?.LogInfo("Smoke origin " + ps.gameObject.name
                     + " parent=" + parentName
@@ -2138,6 +2147,7 @@ namespace NOReplay
         {
             if (_fireCullLogged) return;
             _fireCullLogged = true;
+            if (!RecordConfig.EnableLogging) return;
             bool stop = true;
             for (int i = 0; i < _cookFire.Count; i++)
                 if (!_cookFire[i].StopOnCull && _cookFire[i].Grounded) stop = false;

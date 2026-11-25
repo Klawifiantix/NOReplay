@@ -54,8 +54,9 @@ namespace NOReplay
             _lockHeld = true;
             _lockUnit = target;
             PushLock(target);
-            Plugin.Log?.LogInfo("Lock " + (string.IsNullOrEmpty(Track.Name) ? name : Track.Name)
-                + " -> " + (target != null ? target.unitName : "none"));
+            if (RecordConfig.EnableLogging)
+                Plugin.Log?.LogInfo("Lock " + (string.IsNullOrEmpty(Track.Name) ? name : Track.Name)
+                    + " -> " + (target != null ? target.unitName : "none"));
         }
 
         static void SetAircraftLock(List<Unit>? list, Unit? target)

@@ -87,7 +87,8 @@ namespace NOReplay
             if (_flareFxLog < 8)
             {
                 _flareFxLog++;
-                Log.LogInfo("Flare-FX " + host.name + " dist=" + Mathf.Sqrt(best).ToString("0.0"));
+                if (RecordConfig.EnableLogging)
+                    Log.LogInfo("Flare-FX " + host.name + " dist=" + Mathf.Sqrt(best).ToString("0.0"));
             }
         }
 
@@ -120,6 +121,7 @@ namespace NOReplay
             if (prefab == null) return false;
             Transform launch = points.Count > 0 ? points[_flareSide++ % points.Count] : host.transform;
             var go = UnityEngine.Object.Instantiate(prefab, launch.position, launch.rotation);
+            ReplayPerf.Born(LifeKind.Flare);
             go.name = "NOReplay_Flare";
             var flare = go.GetComponent(FindGameType("IRFlare") ?? typeof(Component));
             if (flare != null && flare.GetType().Name == "IRFlare")
@@ -141,6 +143,7 @@ namespace NOReplay
                     try { method.Invoke(flare, args); } catch { }
                 }
             }
+            ReplayPerf.Died(LifeKind.Flare);
             UnityEngine.Object.Destroy(go, 8f);
             PlayFlareEjectSound(host, launch);
 

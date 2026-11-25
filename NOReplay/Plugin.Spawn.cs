@@ -544,6 +544,9 @@ namespace NOReplay
                 }
                 if (go != null)
                 {
+                    if (IsFlareType(obj.Type, obj.Name)) ReplayPerf.Born(LifeKind.Flare);
+                    else if (IsOrdnance(obj.Type, obj.Name)) ReplayPerf.Born(LifeKind.Missile);
+                    else ReplayPerf.Born(LifeKind.Unit);
                     AddGhost(go);
                     bool mapFallback = !string.IsNullOrEmpty(obj.Map);
                     if (!mapFallback && _ghost == null && !IsOrdnance(obj.Type, obj.Name)) _ghost = go;
@@ -1067,6 +1070,7 @@ namespace NOReplay
 
         static void DumpDefPrefabs(UnityEngine.Object def)
         {
+            if (!RecordConfig.EnableLogging) return;
             if (_dumpedMissileDef) return;
             _dumpedMissileDef = true;
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
@@ -1166,8 +1170,9 @@ namespace NOReplay
                     catch { }
                 }
             }
-            if (go.name.IndexOf("LFD", StringComparison.OrdinalIgnoreCase) >= 0
-                || go.name.IndexOf("Cursor", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (RecordConfig.EnableLogging
+                && (go.name.IndexOf("LFD", StringComparison.OrdinalIgnoreCase) >= 0
+                || go.name.IndexOf("Cursor", StringComparison.OrdinalIgnoreCase) >= 0))
             {
                 Log.LogInfo("KillLaser " + go.name + " found=" + found);
                 var kids = go.GetComponentsInChildren<Transform>(true);
@@ -1585,7 +1590,7 @@ namespace NOReplay
                             if (ps[i].ParameterType != typeof(Transform)) continue;
                             args[i] = anchor.transform;
                         }
-                        if (_launchSig < 2)
+                        if (RecordConfig.EnableLogging && _launchSig < 2)
                         {
                             _launchSig++;
                             var sig = new System.Text.StringBuilder();
@@ -2151,7 +2156,8 @@ namespace NOReplay
             var rg = go.GetComponent<ReplayGhost>();
             if (rg == null) yield break;
             rg.PaintMissingLivery();
-            Log.LogInfo("Livery-SimpleFix " + go.name);
+            if (RecordConfig.EnableLogging)
+                Log.LogInfo("Livery-SimpleFix " + go.name);
         }
 
         static Texture? FindLiveryTexture(GameObject go)

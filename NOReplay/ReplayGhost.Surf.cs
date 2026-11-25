@@ -159,12 +159,13 @@ namespace NOReplay
             if (!_surfLogged)
             {
                 _surfLogged = true;
-                Plugin.Log?.LogInfo("Surf drive " + gameObject.name
-                    + " n=" + _surfs.Length
-                    + " flaps=" + flaps
-                    + " split=" + splits
-                    + " tvc=" + _tvcCount
-                    + " airbrake=" + _brakeCount);
+                if (RecordConfig.EnableLogging)
+                    Plugin.Log?.LogInfo("Surf drive " + gameObject.name
+                        + " n=" + _surfs.Length
+                        + " flaps=" + flaps
+                        + " split=" + splits
+                        + " tvc=" + _tvcCount
+                        + " airbrake=" + _brakeCount);
             }
         }
 
@@ -437,7 +438,7 @@ namespace NOReplay
                 _brakes[i] = b;
             }
             float wall = Time.unscaledTime;
-            if (wall - _surfStateAt >= 5f)
+            if (RecordConfig.EnableLogging && wall - _surfStateAt >= 5f)
             {
                 _surfStateAt = wall;
                 string meshName = mesh0 != null ? mesh0.name : "none";

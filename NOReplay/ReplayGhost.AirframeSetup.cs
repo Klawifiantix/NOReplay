@@ -797,6 +797,7 @@ namespace NOReplay
 
         void DumpFxNames()
         {
+            if (!RecordConfig.EnableLogging) return;
             if (_fxDumpLeft <= 0) return;
             _fxDumpLeft--;
             var names = new System.Collections.Generic.List<string>();

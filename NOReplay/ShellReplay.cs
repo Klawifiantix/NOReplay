@@ -93,7 +93,7 @@ namespace NOReplay
                 slot++;
                 go.transform.position = pos;
                 go.SetActive(true);
-                if (!_shown)
+                if (RecordConfig.EnableLogging && !_shown)
                 {
                     _shown = true;
                     Plugin.Log.LogInfo("Shell fliegt " + o.Id + " @ " + pos + " v=" + speed.ToString("0"));
@@ -101,7 +101,7 @@ namespace NOReplay
                 if (_boomed.Add(o.Id))
                     PulseNear(a);
             }
-            if (!_shown && time > 7f && !_missLogged)
+            if (RecordConfig.EnableLogging && !_shown && time > 7f && !_missLogged)
             {
                 _missLogged = true;
                 Plugin.Log.LogInfo("Shell unsichtbar t=" + time.ToString("0.0") + " listen=" + haveListen + " " + listen);
@@ -210,6 +210,7 @@ namespace NOReplay
         static GameObject MakeTracer()
         {
             var go = new GameObject("NOReplay_Shell");
+            ReplayPerf.Born(LifeKind.Bullet);
             var trail = go.AddComponent<TrailRenderer>();
             trail.time = 0.22f;
             trail.startWidth = 1.6f;
